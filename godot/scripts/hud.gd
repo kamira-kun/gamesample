@@ -7,8 +7,8 @@ var main               # main.gd (untyped so its members resolve at runtime)
 var boss: Enemy = null
 var root := Control.new()
 var overlay := Overlay.new()
-var life_orb := Orb.new()
-var mana_orb := Orb.new()
+var life_orb := OrbGauge.new()
+var mana_orb := OrbGauge.new()
 var slots: Array[SkillSlot] = []
 var xp_bar := Bar.new()
 var info := Label.new()
@@ -94,8 +94,9 @@ func _ready() -> void:
 	bottom.add_theme_constant_override("separation", 14)
 	bottom.alignment = BoxContainer.ALIGNMENT_CENTER
 	root.add_child(bottom)
-	life_orb.fill = Color("#b81a1a")
-	mana_orb.fill = Color("#1f44b8")
+	life_orb.setup(Color("#3c0306"), Color("#e2261c"), Color("#ff7a2a"), -1, 0.0)
+	life_orb.low_pulse = true
+	mana_orb.setup(Color("#040f3e"), Color("#2f6dff"), Color("#7fd4ff"), 1, 17.0)
 	bottom.add_child(life_orb)
 	var center := VBoxContainer.new()
 	center.alignment = BoxContainer.ALIGNMENT_END
@@ -287,8 +288,6 @@ func refresh() -> void:
 		boss_bar.value = maxf(0.0, boss.life / boss.max_life)
 	for sl in slots:
 		sl.queue_redraw()
-	life_orb.queue_redraw()
-	mana_orb.queue_redraw()
 	xp_bar.queue_redraw()
 	boss_bar.queue_redraw()
 	overlay.queue_redraw()
@@ -328,34 +327,6 @@ func show_death() -> void:
 
 
 # ---------- widgets ----------
-class Orb extends Control:
-	var value := 1.0
-	var fill := Color.RED
-	var text := ""
-
-	func _init() -> void:
-		custom_minimum_size = Vector2(118, 118)
-
-	func _draw() -> void:
-		var c := size / 2.0
-		var rad := size.x / 2.0 - 3.0
-		draw_circle(c, rad + 3.0, Color("#6a5434"))
-		draw_circle(c, rad, Color("#0c0808"))
-		# liquid: the part of the circle below the fill line
-		var top := c.y + rad - value * rad * 2.0
-		var pts := PackedVector2Array()
-		for i in 49:
-			var a := float(i) / 48.0 * TAU
-			var p := c + Vector2(cos(a), sin(a)) * rad
-			p.y = maxf(p.y, top)
-			pts.append(p)
-		if value > 0.01:
-			draw_colored_polygon(pts, fill)
-			draw_circle(c + Vector2(-rad * 0.3, -rad * 0.35), rad * 0.35, Color(1, 1, 1, 0.08))
-		draw_string_outline(Data.ui_font, Vector2(0, c.y + 6), text, HORIZONTAL_ALIGNMENT_CENTER, size.x, 15, 4, Color.BLACK)
-		draw_string(Data.ui_font, Vector2(0, c.y + 6), text, HORIZONTAL_ALIGNMENT_CENTER, size.x, 15, Color.WHITE)
-
-
 class Bar extends Control:
 	var value := 0.0
 	var fill := Color.ORANGE
