@@ -33,6 +33,9 @@
       <div id="stats"></div>
     </div>
     <div class="right">
+      <div class="sub">カレンシー <span class="hint2">クラフト用のカレンシーをクリックしてからアイテムをクリック</span></div>
+      <div id="currencyBar"></div>
+      <div id="craftBanner" class="hidden"></div>
       <div class="sub">所持品 <span id="bagCount"></span></div>
       <div id="bag"></div>
       <div class="bulk" id="invBulk"></div>
@@ -77,7 +80,7 @@
 </div>
 
 <div id="shop" class="panel hidden">
-  <div class="phead">商人 <span class="hint">品物クリック：購入　所持品クリック：売却</span><span id="shopGold" class="gold"></span><button data-close>×</button></div>
+  <div class="phead">商人 <span class="hint">品物クリック：購入　所持品クリック：売却</span><span id="shopGold"></span><button data-close>×</button></div>
   <div class="inv-body">
     <div class="left">
       <div class="sub">品揃え（深度が変わると入れ替わります）</div>
@@ -86,6 +89,8 @@
         <button id="buyPotion" class="sbtn"></button>
         <button id="rerollShop" class="sbtn"></button>
       </div>
+      <div class="sub" style="margin-top:14px">カレンシー交換（灰燼の欠片で購入）</div>
+      <div id="shopCurrency"></div>
     </div>
     <div class="right">
       <div class="sub">所持品 <span id="shopBagCount"></span></div>
@@ -101,7 +106,7 @@
   <div id="filterRarity"></div>
   <h3 class="fh">拾う装備の種類 <small>（チェックを外した種類は非表示。レジェンドは常に対象）</small></h3>
   <div id="filterSlots"></div>
-  <p class="fnote">拾う：所持品に入れる　／　拾って売却：拾った瞬間にゴールドに換える<br>非表示：地面に落とさず、ドロップした瞬間に自動で売却する</p>
+  <p class="fnote">拾う：所持品に入れる　／　拾って売却：拾った瞬間に灰燼の欠片に換える<br>非表示：地面に落とさず、ドロップした瞬間に自動で売却する</p>
 </div>
 
 <div id="apassive" class="panel hidden">

@@ -138,6 +138,20 @@ canvas#game { position: fixed; inset: 0; display: block; cursor: crosshair; }
   font-family: inherit; font-size: 13px; }
 .bulk .sbtn { flex: 1; }
 .filterbtn { width: 100%; margin-top: 8px; }
+.hint2 { font-size: 11px; color: #7a6e5a; }
+#currencyBar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-bottom: 8px; width: 316px; }
+.curcell { display: flex; align-items: center; gap: 5px; padding: 4px 6px; border: 1px solid #3a3024; border-radius: 4px;
+  background: #0c0a08; font-size: 12px; }
+.curcell .ci { font-size: 15px; width: 16px; text-align: center; }
+.curcell b { margin-left: auto; font-weight: normal; color: #e8dcc4; }
+.curcell.craft { cursor: pointer; }
+.curcell.craft:hover { border-color: #a08040; }
+.curcell.active { border-color: #ffd36a; background: #2a1e0c; box-shadow: 0 0 8px rgba(255,200,90,.4); }
+.curcell.empty { opacity: .45; }
+#craftBanner { font-size: 12px; color: #ffd36a; background: #2a1e0c; border: 1px solid #8a6a3a; border-radius: 4px; padding: 5px 8px; margin-bottom: 8px; width: 316px; }
+.panel.crafting .slot.item { cursor: copy; }
+#shopCurrency { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; width: 272px; }
+#shopCurrency .sbtn { font-size: 12px; padding: 5px 6px; text-align: left; }
 #apassive { width: min(820px, 96vw); }
 .ap-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 #apPoints { font-size: 15px; color: #e8dcc4; } #apPoints b { color: #8fd18f; font-size: 20px; }

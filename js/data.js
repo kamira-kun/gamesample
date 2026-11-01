@@ -7,6 +7,20 @@ const RARITY = [
   { name: 'レジェンド', color: '#ff7b1c', aff: [3, 4], w: 1.6 },
 ];
 
+// ---- currencies: ember shards are spent with the merchant; the rest craft items ----
+const CURRENCIES = [
+  { k: 'ember', name: '灰燼の欠片', icon: '◆', color: '#ffb35a', desc: '商人との取引やパッシブの振り直しに使う基本通貨。' },
+  { k: 'transmute', name: '変容の結晶', icon: '✦', color: '#6aa8ff', w: 40, value: 5, desc: 'ノーマルアイテムをマジックに変える。' },
+  { k: 'ascend', name: '昇華の焔', icon: '▲', color: '#ffd23f', w: 12, value: 20, desc: 'マジックアイテムをレアに変える。' },
+  { k: 'chaos', name: '混沌の残光', icon: '✺', color: '#c070ff', w: 14, value: 25, desc: 'マジック・レアのオプションをすべて作り直す。' },
+  { k: 'whet', name: '鍛錬の砥石', icon: '◈', color: '#9ad0a0', w: 16, value: 15, desc: 'マジック・レアにオプションを1つ追加する。' },
+  { k: 'purify', name: '浄化の雫', icon: '◯', color: '#d8e8f0', w: 12, value: 8, desc: 'オプションをすべて消してノーマルに戻す。' },
+  { k: 'divine', name: '神秘の核', icon: '✷', color: '#ff8a2c', w: 3, value: 80, desc: 'オプションの数値だけを振り直す。レジェンドにも使える。' },
+  { k: 'compass', name: '羅針の欠片', icon: '✧', color: '#7fd4ff', w: 10, value: 12, desc: '遠征図でマップ効果を振り直す。' },
+];
+const CUR_BY_KEY = Object.fromEntries(CURRENCIES.map(c => [c.k, c]));
+const DROP_CURRENCIES = CURRENCIES.filter(c => c.w);
+
 const SLOTS = ['weapon', 'helm', 'armor', 'gloves', 'boots', 'ring', 'amulet'];
 const SLOT_INFO = {
   weapon: { name: '武器', glyph: '剣' }, helm: { name: '兜', glyph: '兜' }, armor: { name: '鎧', glyph: '鎧' },

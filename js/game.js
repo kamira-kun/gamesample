@@ -2,7 +2,7 @@
 const G = {
   state: 'title', floor: 1, time: 0, shake: 0, cam: { x: 0, y: 0 },
   enemies: [], projs: [], eprojs: [], particles: [], texts: [], effects: [], hazards: [], tele: [], storms: [],
-  ground: [], golds: [], portal: null, boss: null, flowT: 0, merchant: null, shop: null,
+  ground: [], drops: [], portal: null, boss: null, flowT: 0, merchant: null, shop: null,
 };
 const BAG_SIZE = 30;
 const xpNeed = l => Math.round(25 * Math.pow(l, 1.7) + 20);
@@ -15,7 +15,7 @@ class Player {
     this.talents = Object.fromEntries(TALENTS.map(t => [t.k, 0]));
     this.equip = {}; this.bag = []; this.slots = [...DEFAULT_SLOTS];
     this.filter = defaultFilter();
-    this.gold = 0; this.potions = 3; this.potionProg = 0;
+    this.cur = Object.fromEntries(CURRENCIES.map(c => [c.k, 0])); this.potions = 3; this.potionProg = 0;
     this.cds = {}; this.actionT = 0; this.swingT = 0; this.aim = 0;
     this.invuln = 0; this.hitFlash = 0; this.walkT = 0; this.dash = null; this.dead = false;
     this.equip.weapon = genItem(1, 0, 0, 'weapon');
@@ -181,8 +181,11 @@ function killEnemy(e) {
   for (let i = 0; i < drops; i++) dropItem(genItem(ilvl, boost, e.boss && i === 0 ? (Math.random() < 0.35 + fx.legend ? 3 : 2) : null), e.x, e.y);
   if (Math.random() < (e.elite || e.boss ? 1 : 0.25)) {
     const n = e.boss ? 6 : e.elite ? 3 : 1;
-    for (let i = 0; i < n; i++) G.golds.push({ x: e.x + rand(-30, 30), y: e.y + rand(-30, 30), amt: Math.round(rand(2, 6) * G.floor * (e.elite ? 2 : 1) * fx.gold) });
+    for (let i = 0; i < n; i++) dropCurrency('ember', Math.round(rand(2, 6) * G.floor * (e.elite ? 2 : 1) * fx.gold), e.x, e.y);
   }
+  // crafting currencies
+  let cn = e.boss ? randi(3, 5) : e.elite ? (Math.random() < 0.5 ? randi(1, 2) : 0) : Math.random() < 0.035 * fx.quantity ? 1 : 0;
+  for (let i = 0; i < cn; i++) dropCurrency(weighted(DROP_CURRENCIES).k, 1, e.x, e.y);
 
   if (e.elite && e.elite.k === 'volatile') {
     addTele(e.x, e.y, 90, 0.8, true, () => {
@@ -196,6 +199,20 @@ function killEnemy(e) {
     showMsg(`${e.name}を討伐した！ ポータルが開いた`, '#ff9a4a');
     UI.setBoss(null);
   }
+}
+
+// ---- currency ----
+function dropCurrency(k, n, x, y) {
+  if (n <= 0) return;
+  const a = rand(0, TAU), d = rand(8, 40);
+  let cx = x + Math.cos(a) * d, cy = y + Math.sin(a) * d;
+  if (G.map.solidAt(cx, cy)) { cx = x; cy = y; }
+  G.drops.push({ x: cx, y: cy, k, n, t: 0 });
+}
+function gainCurrency(k, n) {
+  const p = G.player;
+  p.cur[k] = (p.cur[k] || 0) + n;
+  if (k !== 'ember') showMsg(`${CUR_BY_KEY[k].name} を拾った`, CUR_BY_KEY[k].color);
 }
 
 // ---- item filter ----
@@ -214,17 +231,16 @@ const isHidden = it => itemAction(it) === 'hide';
 
 function collectNearbyLoot(radius) {
   const p = G.player;
-  let n = 0, gold = 0;
-  for (const g of G.golds) if (dist2(g.x, g.y, p.x, p.y) < radius * radius) { g.dead = true; gold += g.amt; }
+  let n = 0, cur = 0;
+  for (const g of G.drops) if (dist2(g.x, g.y, p.x, p.y) < radius * radius) { g.dead = true; gainCurrency(g.k, g.n); cur++; }
   for (const g of G.ground) {
     if (isHidden(g.item) || dist2(g.x, g.y, p.x, p.y) > radius * radius) continue;
     if (!pickupItem(g.item, g.x, g.y, false, true)) continue;
     g.dead = true; n++;
   }
-  p.gold += gold;
-  G.golds = G.golds.filter(g => !g.dead);
+  G.drops = G.drops.filter(g => !g.dead);
   G.ground = G.ground.filter(g => !g.dead);
-  if (n || gold) showMsg(`ポータル周辺のアイテム ${n} 点${gold ? `と ${gold} ゴールド` : ''}を回収した`, '#ffd36a');
+  if (n || cur) showMsg(`ポータル周辺のアイテム ${n} 点とカレンシー ${cur} 個を回収した`, '#ffd36a');
   const left = G.ground.filter(g => !isHidden(g.item) && dist2(g.x, g.y, p.x, p.y) < radius * radius).length;
   if (left) showMsg(`インベントリが一杯で ${left} 点を拾えなかった`, '#ff8080');
 }
@@ -233,7 +249,7 @@ function pickupItem(it, x, y, byPet = false, quiet = false) {
   const p = G.player;
   if (willAutoSell(it)) {
     const g = sellPrice(it);
-    p.gold += g;
+    p.cur.ember += g;
     addText(x, y - 20, `自動売却 +${g}`, '#ffcf3a', 13);
     return true;
   }
@@ -247,7 +263,7 @@ function pickupItem(it, x, y, byPet = false, quiet = false) {
 // hidden items never touch the ground: they're sold the moment they drop
 function sellHidden(it, x, y) {
   const g = sellPrice(it);
-  G.player.gold += g;
+  G.player.cur.ember += g;
   addText(x, y - 10, `+${g}`, '#b8a060', 11);
 }
 function sellHiddenGround() {
@@ -706,7 +722,7 @@ function separateEnemies() {
 
 // =================== floor setup ===================
 function spawnFloor() {
-  Object.assign(G, { enemies: [], projs: [], eprojs: [], particles: [], texts: [], effects: [], hazards: [], tele: [], storms: [], ground: [], golds: [], portal: null, boss: null });
+  Object.assign(G, { enemies: [], projs: [], eprojs: [], particles: [], texts: [], effects: [], hazards: [], tele: [], storms: [], ground: [], drops: [], portal: null, boss: null });
   G.area = G.area || ATLAS_NODES[0];
   G.modFx = G.modFx || modEffects([]);
   G.map = new Dungeon(72, 72, G.floor);
@@ -780,7 +796,7 @@ function updatePet(dt) {
     pet.scanT = 0.3;
     const bagFull = p.bag.length >= BAG_SIZE;
     let best = null, bd = Infinity;
-    for (const g of [...G.golds, ...G.ground.filter(g => !isHidden(g.item) && (!bagFull || willAutoSell(g.item)))]) {
+    for (const g of [...G.drops, ...G.ground.filter(g => !isHidden(g.item) && (!bagFull || willAutoSell(g.item)))]) {
       if (pet.ignore.has(g) || dist2(g.x, g.y, p.x, p.y) > (380 * (1 + apVal('fox') / 100)) ** 2) continue;
       const d = dist2(g.x, g.y, pet.x, pet.y) * (g.item ? 1 : 0.6);
       if (d < bd && G.map.los(pet.x, pet.y, g.x, g.y)) { bd = d; best = g; }
@@ -815,7 +831,7 @@ function updatePet(dt) {
   if (g && dist2(g.x, g.y, pet.x, pet.y) < 16 * 16) {
     if (g.item) {
       if (!pickupItem(g.item, pet.x, pet.y, true)) { pet.target = null; return; }
-    } else p.gold += g.amt;
+    } else gainCurrency(g.k, g.n);
     g.dead = true; pet.target = null;
     burst(pet.x, pet.y, 8, '#ffe8a0', 90, true);
   }
@@ -932,12 +948,12 @@ function updateWorld(dt) {
       }
     }
     G.ground = G.ground.filter(g => !g.dead);
-    for (const g of G.golds) {
+    for (const g of G.drops) {
       const d2 = dist2(g.x, g.y, p.x, p.y);
       if (d2 < 110 * 110) { const d = Math.sqrt(d2) || 1; g.x += (p.x - g.x) / d * 400 * dt; g.y += (p.y - g.y) / d * 400 * dt; }
-      if (d2 < 20 * 20) { g.dead = true; p.gold += g.amt; }
+      if (d2 < 20 * 20) { g.dead = true; gainCurrency(g.k, g.n); }
     }
-    G.golds = G.golds.filter(g => !g.dead);
+    G.drops = G.drops.filter(g => !g.dead);
   }
 
   if (G.portal) {
@@ -957,7 +973,7 @@ function saveGame() {
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
       floor: G.floor, level: p.level, xp: p.xp, talentPts: p.talentPts, talents: p.talents,
-      equip: p.equip, bag: p.bag, gold: p.gold, potions: p.potions, slots: p.slots, shop: G.shop, filter: p.filter, atlas: G.atlas,
+      equip: p.equip, bag: p.bag, cur: p.cur, potions: p.potions, slots: p.slots, shop: G.shop, filter: p.filter, atlas: G.atlas,
     }));
   } catch (e) { /* storage unavailable */ }
 }
@@ -966,7 +982,9 @@ function loadSave() {
 }
 function applySave(d) {
   const p = new Player();
-  Object.assign(p, { level: d.level, xp: d.xp, talentPts: d.talentPts, equip: d.equip, bag: d.bag, gold: d.gold, potions: d.potions });
+  Object.assign(p, { level: d.level, xp: d.xp, talentPts: d.talentPts, equip: d.equip, bag: d.bag, potions: d.potions });
+  p.cur = { ...p.cur, ...(d.cur || {}) };
+  if (!d.cur && d.gold) p.cur.ember = d.gold; // gold from older saves becomes ember shards
   p.talents = { ...p.talents, ...d.talents };
   if (Array.isArray(d.slots) && d.slots.length === SKILL_SLOTS.length && d.slots.every(id => SKILLS[id])) p.slots = d.slots;
   if (d.filter && Array.isArray(d.filter.rarity)) p.filter = { rarity: d.filter.rarity, slots: { ...defaultFilter().slots, ...d.filter.slots } };

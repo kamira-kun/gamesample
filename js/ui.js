@@ -9,14 +9,14 @@ const UI = {
     addEventListener('mousemove', e => this.moveTip(e));
     $('buyPotion').addEventListener('click', () => {
       const p = G.player, cost = potionPrice();
-      if (p.gold < cost || p.potions >= maxPotions()) return;
-      p.gold -= cost; p.potions++;
+      if (p.cur.ember < cost || p.potions >= maxPotions()) return;
+      p.cur.ember -= cost; p.potions++;
       this.refresh();
     });
     $('rerollShop').addEventListener('click', () => {
       const p = G.player, cost = rerollPrice();
-      if (p.gold < cost) return;
-      p.gold -= cost; G.shop = genShop();
+      if (p.cur.ember < cost) return;
+      p.cur.ember -= cost; G.shop = genShop();
       this.refresh();
     });
     this.initPortrait();
@@ -27,6 +27,7 @@ const UI = {
   toggle(name) {
     for (const n of ['inventory', 'talents', 'status', 'skills', 'shop', 'filter', 'apassive', 'pause']) $(n).classList.toggle('hidden', n !== name || this.open === name);
     this.open = this.open === name ? null : name;
+    this.craftKey = null;
     this.hideTip();
     Input.mdown = [false, false, false];
     this.refresh();
@@ -47,7 +48,7 @@ const UI = {
       if (se.last !== v) { se.last = v; se.cd.style.background = `conic-gradient(rgba(0,0,0,.72) ${v}turn, transparent 0)`; }
       se.el.classList.toggle('oom', p.mana < sk.mana);
     }
-    const info = `${G.area ? G.area.name : ''} エリアLv ${G.floor}　Lv ${p.level}　<span class="gold">● ${p.gold}</span>`;
+    const info = `${G.area ? G.area.name : ''} エリアLv ${G.floor}　Lv ${p.level}　<span class="gold">◆ ${p.cur.ember}</span>`;
     if (this.lastInfo !== info) { this.lastInfo = info; $('topinfo').innerHTML = info; }
     const pot = `回復薬 <b>${p.potions}</b> <small>[F]</small>`;
     if (this.lastPot !== pot) { this.lastPot = pot; $('potion').innerHTML = pot; }
@@ -135,7 +136,7 @@ const UI = {
 
   renderShop() {
     const p = G.player;
-    $('shopGold').textContent = `● ${p.gold}`;
+    $('shopGold').textContent = `◆ ${p.cur.ember}`;
     const stock = $('shopStock');
     stock.innerHTML = '';
     for (const it of G.shop.items) {
@@ -143,38 +144,54 @@ const UI = {
       const wrap = document.createElement('div');
       wrap.className = 'stockitem';
       const el = this.itemEl(it, () => {
-        if (p.gold < cost) return showMsg('ゴールドが足りない', '#ff8080');
+        if (p.cur.ember < cost) return showMsg('灰燼の欠片が足りない', '#ff8080');
         if (p.bag.length >= BAG_SIZE) return showMsg('インベントリが一杯です', '#ff8080');
-        p.gold -= cost;
+        p.cur.ember -= cost;
         G.shop.items.splice(G.shop.items.indexOf(it), 1);
         p.bag.push(it);
-        showMsg(`${it.name} を購入（${cost} ゴールド）`, RARITY[it.rarity].color);
+        showMsg(`${it.name} を購入（${cost} 灰燼の欠片）`, RARITY[it.rarity].color);
         this.hideTip(); this.refresh();
       });
-      el.addEventListener('mouseenter', ev => this.showTip(ev, [...this.itemTip(it, true), { sep: true }, { t: `価格 ${cost} ゴールド`, c: '#ffcf3a' }]));
+      el.addEventListener('mouseenter', ev => this.showTip(ev, [...this.itemTip(it, true), { sep: true }, { t: `価格 ${cost} 灰燼の欠片`, c: '#ffcf3a' }]));
       wrap.appendChild(el);
       const price = document.createElement('div');
-      price.className = 'price' + (p.gold < cost ? ' no' : '');
-      price.textContent = `● ${cost}`;
+      price.className = 'price' + (p.cur.ember < cost ? ' no' : '');
+      price.textContent = `◆ ${cost}`;
       wrap.appendChild(price);
       stock.appendChild(wrap);
     }
     const pp = potionPrice(), rp = rerollPrice();
-    $('buyPotion').textContent = `回復薬を買う（● ${pp}）　所持 ${p.potions}/${maxPotions()}`;
-    $('buyPotion').disabled = p.gold < pp || p.potions >= maxPotions();
-    $('rerollShop').textContent = `品揃えを入れ替える（● ${rp}）`;
-    $('rerollShop').disabled = p.gold < rp;
+    $('buyPotion').textContent = `回復薬を買う（◆ ${pp}）　所持 ${p.potions}/${maxPotions()}`;
+    $('buyPotion').disabled = p.cur.ember < pp || p.potions >= maxPotions();
+    $('rerollShop').textContent = `品揃えを入れ替える（◆ ${rp}）`;
+    $('rerollShop').disabled = p.cur.ember < rp;
     const bag = $('shopBag');
     bag.innerHTML = '';
     for (let i = 0; i < BAG_SIZE; i++) {
       const it = p.bag[i];
       if (!it) { const e = document.createElement('div'); e.className = 'slot empty'; bag.appendChild(e); continue; }
       const el = this.itemEl(it, () => this.sellItem(it));
-      el.addEventListener('mouseenter', ev => this.showTip(ev, [...this.itemTip(it), { sep: true }, { t: `売却額 ${sellPrice(it)} ゴールド`, c: '#ffcf3a' }]));
+      el.addEventListener('mouseenter', ev => this.showTip(ev, [...this.itemTip(it), { sep: true }, { t: `売却額 ${sellPrice(it)} 灰燼の欠片`, c: '#ffcf3a' }]));
       bag.appendChild(el);
     }
     $('shopBagCount').textContent = `${p.bag.length} / ${BAG_SIZE}`;
     this.renderBulk($('shopBulk'));
+    const ex = $('shopCurrency');
+    ex.innerHTML = '';
+    for (const c of DROP_CURRENCIES) {
+      const cost = currencyPrice(c), b = document.createElement('button');
+      b.className = 'sbtn';
+      b.disabled = p.cur.ember < cost;
+      b.innerHTML = `<span style="color:${c.color}">${c.icon}</span> ${c.name} <span style="float:right;color:#ffb35a">◆${cost}</span>`;
+      b.addEventListener('mouseenter', ev => this.showTip(ev, [{ t: c.name, c: c.color, big: true }, { t: c.desc, c: '#ddd' }, { t: `所持数 ${p.cur[c.k]}`, c: '#9a9080' }]));
+      b.addEventListener('mouseleave', () => this.hideTip());
+      b.addEventListener('click', () => {
+        if (p.cur.ember < cost) return;
+        p.cur.ember -= cost; p.cur[c.k]++;
+        this.refresh();
+      });
+      ex.appendChild(b);
+    }
   },
 
   bulkRarity: 0,
@@ -184,7 +201,7 @@ const UI = {
     const total = items.reduce((s, it) => s + sellPrice(it), 0);
     el.innerHTML = `<select>${RARITY.map((r, i) =>
       `<option value="${i}" style="color:${r.color}"${i === max ? ' selected' : ''}>${r.name}以下</option>`).join('')}</select>
-      <button class="sbtn"${items.length ? '' : ' disabled'}>一括売却（${items.length}点 / ● ${total}）</button>`;
+      <button class="sbtn"${items.length ? '' : ' disabled'}>一括売却（${items.length}点 / ◆ ${total}）</button>`;
     const sel = el.querySelector('select');
     sel.style.color = RARITY[max].color;
     sel.addEventListener('change', () => { this.bulkRarity = +sel.value; this.refresh(); });
@@ -192,8 +209,8 @@ const UI = {
       if (!items.length) return;
       if (items.some(it => it.rarity === 3) && !confirm(`レジェンドを含む ${items.length} 点を売却します。よろしいですか？`)) return;
       p.bag = p.bag.filter(it => it.rarity > max);
-      p.gold += total;
-      showMsg(`${RARITY[max].name}以下の ${items.length} 点を売却（${total} ゴールド）`, '#ffcf3a');
+      p.cur.ember += total;
+      showMsg(`${RARITY[max].name}以下の ${items.length} 点を売却（${total} 灰燼の欠片）`, '#ffcf3a');
       this.hideTip(); this.refresh();
     });
   },
@@ -227,11 +244,11 @@ const UI = {
     const p = G.player, free = apFree(), rp = apResetPrice();
     $('apPoints').innerHTML = `残りポイント <b>${free}</b>　／　獲得合計 ${apTotal()}`;
     const reset = $('apReset');
-    reset.textContent = `振り直す（● ${rp}）`;
-    reset.disabled = !apSpent() || p.gold < rp;
+    reset.textContent = `振り直す（◆ ${rp}）`;
+    reset.disabled = !apSpent() || p.cur.ember < rp;
     reset.onclick = () => {
-      if (!apSpent() || p.gold < rp || !confirm('アトラスパッシブをすべて振り直しますか？')) return;
-      p.gold -= rp; G.atlas.passives = {};
+      if (!apSpent() || p.cur.ember < rp || !confirm('アトラスパッシブをすべて振り直しますか？')) return;
+      p.cur.ember -= rp; G.atlas.passives = {};
       p.recalc(); saveGame(); this.refresh();
     };
     const tree = $('apTree');
@@ -269,8 +286,8 @@ const UI = {
   sellItem(it) {
     const p = G.player, g = sellPrice(it);
     p.bag.splice(p.bag.indexOf(it), 1);
-    p.gold += g;
-    showMsg(`${it.name} を売却（${g} ゴールド）`, '#ffcf3a');
+    p.cur.ember += g;
+    showMsg(`${it.name} を売却（${g} 灰燼の欠片）`, '#ffcf3a');
     this.hideTip(); this.refresh();
   },
 
@@ -294,7 +311,7 @@ const UI = {
     $('charXpText').textContent = `経験値 ${p.xp} / ${xpNeed(p.level)}`;
     $('charRes').innerHTML = `<div style="color:#ff7a6a">ライフ<b>${Math.ceil(p.life)}/${Math.round(s.maxLife)}</b></div>
       <div style="color:#7aa8ff">マナ<b>${Math.floor(p.mana)}/${Math.round(s.maxMana)}</b></div>
-      <div style="color:#ffcf3a">ゴールド<b>${p.gold}</b></div>`;
+      <div style="color:#ffb35a">灰燼の欠片<b>${p.cur.ember}</b></div>`;
     const rows = this.statRows();
     $('charStats').innerHTML = '<div class="grp">攻撃</div>' + rows.slice(0, 7).map(row).join('') +
       '<div class="grp">防御・その他</div>' + rows.slice(7).map(row).join('') +
@@ -369,9 +386,57 @@ const UI = {
     el.textContent = SLOT_INFO[it.slot].glyph;
     el.addEventListener('mouseenter', ev => this.showTip(ev, this.itemTip(it)));
     el.addEventListener('mouseleave', () => this.hideTip());
-    el.addEventListener('click', onClick);
-    if (onRight) el.addEventListener('contextmenu', e => { e.preventDefault(); onRight(); });
+    el.addEventListener('click', ev => {
+      if (this.craftKey && this.open === 'inventory') this.applyCraft(it, ev);
+      else onClick(ev);
+    });
+    el.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      if (this.craftKey) { this.craftKey = null; this.refresh(); }
+      else if (onRight) onRight();
+    });
     return el;
+  },
+
+  // ---- crafting ----
+  craftKey: null,
+  renderCurrencyBar() {
+    const p = G.player, bar = $('currencyBar');
+    bar.innerHTML = '';
+    for (const c of CURRENCIES) {
+      const n = p.cur[c.k] || 0, craft = !!CRAFT[c.k];
+      const el = document.createElement('div');
+      el.className = 'curcell' + (craft ? ' craft' : '') + (this.craftKey === c.k ? ' active' : '') + (n ? '' : ' empty');
+      el.innerHTML = `<span class="ci" style="color:${c.color}">${c.icon}</span><b>${n}</b>`;
+      el.addEventListener('mouseenter', ev => this.showTip(ev, [{ t: c.name, c: c.color, big: true }, { t: c.desc, c: '#ddd' }, { t: `所持数 ${n}`, c: '#9a9080' },
+        ...(craft ? [{ t: 'クリックで使用 → 対象アイテムをクリック', c: '#8fb4ff' }] : [])]));
+      el.addEventListener('mouseleave', () => this.hideTip());
+      if (craft) el.addEventListener('click', () => {
+        if (!n) return showMsg(`${c.name}を持っていない`, '#ff8080');
+        this.craftKey = this.craftKey === c.k ? null : c.k;
+        this.refresh();
+      });
+      bar.appendChild(el);
+    }
+    const banner = $('craftBanner');
+    banner.classList.toggle('hidden', !this.craftKey);
+    $('inventory').classList.toggle('crafting', !!this.craftKey);
+    if (this.craftKey) {
+      const c = CUR_BY_KEY[this.craftKey];
+      banner.innerHTML = `<span style="color:${c.color}">${c.icon} ${c.name}</span> を使用中（残り ${p.cur[c.k]}）：アイテムをクリック。右クリックで解除`;
+    }
+  },
+  applyCraft(it, ev) {
+    const p = G.player, k = this.craftKey, c = CUR_BY_KEY[k];
+    if (!p.cur[k]) { this.craftKey = null; this.refresh(); return; }
+    const err = CRAFT[k](it);
+    if (err) { showMsg(err, '#ff8080'); return; }
+    p.cur[k]--;
+    burstUI(ev, c.color);
+    if (Object.values(p.equip).includes(it)) p.recalc();
+    if (!p.cur[k]) this.craftKey = null;
+    this.refresh();
+    this.showTip(ev, this.itemTip(it));
   },
 
   itemTip(it, compare = G.player.bag.includes(it)) {
@@ -415,6 +480,7 @@ const UI = {
     $('stats').innerHTML = this.statRows().map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
     $('bagCount').textContent = `${p.bag.length} / ${BAG_SIZE}`;
     this.renderBulk($('invBulk'));
+    this.renderCurrencyBar();
   },
 
   renderTalents() {
@@ -460,6 +526,18 @@ const UI = {
     $('death').classList.remove('hidden');
   },
 };
+
+// a small sparkle where a currency was applied
+function burstUI(ev, color) {
+  for (let i = 0; i < 10; i++) {
+    const s = document.createElement('div'), a = Math.random() * TAU, d = 20 + Math.random() * 25;
+    s.style.cssText = `position:fixed;z-index:60;left:${ev.clientX}px;top:${ev.clientY}px;width:5px;height:5px;border-radius:50%;
+      background:${color};box-shadow:0 0 6px ${color};pointer-events:none;transition:transform .45s ease-out,opacity .45s;`;
+    document.body.appendChild(s);
+    requestAnimationFrame(() => { s.style.transform = `translate(${Math.cos(a) * d}px,${Math.sin(a) * d}px)`; s.style.opacity = '0'; });
+    setTimeout(() => s.remove(), 500);
+  }
+}
 
 function showMsg(text, color = '#eee') {
   const box = $('messages');

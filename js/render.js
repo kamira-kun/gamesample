@@ -108,9 +108,12 @@ function render(dt) {
     ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5; ctx.strokeRect(-6, -6, 12, 12);
     ctx.restore();
   }
-  for (const g of G.golds) {
-    ctx.fillStyle = '#ffcf3a'; ctx.beginPath(); ctx.arc(g.x, g.y, 4, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#fff6b0'; ctx.fillRect(g.x - 1, g.y - 2, 2, 2);
+  for (const g of G.drops) {
+    const c = CUR_BY_KEY[g.k], s = g.k === 'ember' ? 4 : 6;
+    ctx.save(); ctx.translate(g.x, g.y); ctx.rotate(Math.PI / 4 + (g.k === 'ember' ? 0 : G.time * 2));
+    ctx.fillStyle = c.color; ctx.fillRect(-s / 2, -s / 2, s, s);
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1; ctx.strokeRect(-s / 2, -s / 2, s, s);
+    ctx.restore();
   }
 
   // entities sorted by y
@@ -164,6 +167,7 @@ function render(dt) {
   if (G.pet) lights.push([G.pet.x, G.pet.y, 110, 0.6]);
   for (const st of G.storms) lights.push([st.x, st.y, st.r * 1.3, 0.5]);
   for (const g of G.ground) if (g.item.rarity >= 2) lights.push([g.x, g.y, 60, 0.4]);
+  for (const g of G.drops) if (g.k !== 'ember') lights.push([g.x, g.y, 50, 0.4]);
   for (const [lx, ly, lr, li] of lights) {
     const sx = lx - ox, sy = ly - oy;
     if (sx < -lr || sy < -lr || sx > W + lr || sy > H + lr) continue;
@@ -235,6 +239,12 @@ function render(dt) {
     if (near) { ctx.font = '11px sans-serif'; ctx.fillStyle = '#e8dcc4'; ctx.fillText('クリック / B で取引', mer.x, mer.y - 20 - 28); }
   }
   ctx.font = '12px sans-serif';
+  for (const g of G.drops) {
+    if (g.k === 'ember' || dist2(g.x, g.y, p.x, p.y) > 520 * 520) continue;
+    const c = CUR_BY_KEY[g.k], label = `${c.icon} ${c.name}`, w = ctx.measureText(label).width + 10;
+    ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillRect(g.x - w / 2, g.y - 28, w, 17);
+    ctx.fillStyle = c.color; ctx.fillText(label, g.x, g.y - 15);
+  }
   for (const g of G.ground) {
     const d = dist(g.x, g.y, p.x, p.y);
     if (d > 520 || (g.item.rarity === 0 && d > 200)) continue;
