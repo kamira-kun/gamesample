@@ -22,6 +22,7 @@ var hurt := ColorRect.new()
 var inventory := InventoryUI.new()
 var shop_ui := ShopUI.new()
 var atlas_ui := AtlasUI.new()
+var skill_ui := SkillUI.new()
 var tip := PanelContainer.new()
 var tip_box := VBoxContainer.new()
 
@@ -93,9 +94,9 @@ func _ready() -> void:
 	var bar := HBoxContainer.new()
 	bar.add_theme_constant_override("separation", 6)
 	center.add_child(bar)
-	for id in Data.SKILL_ORDER:
+	for i in Data.SLOT_KEYS.size():
 		var sl := SkillSlot.new()
-		sl.id = id
+		sl.index = i
 		sl.hud = self
 		bar.add_child(sl)
 		slots.append(sl)
@@ -110,6 +111,8 @@ func _ready() -> void:
 	root.add_child(shop_ui)
 	atlas_ui.hud = self
 	root.add_child(atlas_ui)
+	skill_ui.hud = self
+	root.add_child(skill_ui)
 	var tsb := StyleBoxFlat.new()
 	tsb.bg_color = Color(0.03, 0.024, 0.016, 0.97)
 	tsb.border_color = Color("#7a6040")
@@ -169,11 +172,11 @@ static func panel_box() -> StyleBoxFlat:
 
 
 func blocking() -> bool:
-	return death.visible or inventory.visible or shop_ui.visible or atlas_ui.visible
+	return death.visible or inventory.visible or shop_ui.visible or atlas_ui.visible or skill_ui.visible
 
 
 func close_panels() -> void:
-	for pnl in [inventory, shop_ui, atlas_ui]:
+	for pnl in [inventory, shop_ui, atlas_ui, skill_ui]:
 		if pnl.visible:
 			pnl.open_close()
 
@@ -311,25 +314,36 @@ class Bar extends Control:
 
 
 class SkillSlot extends Control:
-	var id := ""
+	var index := 0
 	var hud: Hud
 
 	func _init() -> void:
 		custom_minimum_size = Vector2(58, 58)
-		mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+	func _ready() -> void:
+		mouse_entered.connect(func(): hud.show_tip(hud.skill_ui.skill_tip(hud.main.player.slots[index], index)))
+		mouse_exited.connect(func(): hud.hide_tip())
+
+	func _gui_input(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+			hud.hide_tip()
+			hud.skill_ui.open_slot(index)
+			accept_event()
 
 	func _draw() -> void:
-		var sk: Dictionary = Data.SKILLS[id]
 		var p: Player = hud.main.player
+		var id: String = p.slots[index]
+		var sk: Dictionary = Data.SKILLS[id]
+		var cost: int = hud.main.slot_cost(index)
 		var col: Color = sk.color
 		var rect := Rect2(Vector2.ZERO, size)
 		draw_rect(rect, Color("#0c0a08"))
 		draw_circle(size / 2.0, size.x * 0.42, col.darkened(0.6))
-		var font_col := col if p.mana >= sk.mana else col.darkened(0.6)
+		var font_col := col if p.mana >= cost else col.darkened(0.6)
 		draw_string(Data.ui_font, Vector2(0, size.y * 0.66), sk.icon, HORIZONTAL_ALIGNMENT_CENTER, size.x, 28, font_col)
 		var left: float = p.cds.get(id, 0.0)
-		if left > 0.0 and sk.cd > 0.0:
-			var k: float = left / sk.cd
+		if left > 0.0:
+			var k: float = clampf(left / maxf(sk.cd, 1.5), 0.0, 1.0)
 			var pts := PackedVector2Array([size / 2.0])
 			for i in 33:
 				var a := -PI / 2.0 + k * TAU * float(i) / 32.0
@@ -337,10 +351,15 @@ class SkillSlot extends Control:
 				pts.append(q.clamp(Vector2.ZERO, size))   # keep the pie inside the square slot
 			draw_colored_polygon(pts, Color(0, 0, 0, 0.7))
 		draw_rect(rect, Color("#6a5a44"), false, 1.5)
-		draw_string_outline(Data.ui_font, Vector2(3, size.y - 4), sk.key, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, 3, Color.BLACK)
-		draw_string(Data.ui_font, Vector2(3, size.y - 4), sk.key, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("#dddddd"))
-		if sk.mana > 0:
-			draw_string(Data.ui_font, Vector2(0, 13), str(sk.mana), HORIZONTAL_ALIGNMENT_RIGHT, size.x - 3, 11, Color("#8fb4ff"))
+		var key: String = Data.SLOT_KEYS[index].short
+		draw_string_outline(Data.ui_font, Vector2(3, size.y - 4), key, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, 3, Color.BLACK)
+		draw_string(Data.ui_font, Vector2(3, size.y - 4), key, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("#dddddd"))
+		if cost > 0:
+			draw_string(Data.ui_font, Vector2(0, 13), str(cost), HORIZONTAL_ALIGNMENT_RIGHT, size.x - 3, 11, Color("#8fb4ff"))
+		# one pip per support gem that applies to this slot
+		var ids: Array = hud.main.slot_sup(index).ids
+		for j in ids.size():
+			draw_rect(Rect2(3 + j * 8, 3, 6, 6), Data.support(ids[j]).color)
 
 
 ## draws health bars, elite names and floating numbers by projecting 3D positions
@@ -379,7 +398,7 @@ class Overlay extends Control:
 			if dr.k == "ember" or dr.pos.distance_to(m.player.pos) > 25.0:
 				continue
 			var sp := cam.unproject_position(Vector3(dr.pos.x, 0.8, dr.pos.y))
-			var c := Data.currency(dr.k)
+			var c := {"icon": "◇", "name": "サポートジェム：" + Data.support(dr.gem).name, "color": Data.GEM_COLOR} if dr.k == "gem" else Data.currency(dr.k)
 			var label: String = "%s %s" % [c.icon, c.name]
 			var w := Data.ui_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x + 12
 			draw_rect(Rect2(sp.x - w / 2, sp.y - 18, w, 19), Color(0, 0, 0, 0.75))

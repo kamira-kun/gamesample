@@ -16,6 +16,11 @@ var projs: Array = []        # player projectiles
 var eprojs: Array = []       # enemy projectiles
 var teles: Array = []        # telegraphed circles that resolve after a delay
 var hazards: Array = []      # burning ground
+var storms: Array = []       # thunder clouds
+var minions: Array[Ally] = []
+var totems: Array[Ally] = []
+var no_sup := Data.build_sup("", [])
+var sup := no_sup            # support modifiers of the skill being resolved right now
 var texts: Array = []        # floating damage numbers, drawn by the HUD
 var ground: Array = []       # items lying on the floor
 var drops: Array = []        # currency lying on the floor
@@ -70,6 +75,11 @@ func _ready() -> void:
 			var kind: String = x.trim_prefix("--view=")
 			if kind in ["merchant", "device"]:
 				open_interact(kind)
+			elif kind == "skills":
+				player.level = 6
+				player.gems.append_array(["multi", "totem"])
+				player.links[1] = ["totem", "multi"]
+				hud.skill_ui.open_slot(1)
 	if "--smoke" in args:
 		_smoke_test()
 
@@ -89,6 +99,8 @@ func _smoke_test() -> void:
 	hud.shop_ui._buy_potion()
 	hud.shop_ui._buy_currency("chaos", Items.currency_price(Data.currency("chaos")))
 	print("SMOKE bought bag=%d stock=%d potions+%d chaos=%d ember=%d" % [p.bag.size(), shop.items.size(), p.potions - pots, p.cur.chaos, p.cur.ember])
+	hud.shop_ui._buy_gem("leech")
+	print("SMOKE shop gem gems=%s" % [p.gems])
 	hud.shop_ui._sell(0)
 	print("SMOKE shop sold bag=%d" % p.bag.size())
 	hud.close_panels()
@@ -102,12 +114,34 @@ func _smoke_test() -> void:
 	p.pos = map.move_circle(e.pos + Vector2(-4, -4), p.r, Vector2.ZERO)
 	await get_tree().create_timer(0.3).timeout
 	mouse_ground = e.pos
+	p.level = 10
+	p.recalc(true)
+	p.gems = Data.SUPPORTS.map(func(g): return g.id)
 	for id in Data.SKILL_ORDER:
+		p.slots[0] = id
 		p.action_t = 0.0
+		p.cds.clear()
 		p.mana = p.s.max_mana
-		_try_cast(id)
+		_try_cast(0)
 		await get_tree().create_timer(0.4).timeout
-	await get_tree().create_timer(1.5).timeout
+	print("SMOKE skills minions=%d storms=%d hazards=%d" % [minions.size(), storms.size(), hazards.size()])
+	# a fireball totem with extra projectiles, and the skill panel swapping slots
+	p.slots[1] = "fireball"
+	p.links[1] = ["totem", "multi", "power"]
+	p.action_t = 0.0
+	p.mana = p.s.max_mana
+	_try_cast(1)
+	print("SMOKE totem totems=%d sup=%s cost=%d" % [totems.size(), slot_sup(1).ids, slot_cost(1)])
+	await get_tree().create_timer(1.0).timeout
+	print("SMOKE totem fired projs=%d" % projs.size())
+	hud.skill_ui.open_slot(0)
+	hud.skill_ui._assign("fireball")
+	hud.skill_ui._toggle_gem("multi")
+	print("SMOKE panel slot0=%s slot1=%s links0=%s" % [p.slots[0], p.slots[1], p.links[0]])
+	hud.close_panels()
+	p.slots = Data.DEFAULT_SLOTS.duplicate()
+	p.links = [[], [], [], [], [], []]
+	await get_tree().create_timer(1.0).timeout
 	var killed_before := enemies.size()
 	hit_enemy(boss, {"dmg": 999999, "crit": false, "type": "phys"})
 	print("SMOKE enemies=%d level=%d portal=%s" % [killed_before, p.level, not portal.is_empty()])
@@ -205,9 +239,11 @@ static func to3(p: Vector2, y := 0.0) -> Vector3:
 func _reset_world(new_map: Dungeon, new_theme: Dictionary) -> void:
 	if level_root:
 		level_root.queue_free()
-	for list in [projs, eprojs, teles, hazards, texts, ground, drops, interacts]:
+	for list in [projs, eprojs, teles, hazards, storms, texts, ground, drops, interacts]:
 		list.clear()
 	enemies.clear()
+	minions.clear()
+	totems.clear()
 	portal = {}
 	boss = null
 	level_root = Node3D.new()
@@ -446,6 +482,8 @@ func _process(delta: float) -> void:
 		if hud.shop_ui.visible:
 			hud.shop_ui.open_close()
 		hud.toggle_inventory()
+	if pressed.has(KEY_K) and not hud.atlas_ui.visible and not hud.shop_ui.visible:
+		hud.skill_ui.open_close()
 	if pressed.has(KEY_ESCAPE):
 		hud.close_panels()
 	if not hud.blocking() and in_hideout():
@@ -455,6 +493,8 @@ func _process(delta: float) -> void:
 	if not hud.blocking():
 		time += delta
 		_update_player(delta)
+		_update_minions(delta)
+		_update_totems(delta)
 		flow_t -= delta
 		if flow_t <= 0.0:
 			flow_t = 0.25
@@ -471,6 +511,7 @@ func _process(delta: float) -> void:
 		_update_eprojs(delta)
 		_update_teles(delta)
 		_update_hazards(delta)
+		_update_storms(delta)
 		_update_loot(delta)
 		_update_portal(delta)
 		save_t += delta
@@ -539,12 +580,11 @@ func _update_player(delta: float) -> void:
 		var d3 := (right.normalized() * mv.x - fwd.normalized() * mv.y).normalized()
 		var sp: float = s.move_speed * (0.5 if p.action_t > 0.0 else 1.0)
 		p.pos = map.move_circle(p.pos, p.r, Vector2(d3.x, d3.z) * sp * delta)
-	if lmb: _try_cast("slash")
-	if rmb: _try_cast("fireball")
-	if Input.is_physical_key_pressed(KEY_Q): _try_cast("nova")
-	if Input.is_physical_key_pressed(KEY_E): _try_cast("chain")
-	if Input.is_physical_key_pressed(KEY_R): _try_cast("meteor")
-	if pressed.has(KEY_SPACE): _try_cast("dash")
+	var held := [lmb, rmb, Input.is_physical_key_pressed(KEY_Q), Input.is_physical_key_pressed(KEY_E),
+		Input.is_physical_key_pressed(KEY_R), pressed.has(KEY_SPACE)]
+	for i in held.size():
+		if held[i]:
+			_try_cast(i)
 	if pressed.has(KEY_F): _use_potion()
 	p.animate(delta, moving)
 
@@ -574,7 +614,7 @@ func damage_player(amount: float) -> void:
 	shake = maxf(shake, 4.0)
 	hud.flash()
 	if p.effects.has("nova_on_hit") and randf() < 0.2:
-		_cast_nova(true)
+		_cast_nova(_player_caster(), true)
 	if p.life <= 0.0:
 		p.life = 0.0
 		p.dead = true
@@ -601,6 +641,12 @@ func gain_xp(v: int) -> void:
 		Fx.ring(level_root, to3(p.pos), 5.0, Color("#ffe27a"), 0.6, false)
 		Fx.burst(level_root, to3(p.pos, 1.0), 40, Color("#ffe27a"), 6.0)
 		hud.message("レベル %d に到達！" % p.level, Color("#ffe27a"))
+		if Data.link_sockets(p.level) > Data.link_sockets(p.level - 1):
+			hud.message("リンクソケットが %d 個に増えた！（K）" % Data.link_sockets(p.level), Data.GEM_COLOR)
+		for id in Data.SKILL_ORDER:
+			if Data.SKILLS[id].lvl == p.level:
+				hud.message("新スキル「%s」を習得！（Kで付け替え）" % Data.SKILLS[id].name, Data.SKILLS[id].color)
+		hud.skill_ui.refresh()
 
 
 # =================== combat ===================
@@ -608,7 +654,7 @@ func roll_damage(coef: float, type: String, spell := false) -> Dictionary:
 	var s := player.s
 	var d: float = randf_range(s.dmg_min, s.dmg_max) * coef
 	var elem: float = {"fire": s.fire_dmg, "cold": s.cold_dmg, "light": s.light_dmg}.get(type, 0)
-	d *= 1.0 + (s.inc_dmg + (s.spell_dmg if spell else 0) + elem) / 100.0
+	d *= (1.0 + (s.inc_dmg + (s.spell_dmg if spell else 0) + elem) / 100.0) * sup.dmg
 	var crit: bool = randf() * 100.0 < s.crit
 	if crit:
 		d *= s.crit_multi / 100.0
@@ -620,6 +666,9 @@ func hit_enemy(e: Enemy, hit: Dictionary, freeze := 0.0) -> void:
 		return
 	e.life -= hit.dmg
 	e.hit_t = 0.12
+	freeze = maxf(freeze, sup.freeze)
+	if sup.leech > 0.0:
+		player.life = minf(player.s.max_life, player.life + hit.dmg * sup.leech)
 	if not e.aggro:
 		_alert_pack(e)
 	add_text(e.pos, str(hit.dmg) + ("!" if hit.crit else ""), Color("#ffe040") if hit.crit else Data.DMG_COLORS[hit.type], 26 if hit.crit else 18)
@@ -658,8 +707,7 @@ func _kill_enemy(e: Enemy) -> void:
 		var dmg := e.dmg * 1.5
 		add_tele(at, 3.2, 0.8, true, func():
 			_explosion(at, 3.2, Color("#ff7840"))
-			if player.pos.distance_to(at) < 3.2 + player.r:
-				damage_player(dmg))
+			_damage_area(at, 3.2, dmg))
 	if e.boss:
 		boss = null
 		hud.set_boss(null)
@@ -702,53 +750,89 @@ func _update_teles(delta: float) -> void:
 
 
 # =================== skills ===================
-func _try_cast(id: String) -> void:
+## resolve `fn` with a skill's support modifiers active (totems, minions and projectiles keep theirs)
+func _with_sup(s: Dictionary, fn: Callable) -> void:
+	var prev := sup
+	sup = s
+	fn.call()
+	sup = prev
+
+
+func slot_sup(i: int) -> Dictionary:
 	var p := player
+	return Data.build_sup(p.slots[i], p.links[i].slice(0, Data.link_sockets(p.level)))
+
+
+func slot_cost(i: int) -> int:
+	var s := slot_sup(i)
+	return roundi(Data.SKILLS[player.slots[i]].mana * s.mana * (2.5 if s.totem else 1.0))
+
+
+## who is casting: the player, or a totem acting for them
+func _player_caster() -> Dictionary:
+	return {"pos": player.pos, "aim": player.aim, "to": mouse_ground, "player": true}
+
+
+static func _fan(n: int, step: float) -> Array:
+	var out := []
+	for i in n:
+		out.append((i - (n - 1) / 2.0) * step)
+	return out
+
+
+## a point toward the caster's target, no farther than `max_d`
+static func _aim_point(c: Dictionary, max_d: float) -> Vector2:
+	return c.pos + (c.to - c.pos).limit_length(max_d)
+
+
+func _try_cast(i: int) -> void:
+	var p := player
+	var id: String = p.slots[i]
 	var sk: Dictionary = Data.SKILLS[id]
+	var s := slot_sup(i)
 	if p.action_t > 0.0 and id != "dash":
 		return
 	if p.cds.get(id, 0.0) > 0.0:
 		return
-	if p.mana < sk.mana:
+	var cost := slot_cost(i)
+	if p.mana < cost:
 		if time - oom_t > 1.2:
 			oom_t = time
 			hud.message("マナが足りない", Color("#7fa8ff"))
 		return
-	if id == "chain" and _chain_target(p.pos) == null:
+	var c := _player_caster()
+	if not s.totem and id == "chain" and _chain_target(c) == null:
 		return
-	p.mana -= sk.mana
-	if sk.cd > 0.0:
-		p.cds[id] = sk.cd * (1.0 - p.s.cdr / 100.0)
+	p.mana -= cost
+	var cd: float = maxf(sk.cd, 1.5) if s.totem else sk.cd
+	if cd > 0.0:
+		p.cds[id] = cd * (1.0 - p.s.cdr / 100.0)
 	if sk.get("attack", false):
-		p.action_t = 1.0 / p.s.attack_rate
+		p.action_t = 1.0 / p.s.attack_rate / s.speed
 	elif sk.has("cast"):
-		p.action_t = sk.cast / (1.0 + p.s.cast_spd / 100.0)
-	call("_cast_" + id)
+		p.action_t = sk.cast / (1.0 + p.s.cast_spd / 100.0) / s.speed
+	if s.totem:
+		p.act("Spellcast_Raise", 2.0, p.action_t)
+		_place_totem(id, s, c)
+	else:
+		_with_sup(s, func(): call("_cast_" + id, c))
 
 
-func _cast_slash() -> void:
+func _cast_slash(c: Dictionary) -> void:
 	var p := player
 	var reach := 3.2
 	p.swing_t = 0.2
-	p.act("1H_Melee_Attack_Slice_Horizontal", 2.2, p.action_t)
+	p.act("1H_Melee_Attack_Slice_Horizontal", 2.2 * sup.speed, p.action_t)
 	for e in enemies:
 		if e.dead:
 			continue
-		var d := e.pos.distance_to(p.pos)
+		var d := e.pos.distance_to(c.pos)
 		if d > reach + e.r:
 			continue
-		if absf(angle_difference(p.aim, (e.pos - p.pos).angle())) > 1.15 and d > e.r + p.r:
+		if absf(angle_difference(c.aim, (e.pos - c.pos).angle())) > 1.15 and d > e.r + p.r:
 			continue
 		hit_enemy(e, roll_damage(1.0, "phys"))
-	var arc := MeshInstance3D.new()
-	arc.mesh = Fx.arc_mesh(1.0, reach, p.aim - 1.1, p.aim + 1.1)
-	var m := Fx.mat(Color(1.0, 0.94, 0.82, 0.7), 2.0, true)
-	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
-	m.cull_mode = BaseMaterial3D.CULL_DISABLED
-	arc.material_override = m
-	arc.position = to3(p.pos, 0.9)
-	level_root.add_child(arc)
-	Fx.fade_out(arc, m, 0.18)
+	_swing_arc(c.pos, 1.0, reach, c.aim - 1.1, c.aim + 1.1, 0.18)
 	if p.effects.has("slash_wave"):
 		var wave := MeshInstance3D.new()
 		wave.mesh = Fx.arc_mesh(0.6, 1.4, -0.9, 0.9)
@@ -756,18 +840,42 @@ func _cast_slash() -> void:
 		wm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 		wm.cull_mode = BaseMaterial3D.CULL_DISABLED
 		wave.material_override = wm
-		wave.rotation.y = -p.aim
+		wave.rotation.y = -c.aim
 		level_root.add_child(wave)
-		projs.append({"node": wave, "kind": "wave", "pos": p.pos, "vel": Vector2.from_angle(p.aim) * 26.0, "r": 1.0, "t": 0.0, "max": 0.55, "hit": {}})
+		projs.append({"node": wave, "kind": "wave", "pos": c.pos, "vel": Vector2.from_angle(c.aim) * 26.0, "r": 1.0, "t": 0.0, "max": 0.55, "hit": {}, "sup": sup})
 
 
-func _cast_fireball() -> void:
+## a fading additive crescent on the ground plane, for melee swings
+func _swing_arc(at: Vector2, r0: float, r1: float, a0: float, a1: float, dur: float, color := Color(1.0, 0.94, 0.82, 0.7)) -> void:
+	var arc := MeshInstance3D.new()
+	arc.mesh = Fx.arc_mesh(r0, r1, a0, a1, 48)
+	var m := Fx.mat(color, 2.0, true)
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	arc.material_override = m
+	arc.position = to3(at, 0.9)
+	level_root.add_child(arc)
+	Fx.fade_out(arc, m, dur)
+
+
+func _cast_whirl(c: Dictionary) -> void:
 	var p := player
-	p.act("Spellcast_Shoot", 2.0, p.action_t)
-	for da in ([-0.22, 0.0, 0.22] if p.effects.has("fireball_multi") else [0.0]):
-		var dir := Vector2.from_angle(p.aim + da)
+	var rad: float = 4.2 * sup.aoe
+	p.swing_t = 0.2
+	p.act("2H_Melee_Attack_Spin", 2.4 * sup.speed, p.action_t)
+	for e in enemies_in_radius(c.pos, rad):
+		hit_enemy(e, roll_damage(0.85, "phys"))
+	_swing_arc(c.pos, rad * 0.35, rad, 0.0, TAU, 0.22, Color(1.0, 0.85, 0.5, 0.6))
+
+
+func _cast_fireball(c: Dictionary) -> void:
+	if c.player:
+		player.act("Spellcast_Shoot", 2.0, player.action_t)
+	var base := 3 if player.effects.has("fireball_multi") else 1
+	for da in _fan(base + sup.proj, 0.2):
+		var dir := Vector2.from_angle(c.aim + da)
 		var root := Node3D.new()
-		root.position = to3(p.pos + dir * 0.6, 1.0)
+		root.position = to3(c.pos + dir * 0.6, 1.0)
 		level_root.add_child(root)
 		Fx.mesh(root, Fx.sphere(0.28), Fx.mat(Color("#ffa040"), 6.0, true))
 		var light := OmniLight3D.new()
@@ -775,39 +883,59 @@ func _cast_fireball() -> void:
 		light.light_energy = 2.0
 		light.omni_range = 6.0
 		root.add_child(light)
-		projs.append({"node": root, "kind": "fireball", "pos": p.pos + dir * 0.6, "vel": dir * 24.0, "r": 0.3, "t": 0.0, "max": 1.4})
+		projs.append({"node": root, "kind": "fireball", "pos": c.pos + dir * 0.6, "vel": dir * 24.0, "r": 0.3, "t": 0.0, "max": 1.4, "sup": sup, "boom": 2.8 * sup.aoe})
 
 
-func _cast_nova(free := false) -> void:
-	var p := player
-	if not free:
-		p.act("Spellcast_Raise", 2.2, 0.35)
-	var rad := 8.0
-	Fx.ring(level_root, to3(p.pos), rad, Color("#8cdcff"), 0.4)
-	Fx.burst(level_root, to3(p.pos, 0.6), 50, Color("#aee8ff"), 14.0, 0.5, 0.0)
-	for e in enemies_in_radius(p.pos, rad):
+func _cast_ice_spear(c: Dictionary) -> void:
+	if c.player:
+		player.act("Spellcast_Shoot", 2.2, player.action_t)
+	for da in _fan(1 + sup.proj, 0.14):
+		var a: float = c.aim + da
+		var dir := Vector2.from_angle(a)
+		var root := Node3D.new()
+		root.position = to3(c.pos + dir * 0.6, 1.0)
+		root.rotation.y = -a - PI / 2.0
+		level_root.add_child(root)
+		var spear := Fx.mesh(root, Fx.cone(0.12, 1.1), Fx.mat(Color("#bff4ff"), 5.0, true))
+		spear.rotation.x = -PI / 2.0
+		var light := OmniLight3D.new()
+		light.light_color = Color("#7fd4ff")
+		light.light_energy = 1.2
+		light.omni_range = 4.0
+		root.add_child(light)
+		projs.append({"node": root, "kind": "spear", "pos": c.pos + dir * 0.6, "vel": dir * 32.0, "r": 0.36, "t": 0.0, "max": 0.8, "hit": {}, "sup": sup})
+
+
+func _cast_nova(c: Dictionary, free := false) -> void:
+	if c.player and not free:
+		player.act("Spellcast_Raise", 2.2, 0.35)
+	var rad: float = 8.0 * sup.aoe
+	Fx.ring(level_root, to3(c.pos), rad, Color("#8cdcff"), 0.4)
+	Fx.burst(level_root, to3(c.pos, 0.6), 50, Color("#aee8ff"), 14.0, 0.5, 0.0)
+	for e in enemies_in_radius(c.pos, rad):
 		hit_enemy(e, roll_damage(0.8 if free else 1.3, "cold", true), 1.8)
 
 
-func _chain_target(from: Vector2) -> Variant:
+func _chain_target(c: Dictionary) -> Variant:
 	var best: Enemy = null
 	var bd := INF
 	for e in enemies:
-		if e.dead or e.pos.distance_to(from) > 18.0:
+		if e.dead or e.pos.distance_to(c.pos) > 18.0:
 			continue
-		var d := e.pos.distance_squared_to(mouse_ground)
-		if d < bd and map.los(from, e.pos):
+		var d := e.pos.distance_squared_to(c.to)
+		if d < bd and map.los(c.pos, e.pos):
 			bd = d
 			best = e
 	return best
 
 
-func _cast_chain() -> void:
-	player.act("Spellcast_Shoot", 2.0, player.action_t)
-	var target: Variant = _chain_target(player.pos)
+func _cast_chain(c: Dictionary) -> void:
+	if c.player:
+		player.act("Spellcast_Shoot", 2.0, player.action_t)
+	var target: Variant = _chain_target(c)
 	var hit := {}
-	var src := to3(player.pos, 1.2)
-	var n := 5 + (4 if player.effects.has("chain_plus") else 0)
+	var src := to3(c.pos, 1.2)
+	var n: int = 5 + (4 if player.effects.has("chain_plus") else 0) + sup.chain
 	while target != null and n > 0:
 		n -= 1
 		var e: Enemy = target
@@ -828,30 +956,72 @@ func _cast_chain() -> void:
 				target = o
 
 
-func _cast_meteor() -> void:
-	var p := player
-	p.act("Spellcast_Long", 2.0, 0.5)
-	var to := mouse_ground - p.pos
-	var at := p.pos + to.limit_length(20.0)
+func _cast_storm(c: Dictionary) -> void:
+	if c.player:
+		player.act("Spellcast_Long", 2.0, player.action_t)
+	var at := _aim_point(c, 19.0)
+	var rad: float = 6.8 * sup.aoe
+	var root := Node3D.new()
+	root.position = to3(at, 0.05)
+	level_root.add_child(root)
+	var disc := Fx.mesh(root, Fx.disc(), Fx.mat(Color(0.55, 0.45, 1.0, 0.18), 1.5, true))
+	disc.scale = Vector3(rad, 1, rad)
+	Fx.mesh(root, Fx.arc_mesh(rad - 0.1, rad, 0, TAU, 48), Fx.mat(Color(0.75, 0.65, 1.0, 0.6), 2.0, true), Vector3(0, 0.01, 0))
+	var cloud := Fx.mesh(root, Fx.sphere(1.0), Fx.mat(Color(0.18, 0.16, 0.3, 0.7), 0.4, true), Vector3(0, 7.0, 0))
+	cloud.scale = Vector3(rad * 0.8, 0.5, rad * 0.8)
+	var light := OmniLight3D.new()
+	light.light_color = Color("#b0a0ff")
+	light.light_energy = 0.0
+	light.omni_range = rad * 2.0
+	light.position.y = 4.0
+	root.add_child(light)
+	storms.append({"node": root, "light": light, "pos": at, "r": rad, "t": 0.0, "max": 3.0, "tick": 0.1, "sup": sup})
+
+
+func _update_storms(delta: float) -> void:
+	for st in storms:
+		st.t += delta
+		st.tick -= delta
+		st.light.light_energy = maxf(0.0, st.light.light_energy - delta * 20.0)
+		if st.tick <= 0.0:
+			st.tick = 0.22
+			var near := enemies_in_radius(st.pos, st.r)
+			var tgt: Enemy = near.pick_random() if not near.is_empty() else null
+			var at: Vector2 = tgt.pos if tgt else st.pos + Vector2(randf_range(-1, 1), randf_range(-1, 1)) * st.r * 0.8
+			Fx.bolt(level_root, to3(at, 7.0), to3(at, 0.1), Color("#e0d0ff"), 0.18)
+			Fx.burst(level_root, to3(at, 0.3), 8, Color("#d9c2ff"), 5.0)
+			st.light.light_energy = 3.0
+			if tgt:
+				_with_sup(st.sup, func(): hit_enemy(tgt, roll_damage(0.9, "light", true)))
+		if st.t >= st.max:
+			st.node.queue_free()
+	storms = storms.filter(func(st): return st.t < st.max)
+
+
+func _cast_meteor(c: Dictionary) -> void:
+	if c.player:
+		player.act("Spellcast_Long", 2.0, 0.5)
+	var at := _aim_point(c, 20.0)
 	_drop_meteor(at, 0.75)
-	if p.effects.has("meteor_shower"):
+	if player.effects.has("meteor_shower"):
 		_drop_meteor(at + Vector2(randf_range(-5, 5), randf_range(-5, 5)), 1.0)
 		_drop_meteor(at + Vector2(randf_range(-5, 5), randf_range(-5, 5)), 1.25)
 
 
 func _drop_meteor(at: Vector2, delay: float) -> void:
-	var rad := 4.6
-	add_tele(at, rad, delay, false, func():
+	var s := sup
+	var rad: float = 4.6 * s.aoe
+	add_tele(at, rad, delay, false, func(): _with_sup(s, func():
 		_explosion(at, rad, Color("#ff6e28"))
 		for e in enemies_in_radius(at, rad):
 			hit_enemy(e, roll_damage(3.6, "fire", true))
-		_add_hazard(at, rad * 0.83, 3.5))
+		_add_hazard(at, rad * 0.83, 3.5)))
 
 
-func _cast_dash() -> void:
+func _cast_dash(c: Dictionary) -> void:
 	var p := player
-	var to := mouse_ground - p.pos
-	p.dash = {"dir": to.normalized() if to.length() > 0.01 else Vector2.from_angle(p.aim), "left": clampf(to.length(), 5.0, 11.0), "hit": {}}
+	var to: Vector2 = c.to - c.pos
+	p.dash = {"dir": to.normalized() if to.length() > 0.01 else Vector2.from_angle(c.aim), "left": clampf(to.length(), 5.0, 11.0), "hit": {}, "sup": sup}
 	p.invuln = 0.3
 
 
@@ -868,16 +1038,38 @@ func _update_dash(delta: float) -> void:
 		if before.distance_to(p.pos) < 0.01:
 			d.left = 0.0
 			break
-	for e in enemies:
-		if e.dead or d.hit.has(e) or e.pos.distance_to(p.pos) > e.r + p.r + 0.6:
-			continue
-		d.hit[e] = true
-		hit_enemy(e, roll_damage(0.9, "phys"))
+	_with_sup(d.sup, func():
+		for e in enemies:
+			if e.dead or d.hit.has(e) or e.pos.distance_to(p.pos) > e.r + p.r + 0.6:
+				continue
+			d.hit[e] = true
+			hit_enemy(e, roll_damage(0.9, "phys")))
 	Fx.burst(level_root, to3(p.pos, 0.8), 3, Color("#8c78ff"), 1.0, 0.3, 0.0)
 	if d.left <= 0.0:
 		p.dash = {}
 		if p.effects.has("dash_nova"):
-			_cast_nova(true)
+			_cast_nova(_player_caster(), true)
+
+
+func _cast_skeleton(c: Dictionary) -> void:
+	var p := player
+	if c.player:
+		p.act("Spellcast_Raise", 2.0, p.action_t)
+	var most: int = 3 + sup.mcount
+	for i in 2:
+		if minions.size() >= most:
+			_kill_ally(minions[0])   # the oldest crumbles to make room
+			minions.remove_at(0)
+		var at: Vector2 = c.pos + Vector2.from_angle(randf() * TAU) * 1.6
+		if map.circle_hits(at, 0.45):
+			at = c.pos
+		var m := Ally.new()
+		level_root.add_child(m)
+		m.setup_minion(at, (50.0 + p.level * 12) * sup.mlife, sup)
+		m.face = c.aim
+		m.sync_node(0.0, false)
+		minions.append(m)
+		Fx.burst(level_root, to3(at, 0.5), 14, Color("#e8e0c8"), 4.0)
 
 
 func _add_hazard(at: Vector2, rad: float, dur: float) -> void:
@@ -905,7 +1097,7 @@ func _add_hazard(at: Vector2, rad: float, dur: float) -> void:
 	light.omni_range = rad * 2.0
 	light.position.y = 1.0
 	root.add_child(light)
-	hazards.append({"node": root, "pos": at, "r": rad, "t": 0.0, "max": dur, "tick": 0.0})
+	hazards.append({"node": root, "pos": at, "r": rad, "t": 0.0, "max": dur, "tick": 0.0, "sup": sup})
 
 
 func _update_hazards(delta: float) -> void:
@@ -914,8 +1106,9 @@ func _update_hazards(delta: float) -> void:
 		hz.tick -= delta
 		if hz.tick <= 0.0:
 			hz.tick = 0.5
-			for e in enemies_in_radius(hz.pos, hz.r):
-				hit_enemy(e, roll_damage(0.35, "fire", true))
+			_with_sup(hz.sup, func():
+				for e in enemies_in_radius(hz.pos, hz.r):
+					hit_enemy(e, roll_damage(0.35, "fire", true)))
 		if hz.t >= hz.max:
 			hz.node.queue_free()
 	hazards = hazards.filter(func(hz): return hz.t < hz.max)
@@ -923,17 +1116,24 @@ func _update_hazards(delta: float) -> void:
 
 func _update_projectiles(delta: float) -> void:
 	for pr in projs:
+		sup = pr.sup
 		pr.t += delta
 		pr.pos += pr.vel * delta
 		pr.node.position = to3(pr.pos, 1.0)
-		if pr.kind == "wave":
+		if pr.kind == "wave" or pr.kind == "spear":
+			var spear: bool = pr.kind == "spear"
 			for e in enemies:
 				if not e.dead and not pr.hit.has(e) and e.pos.distance_to(pr.pos) < e.r + pr.r:
 					pr.hit[e] = true
-					hit_enemy(e, roll_damage(0.7, "phys"))
+					if spear:
+						hit_enemy(e, roll_damage(1.1, "cold", true), 0.6)
+					else:
+						hit_enemy(e, roll_damage(0.7, "phys"))
 			if pr.t > pr.max or map.solid_at(pr.pos):
 				pr.t = pr.max + 1.0
 				pr.node.queue_free()
+				if spear:
+					Fx.burst(level_root, to3(pr.pos, 1.0), 10, Color("#bff4ff"), 4.0)
 			continue
 		var boom: bool = pr.t > pr.max or map.solid_at(pr.pos)
 		if not boom:
@@ -944,10 +1144,163 @@ func _update_projectiles(delta: float) -> void:
 		if boom:
 			pr.t = pr.max + 1.0
 			pr.node.queue_free()
-			_explosion(pr.pos, 2.8, Color("#ff8c32"))
-			for e in enemies_in_radius(pr.pos, 2.8):
+			_explosion(pr.pos, pr.boom, Color("#ff8c32"))
+			for e in enemies_in_radius(pr.pos, pr.boom):
 				hit_enemy(e, roll_damage(1.5, "fire", true))
+	sup = no_sup
 	projs = projs.filter(func(pr): return pr.t <= pr.max)
+
+
+# =================== totems and minions ===================
+const TOTEM_MAX := 2
+
+
+func _place_totem(id: String, s: Dictionary, c: Dictionary) -> void:
+	var p := player
+	var at := _aim_point(c, 15.0)
+	var back := (at - p.pos).normalized()
+	for k in 20:
+		if not map.circle_hits(at, 0.5):
+			break
+		at -= back * 0.8
+	var mine := totems.filter(func(t): return t.skill == id)
+	if mine.size() >= TOTEM_MAX:
+		mine[0].life = 0.0
+	var t := Ally.new()
+	level_root.add_child(t)
+	t.setup_totem(at, id, 60.0 + p.level * 15, s)
+	t.sync_node(0.0, false)
+	totems.append(t)
+	Fx.burst(level_root, to3(at, 1.0), 20, Data.SKILLS[id].color, 5.0)
+
+
+func _nearest_enemy(from: Vector2, max_d: float, near_to := Vector2.INF, near_d := INF) -> Enemy:
+	var best: Enemy = null
+	var bd := max_d * max_d
+	for e in enemies:
+		if e.dead or (near_to.x != INF and e.pos.distance_to(near_to) > near_d):
+			continue
+		var d := e.pos.distance_squared_to(from)
+		if d < bd and map.los(from, e.pos):
+			bd = d
+			best = e
+	return best
+
+
+func _update_totems(delta: float) -> void:
+	for t in totems:
+		t.t += delta
+		t.cast_t -= delta
+		t.animate(delta, false)
+		if t.t >= t.max_t or t.life <= 0.0:
+			t.life = 0.0
+			continue
+		if t.cast_t > 0.0:
+			continue
+		var best := _nearest_enemy(t.pos, 20.0)
+		if best == null:
+			t.cast_t = 0.3
+			continue
+		var sk: Dictionary = Data.SKILLS[t.skill]
+		t.cast_t = maxf(0.45, maxf(sk.get("cast", 0.4) * 1.5 / t.sup.speed, sk.cd * 0.7))
+		t.face = (best.pos - t.pos).angle()
+		var c := {"pos": t.pos, "aim": t.face, "to": best.pos, "player": false}
+		_with_sup(t.sup, func(): call("_cast_" + t.skill, c))
+	for t in totems:
+		if t.life <= 0.0:
+			_kill_ally(t)
+	totems = totems.filter(func(t): return t.life > 0.0)
+
+
+func _update_minions(delta: float) -> void:
+	var p := player
+	for m in minions:
+		if m.life <= 0.0:
+			continue
+		m.atk_cd -= delta
+		m.scan_t -= delta
+		var dp := m.pos.distance_to(p.pos)
+		if dp > 28.0:
+			m.pos = p.pos
+			m.target = null
+		if m.target and m.target.dead:
+			m.target = null
+		if m.scan_t <= 0.0:
+			m.scan_t = 0.3
+			m.target = _nearest_enemy(m.pos, 16.8, p.pos, 20.0)
+		var goal := p.pos
+		var sp := 12.0 if dp > 10.0 else 8.4
+		var moving := true
+		if m.target:
+			var e := m.target
+			m.face = (e.pos - m.pos).angle()
+			goal = e.pos
+			sp = 8.8
+			if m.pos.distance_to(e.pos) < e.r + m.r + 0.5:
+				moving = false
+				if m.atk_cd <= 0.0:
+					m.atk_cd = 0.9 / m.sup.speed
+					m.swing_t = 0.3
+					_with_sup(m.sup, func(): hit_enemy(e, roll_damage(0.55, "phys", true)))
+		elif dp < 3.2:
+			moving = false
+		if moving:
+			var dir := (goal - m.pos).normalized()
+			m.pos = map.move_circle(m.pos, m.r, dir * sp * delta)
+			m.face = dir.angle()
+		m.animate(delta, moving)
+	for m in minions:
+		if m.life <= 0.0:
+			_kill_ally(m)
+	minions = minions.filter(func(m): return m.life > 0.0)
+
+
+func _kill_ally(a: Ally) -> void:
+	a.life = 0.0
+	a.dead = true
+	Fx.burst(level_root, to3(a.pos, 0.8), 16, Color("#d8d0b8") if a.kind == "minion" else Color("#8a6a3a"), 4.0)
+	a.queue_free()
+
+
+## enemies hit minions and totems too
+func damage_ally(a: Actor, amount: float) -> void:
+	if a == player:
+		damage_player(amount)
+		return
+	var al := a as Ally
+	if al.dead:
+		return
+	al.life -= amount
+	al.hit_t = 0.12
+	add_text(al.pos, str(roundi(amount)), Color("#b0b0b0"), 15)
+
+
+func _allies() -> Array[Ally]:
+	var out: Array[Ally] = []
+	out.append_array(minions)
+	out.append_array(totems)
+	return out
+
+
+## damage the player and every ally inside a circle
+func _damage_area(at: Vector2, rad: float, amount: float) -> void:
+	if player.pos.distance_to(at) < rad + player.r:
+		damage_player(amount)
+	for a in _allies():
+		if a.pos.distance_to(at) < rad + a.r:
+			damage_ally(a, amount)
+
+
+## regular monsters go for whoever is closest, with a slight preference for the player
+func _pick_target(e: Enemy) -> Actor:
+	var best: Actor = player
+	var bd := e.pos.distance_to(player.pos) * 0.85
+	for a in _allies():
+		var d := e.pos.distance_to(a.pos)
+		if d < bd and d < 16.0:
+			bd = d
+			best = a
+	return best
 
 
 # =================== enemies ===================
@@ -995,27 +1348,37 @@ func _update_enemy(e: Enemy, delta: float) -> void:
 	if e.boss:
 		_update_boss(e, delta, d)
 		return
+	# regular monsters fight whoever is closest: the player, a minion or a totem
+	e.tgt_t -= delta
+	if e.tgt_t <= 0.0 or not is_instance_valid(e.tgt) or e.tgt.dead:
+		e.tgt_t = 0.5
+		e.tgt = _pick_target(e)
+	var tg := e.tgt
+	var td := e.pos.distance_to(tg.pos)
+	var sees: bool = e.sees if tg == p else td < 20.0
 	var t := e.t
 	var move := true
 	if t.get("ranged", false) or t.get("caster", false):
-		if d < t.range and e.sees:
+		if td < t.range and sees:
 			move = false
-			if t.get("ranged", false) and d < 5.0:
-				e.pos = map.move_circle(e.pos, e.r, (e.pos - p.pos).normalized() * e.speed * 0.7 * delta)
+			if t.get("ranged", false) and td < 5.0:
+				e.pos = map.move_circle(e.pos, e.r, (e.pos - tg.pos).normalized() * e.speed * 0.7 * delta)
 			if e.atk_cd <= 0.0:
-				_start_attack(e)
-	elif d < t.atk_range + e.r + p.r:
+				_start_attack(e, tg)
+	elif td < t.atk_range + e.r + tg.r:
 		move = false
 		if e.atk_cd <= 0.0:
-			_start_attack(e)
+			_start_attack(e, tg)
 	if move:
-		_chase(e, delta)
-	e.face = (p.pos - e.pos).angle()
+		_chase(e, delta, tg)
+	e.face = (tg.pos - e.pos).angle()
 
 
-func _chase(e: Enemy, delta: float) -> void:
-	var target := player.pos
-	if not e.sees:
+func _chase(e: Enemy, delta: float, tg: Actor = null) -> void:
+	if tg == null:
+		tg = player
+	var target := tg.pos
+	if tg == player and not e.sees:
 		target = map.flow_next(e.pos)
 		if target.x == INF:
 			return
@@ -1023,22 +1386,20 @@ func _chase(e: Enemy, delta: float) -> void:
 	e.pos = map.move_circle(e.pos, e.r, dir * e.speed * (0.5 if e.slow > 0.0 else 1.0) * delta)
 
 
-func _start_attack(e: Enemy) -> void:
+func _start_attack(e: Enemy, tg: Actor) -> void:
 	var t := e.t
-	var p := player
 	e.atk_cd = t.atk_cd * e.atk_cd_mul
 	e.windup = t.windup
 	if t.get("ranged", false):
 		e.pending = func():
-			if not e.dead:
-				_enemy_shot(e.pos, (p.pos - e.pos).angle(), 16.0, e.dmg, Color("#e8e0b0"))
+			if not e.dead and is_instance_valid(tg):
+				_enemy_shot(e.pos, (tg.pos - e.pos).angle(), 16.0, e.dmg, Color("#e8e0b0"))
 	elif t.get("caster", false):
-		var at := p.pos
+		var at := tg.pos
 		var dmg := e.dmg
 		add_tele(at, 2.6, t.windup + 0.15, true, func():
 			_explosion(at, 2.6, Color("#5adcf0"))
-			if p.pos.distance_to(at) < 2.6 + p.r:
-				damage_player(dmg))
+			_damage_area(at, 2.6, dmg))
 		e.pending = func(): pass
 	elif t.has("aoe"):
 		var rad: float = t.aoe
@@ -1046,13 +1407,12 @@ func _start_attack(e: Enemy) -> void:
 			if e.dead or e.frozen > 0.0:
 				return
 			_explosion(e.pos, rad, Color("#c88cff"))
-			if p.pos.distance_to(e.pos) < rad + p.r:
-				damage_player(e.dmg))
+			_damage_area(e.pos, rad, e.dmg))
 		e.pending = func(): pass
 	else:
 		e.pending = func():
-			if not e.dead and p.pos.distance_to(e.pos) < t.atk_range + e.r + p.r + 0.5:
-				damage_player(e.dmg)
+			if not e.dead and is_instance_valid(tg) and not tg.dead and tg.pos.distance_to(e.pos) < t.atk_range + e.r + tg.r + 0.5:
+				damage_ally(tg, e.dmg)
 
 
 func _enemy_shot(from: Vector2, angle: float, speed: float, dmg: float, color: Color) -> void:
@@ -1070,6 +1430,12 @@ func _update_eprojs(delta: float) -> void:
 		if not gone and not p.dead and p.invuln <= 0.0 and pr.pos.distance_to(p.pos) < pr.r + p.r:
 			gone = true
 			damage_player(pr.dmg)
+		if not gone:
+			for a in _allies():
+				if pr.pos.distance_to(a.pos) < pr.r + a.r:
+					gone = true
+					damage_ally(a, pr.dmg)
+					break
 		if gone:
 			pr.t = pr.max + 1.0
 			pr.node.queue_free()
@@ -1093,8 +1459,7 @@ func _update_boss(e: Enemy, delta: float, d: float) -> void:
 				if e.dead:
 					return
 				_explosion(e.pos, 7.0, Color("#ff4632"))
-				if p.pos.distance_to(e.pos) < 7.0 + p.r:
-					damage_player(e.dmg * 1.7))
+				_damage_area(e.pos, 7.0, e.dmg * 1.7))
 		elif roll < 0.8:
 			e.windup = 0.7
 			e.pending = func():
@@ -1201,6 +1566,30 @@ func _drop_loot(e: Enemy) -> void:
 	var cn := randi_range(3, 5) if e.boss else (randi_range(1, 2) if not e.elite.is_empty() and randf() < 0.5 else (1 if randf() < 0.035 else 0))
 	for i in cn:
 		_drop_currency(_weighted(Data.CURRENCIES.filter(func(c): return c.w > 0.0)).k, 1, e.pos)
+	if randf() < (0.6 if e.boss else (0.15 if not e.elite.is_empty() else 0.004)):
+		_drop_gem(e.pos)
+
+
+## a support gem the player doesn't own yet
+func _drop_gem(at: Vector2) -> void:
+	var missing := Data.SUPPORTS.filter(func(g): return not g.id in player.gems)
+	if missing.is_empty():
+		return
+	var pos := _scatter(at)
+	var node := Fx.mesh(level_root, Fx.box(Vector3(0.3, 0.3, 0.3)), Fx.mat(Data.GEM_COLOR, 4.0), to3(pos, 0.35))
+	node.rotation = Vector3(0.7, 0.0, 0.7)
+	drops.append({"k": "gem", "n": 1, "gem": missing.pick_random().id, "pos": pos, "node": node})
+
+
+func unlock_gem(id: String) -> void:
+	var p := player
+	if id in p.gems:
+		p.cur.ember += 40 * floor_level
+		return
+	p.gems.append(id)
+	var g := Data.support(id)
+	hud.message("サポートジェム「%s」を入手！（Kでリンク）" % g.name, g.color)
+	hud.skill_ui.refresh()
 
 
 func _scatter(at: Vector2) -> Vector2:
@@ -1275,6 +1664,9 @@ func _update_loot(delta: float) -> void:
 		if dist < 0.8:
 			d.taken = true
 			d.node.queue_free()
+			if d.k == "gem":
+				unlock_gem(d.gem)
+				continue
 			p.cur[d.k] += d.n
 			if d.k != "ember":
 				var c := Data.currency(d.k)
@@ -1291,7 +1683,8 @@ func save_game() -> void:
 		return
 	var p := player
 	var data := {"floor": floor_level, "level": p.level, "xp": p.xp, "potions": p.potions,
-		"equip": p.equip, "bag": p.bag, "cur": p.cur, "atlas": atlas.to_dict(), "shop": shop}
+		"equip": p.equip, "bag": p.bag, "cur": p.cur, "atlas": atlas.to_dict(), "shop": shop,
+		"slots": p.slots, "links": p.links, "gems": p.gems}
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(data))
@@ -1314,6 +1707,13 @@ func load_game() -> bool:
 	p.bag = data.get("bag", []).map(func(it): return Items.normalize(it))
 	for k in data.get("cur", {}):
 		p.cur[k] = int(data.cur[k])
+	var sl: Array = data.get("slots", [])
+	if sl.size() == Data.SLOT_KEYS.size() and sl.all(func(id): return Data.SKILLS.has(id)):
+		p.slots = sl
+	var ln: Array = data.get("links", [])
+	if ln.size() == Data.SLOT_KEYS.size():
+		p.links = ln.map(func(l): return Array(l).filter(func(id): return not Data.support(id).is_empty()))
+	p.gems = Array(data.get("gems", Data.DEFAULT_GEMS)).filter(func(id): return not Data.support(id).is_empty())
 	atlas.from_dict(data.get("atlas", {}))
 	var sd: Dictionary = data.get("shop", {})
 	if sd.has("items"):

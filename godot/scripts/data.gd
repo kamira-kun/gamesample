@@ -3,21 +3,106 @@ extends Node
 
 var ui_font: SystemFont
 
-const SKILL_ORDER := ["slash", "fireball", "nova", "chain", "meteor", "dash"]
+# every skill, in the order the skill panel lists them; `lvl` is the character level that teaches it
+const SKILL_ORDER := ["slash", "whirl", "fireball", "ice_spear", "nova", "chain", "storm", "meteor", "dash", "skeleton"]
 const SKILLS := {
-	"slash": {"name": "斬撃", "icon": "⚔", "mana": 0, "cd": 0.0, "attack": true, "color": Color("#c9b48a"), "key": "LMB",
-		"desc": "前方の敵を薙ぎ払う。攻撃速度の影響を受ける。"},
-	"fireball": {"name": "ファイアボール", "icon": "✹", "mana": 6, "cd": 0.0, "cast": 0.42, "color": Color("#ff7a2a"), "key": "RMB",
-		"desc": "着弾時に爆発する火球を放つ。"},
-	"nova": {"name": "フロストノヴァ", "icon": "❄", "mana": 16, "cd": 5.0, "cast": 0.3, "color": Color("#7fd4ff"), "key": "Q",
-		"desc": "周囲に冷気を放ち、敵を凍結させる。"},
-	"chain": {"name": "チェインライトニング", "icon": "ϟ", "mana": 12, "cd": 1.0, "cast": 0.35, "color": Color("#c9a8ff"), "key": "E",
-		"desc": "カーソル付近の敵に雷を放ち、次々と連鎖する。"},
-	"meteor": {"name": "メテオ", "icon": "☄", "mana": 30, "cd": 9.0, "cast": 0.5, "color": Color("#ff4d2a"), "key": "R",
-		"desc": "カーソル位置に隕石を落とし、地面を燃やす。"},
-	"dash": {"name": "シャドウダッシュ", "icon": "➤", "mana": 8, "cd": 2.5, "color": Color("#9a8cff"), "key": "SPC",
-		"desc": "カーソル方向へ駆け抜け、通過した敵を切り裂く。移動中は無敵。"},
+	"slash": {"name": "斬撃", "icon": "⚔", "mana": 0, "cd": 0.0, "attack": true, "color": Color("#c9b48a"), "lvl": 1,
+		"tags": ["attack", "melee"], "desc": "前方の敵を薙ぎ払う。攻撃速度の影響を受ける。"},
+	"whirl": {"name": "旋風斬", "icon": "✲", "mana": 4, "cd": 0.0, "attack": true, "color": Color("#e0c070"), "lvl": 4,
+		"tags": ["attack", "melee", "aoe"], "desc": "その場で回転し、周囲の敵すべてを斬りつける。攻撃速度の影響を受ける。"},
+	"fireball": {"name": "ファイアボール", "icon": "✹", "mana": 6, "cd": 0.0, "cast": 0.42, "color": Color("#ff7a2a"), "lvl": 1,
+		"tags": ["spell", "projectile", "aoe", "fire"], "desc": "着弾時に爆発する火球を放つ。"},
+	"ice_spear": {"name": "アイススピア", "icon": "➶", "mana": 8, "cd": 0.0, "cast": 0.35, "color": Color("#9fe8ff"), "lvl": 3,
+		"tags": ["spell", "projectile", "cold"], "desc": "敵を貫通する氷の槍を放ち、短時間凍結させる。"},
+	"nova": {"name": "フロストノヴァ", "icon": "❄", "mana": 16, "cd": 5.0, "cast": 0.3, "color": Color("#7fd4ff"), "lvl": 1,
+		"tags": ["spell", "aoe", "cold"], "desc": "周囲に冷気を放ち、敵を凍結させる。"},
+	"chain": {"name": "チェインライトニング", "icon": "ϟ", "mana": 12, "cd": 1.0, "cast": 0.35, "color": Color("#c9a8ff"), "lvl": 1,
+		"tags": ["spell", "chain", "lightning"], "desc": "カーソル付近の敵に雷を放ち、次々と連鎖する。"},
+	"storm": {"name": "サンダーストーム", "icon": "☈", "mana": 24, "cd": 7.0, "cast": 0.4, "color": Color("#b0a0ff"), "lvl": 6,
+		"tags": ["spell", "aoe", "lightning"], "desc": "カーソル位置に雷雲を呼び、範囲内の敵に落雷を降らせ続ける。"},
+	"meteor": {"name": "メテオ", "icon": "☄", "mana": 30, "cd": 9.0, "cast": 0.5, "color": Color("#ff4d2a"), "lvl": 1,
+		"tags": ["spell", "aoe", "fire"], "desc": "カーソル位置に隕石を落とし、地面を燃やす。"},
+	"dash": {"name": "シャドウダッシュ", "icon": "➤", "mana": 8, "cd": 2.5, "color": Color("#9a8cff"), "lvl": 1,
+		"tags": ["attack", "movement"], "desc": "カーソル方向へ駆け抜け、通過した敵を切り裂く。移動中は無敵。"},
+	"skeleton": {"name": "骸骨召喚", "icon": "☠", "mana": 20, "cd": 0.8, "cast": 0.5, "color": Color("#e8e0c8"), "lvl": 2,
+		"tags": ["spell", "minion"], "desc": "戦う骸骨の戦士を2体呼び出す（最大3体）。骸骨は近くの敵に斬りかかる。"},
 }
+const TAG_NAMES := {"attack": "攻撃", "melee": "近接", "spell": "スペル", "projectile": "投射", "aoe": "範囲", "fire": "火炎",
+	"cold": "冷気", "lightning": "雷", "chain": "連鎖", "movement": "移動", "minion": "ミニオン"}
+
+# the six skill bar slots and the skills they start with
+const SLOT_KEYS := [{"short": "LMB", "label": "左クリック"}, {"short": "RMB", "label": "右クリック"}, {"short": "Q", "label": "Q"},
+	{"short": "E", "label": "E"}, {"short": "R", "label": "R"}, {"short": "SPC", "label": "Space"}]
+const DEFAULT_SLOTS := ["slash", "fireball", "nova", "chain", "meteor", "dash"]
+
+# support gems are linked to a skill slot and change how that skill behaves while it resolves.
+# `tags`: the skill needs one of them; `not`: it must have none. `mul`/`add`/`max` adjust the support modifiers.
+const SUPPORTS := [
+	{"id": "power", "name": "威力増幅", "color": Color("#ff9a6a"), "tags": ["attack", "spell"], "desc": "ダメージ +30%（ミニオンにも有効）／マナコスト +30%",
+		"mul": {"dmg": 1.3, "mana": 1.3}},
+	{"id": "haste", "name": "加速", "color": Color("#8fd18f"), "tags": ["attack", "spell"], "desc": "攻撃・詠唱速度 +25%（トーテム・ミニオンにも有効）",
+		"mul": {"speed": 1.25, "mana": 1.1}},
+	{"id": "multi", "name": "多重投射", "color": Color("#9fd8ff"), "tags": ["projectile"], "desc": "投射物 +2／ダメージ -20%",
+		"add": {"proj": 2}, "mul": {"dmg": 0.8, "mana": 1.2}},
+	{"id": "aoe", "name": "範囲拡大", "color": Color("#ffd36a"), "tags": ["aoe"], "desc": "効果範囲 +35%",
+		"mul": {"aoe": 1.35, "mana": 1.15}},
+	{"id": "chain_s", "name": "連鎖増幅", "color": Color("#c9a8ff"), "tags": ["chain"], "desc": "連鎖回数 +3",
+		"add": {"chain": 3}, "mul": {"mana": 1.2}},
+	{"id": "leech", "name": "生命吸収", "color": Color("#ff6a6a"), "tags": ["attack", "spell"], "desc": "与えたダメージの3%をライフとして回復",
+		"add": {"leech": 0.03}},
+	{"id": "frostbite", "name": "凍結付与", "color": Color("#bff4ff"), "tags": ["attack", "spell"], "desc": "命中した敵を0.4秒凍結させる",
+		"max": {"freeze": 0.4}, "mul": {"mana": 1.1}},
+	{"id": "totem", "name": "トーテム化", "color": Color("#d8a060"), "tags": ["spell"], "not": ["minion", "movement"],
+		"desc": "スキルの代わりにカーソル位置へトーテムを設置。トーテムが10秒間スキルを自動で放つ（最大2本）／ダメージ -15%",
+		"add": {"totem": 1}, "mul": {"dmg": 0.85}},
+	{"id": "minion_power", "name": "ミニオン強化", "color": Color("#e8e0c8"), "tags": ["minion"], "desc": "ミニオンのライフ +50%、ダメージ +30%",
+		"mul": {"mlife": 1.5, "dmg": 1.3}},
+	{"id": "swarm", "name": "軍勢", "color": Color("#b8b0a0"), "tags": ["minion"], "desc": "ミニオンの最大数 +2",
+		"add": {"mcount": 2}, "mul": {"mana": 1.2}},
+]
+const DEFAULT_GEMS := ["power", "haste"]
+const LINK_MAX := 3
+const GEM_COLOR := Color("#7fe0a0")
+
+
+static func link_sockets(level: int) -> int:
+	return 3 if level >= 10 else (2 if level >= 5 else 1)
+
+
+static func support(id: String) -> Dictionary:
+	for g in SUPPORTS:
+		if g.id == id:
+			return g
+	return {}
+
+
+static func support_fits(g: Dictionary, skill_id: String) -> bool:
+	var tags: Array = SKILLS[skill_id].tags
+	return g.tags.any(func(t): return t in tags) and not g.get("not", []).any(func(t): return t in tags)
+
+
+static func tag_text(tags: Array) -> String:
+	return "・".join(tags.map(func(t): return TAG_NAMES[t]))
+
+
+## the support modifiers a slot's linked gems give its skill (gems that don't fit are skipped)
+static func build_sup(skill_id: String, ids: Array) -> Dictionary:
+	var s := {"dmg": 1.0, "mana": 1.0, "speed": 1.0, "proj": 0, "aoe": 1.0, "chain": 0, "leech": 0.0, "freeze": 0.0,
+		"totem": 0, "mlife": 1.0, "mcount": 0, "ids": []}
+	if skill_id == "":
+		return s
+	for id in ids:
+		var g := support(id)
+		if g.is_empty() or not support_fits(g, skill_id):
+			continue
+		for k in g.get("mul", {}):
+			s[k] *= g.mul[k]
+		for k in g.get("add", {}):
+			s[k] += g.add[k]
+		for k in g.get("max", {}):
+			s[k] = maxf(s[k], g.max[k])
+		s.ids.append(id)
+	return s
 
 # radii and ranges are in meters (one dungeon tile = 2 m)
 const ENEMY_TYPES := {

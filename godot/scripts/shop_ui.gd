@@ -7,9 +7,12 @@ var gold := Label.new()
 var stock_grid := GridContainer.new()
 var bag_grid := GridContainer.new()
 var cur_grid := GridContainer.new()
+var gem_grid := GridContainer.new()
 var potion_btn := Button.new()
 var reroll_btn := Button.new()
 var bag_count := Label.new()
+
+const GEM_PRICE := 300
 
 
 func _ready() -> void:
@@ -55,6 +58,11 @@ func _ready() -> void:
 	cur_grid.add_theme_constant_override("h_separation", 4)
 	cur_grid.add_theme_constant_override("v_separation", 4)
 	left.add_child(cur_grid)
+	left.add_child(_sub("サポートジェム"))
+	gem_grid.columns = 2
+	gem_grid.add_theme_constant_override("h_separation", 4)
+	gem_grid.add_theme_constant_override("v_separation", 4)
+	left.add_child(gem_grid)
 
 	var right := VBoxContainer.new()
 	right.add_theme_constant_override("separation", 8)
@@ -139,6 +147,22 @@ func refresh() -> void:
 		b.tooltip_text = "%s\n所持数 %d" % [cdef.desc, p.cur[cdef.k]]
 		b.pressed.connect(_buy_currency.bind(cdef.k, cost))
 		cur_grid.add_child(b)
+	for c in gem_grid.get_children():
+		c.free()
+	var missing := Data.SUPPORTS.filter(func(g): return not g.id in p.gems)
+	if missing.is_empty():
+		gem_grid.add_child(_sub("すべて入手済み"))
+	for g in missing:
+		var b := Button.new()
+		b.text = "◇ %s  ◆%d" % [g.name, GEM_PRICE]
+		b.add_theme_color_override("font_color", g.color)
+		b.add_theme_font_size_override("font_size", 13)
+		b.custom_minimum_size = Vector2(170, 28)
+		b.disabled = p.cur.ember < GEM_PRICE
+		b.mouse_entered.connect(func(): hud.show_tip(SkillUI.gem_tip(g)))
+		b.mouse_exited.connect(func(): hud.hide_tip())
+		b.pressed.connect(_buy_gem.bind(g.id))
+		gem_grid.add_child(b)
 	for c in bag_grid.get_children():
 		c.free()
 	for i in Player.BAG_SIZE:
@@ -212,4 +236,14 @@ func _buy_currency(k: String, cost: int) -> void:
 		return
 	p.cur.ember -= cost
 	p.cur[k] += 1
+	refresh()
+
+
+func _buy_gem(id: String) -> void:
+	var p: Player = hud.main.player
+	if p.cur.ember < GEM_PRICE or id in p.gems:
+		return
+	p.cur.ember -= GEM_PRICE
+	hud.main.unlock_gem(id)
+	hud.hide_tip()
 	refresh()

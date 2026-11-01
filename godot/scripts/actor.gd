@@ -8,6 +8,7 @@ var pos := Vector2.ZERO
 var r := 0.5
 var face := 0.0          # ground-plane angle the actor looks toward
 var hit_t := 0.0
+var dead := false
 var walk_t := 0.0
 var frosted := false
 var model := Node3D.new()

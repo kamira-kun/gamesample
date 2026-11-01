@@ -23,10 +23,11 @@ var act_t := 2.0
 var elite: Dictionary = {}
 var boss := false
 var pack := 0
-var dead := false
 var display_name := ""
 var aura: MeshInstance3D
 var winding := false
+var tgt: Actor = null       # who it is fighting: the player, a minion or a totem
+var tgt_t := 0.0
 
 # KayKit rigs per monster type (imps keep their primitive look)
 const RIGS := {

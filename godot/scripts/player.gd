@@ -12,7 +12,6 @@ var swing_t := 0.0
 var invuln := 0.0
 var aim := 0.0
 var dash := {}
-var dead := false
 var potions := 3
 var potion_prog := 0
 var torch: OmniLight3D
@@ -24,6 +23,10 @@ var equip := {}              # slot -> item
 var bag: Array = []
 var cur := {}                # currency key -> count
 var effects := {}            # legendary effects granted by gear
+# skills: the skill in each skill bar slot, the support gems linked to each slot, and the gems owned
+var slots: Array = Data.DEFAULT_SLOTS.duplicate()
+var links: Array = [[], [], [], [], [], []]
+var gems: Array = Data.DEFAULT_GEMS.duplicate()
 
 
 func _init() -> void:
