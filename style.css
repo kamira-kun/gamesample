@@ -1,0 +1,123 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #040306; color: #e8dcc4;
+  font-family: "Yu Gothic UI", "Hiragino Sans", "Meiryo", sans-serif; user-select: none; }
+canvas#game { position: fixed; inset: 0; display: block; cursor: crosshair; }
+.hidden { display: none !important; }
+
+#topinfo { position: fixed; top: 12px; left: 16px; font-size: 15px; text-shadow: 0 1px 3px #000; letter-spacing: .05em; }
+#topinfo .gold { color: #ffcf3a; }
+#minimap { position: fixed; top: 12px; right: 12px; width: 200px; height: 200px; border: 1px solid #5a4a36;
+  border-radius: 6px; box-shadow: 0 0 12px #000; }
+#messages { position: fixed; top: 70px; left: 50%; transform: translateX(-50%); text-align: center; pointer-events: none; }
+.msg { font-size: 16px; text-shadow: 0 1px 3px #000, 0 0 8px #000; margin: 3px 0; transition: opacity .8s; }
+.msg.fade { opacity: 0; }
+#talentHint { position: fixed; bottom: 150px; left: 50%; transform: translateX(-50%); color: #ffe27a;
+  font-size: 14px; text-shadow: 0 1px 3px #000; animation: pulse 1.4s infinite; }
+@keyframes pulse { 50% { opacity: .45; } }
+
+#bossbar { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); width: min(520px, 60vw); text-align: center; }
+#bossName { color: #ff7a5a; font-size: 16px; letter-spacing: .15em; text-shadow: 0 1px 4px #000; margin-bottom: 4px; }
+#bossbar .bar { height: 12px; background: #1a0808; border: 1px solid #6a2a1a; }
+#bossFill { height: 100%; background: linear-gradient(#e0402a, #7a1408); width: 100%; transition: width .15s; }
+
+#hud { position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%); display: flex; align-items: flex-end; gap: 14px; }
+.orb { width: 116px; height: 116px; border-radius: 50%; position: relative; overflow: hidden;
+  border: 3px solid #6a5434; background: #0c0808; box-shadow: 0 0 16px #000, inset 0 0 18px #000; }
+.orb .fill { position: absolute; inset: 0; transition: transform .12s; }
+.orb.life .fill { background: radial-gradient(circle at 40% 35%, #ff6a5a, #a01414 55%, #500808); }
+.orb.mana .fill { background: radial-gradient(circle at 40% 35%, #6aa8ff, #1a3aa0 55%, #0a1450); }
+.orb::after { content: ''; position: absolute; inset: 0; border-radius: 50%;
+  background: radial-gradient(circle at 35% 25%, rgba(255,255,255,.28), transparent 40%); }
+.orb span { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: bold; text-shadow: 0 1px 2px #000; z-index: 1; }
+.center { display: flex; flex-direction: column; align-items: center; gap: 6px; padding-bottom: 4px; }
+#potion { font-size: 13px; color: #ff9a8a; text-shadow: 0 1px 2px #000; }
+#potion small { color: #998; }
+#skillbar { display: flex; gap: 6px; padding: 6px; background: rgba(10,8,6,.85); border: 1px solid #5a4a36; border-radius: 6px; }
+.skill { width: 54px; height: 54px; position: relative; border: 1px solid #6a5a44; border-radius: 4px;
+  background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--c) 45%, #000), #0a0806 75%);
+  display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.skill .icon { font-size: 26px; color: var(--c); text-shadow: 0 0 8px var(--c); }
+.skill .cd { position: absolute; inset: 0; }
+.skill .key { position: absolute; bottom: 1px; left: 3px; font-size: 10px; color: #ddd; text-shadow: 0 1px 1px #000; }
+.skill .cost { position: absolute; top: 1px; right: 3px; font-size: 10px; color: #8fb4ff; text-shadow: 0 1px 1px #000; }
+.skill.oom { filter: grayscale(.8) brightness(.6); }
+#xpbar { width: 100%; height: 6px; background: #1a1610; border: 1px solid #4a3a26; }
+#xpFill { height: 100%; background: linear-gradient(90deg, #c08a2a, #ffd36a); width: 0; }
+
+.panel { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(16,12,9,.97);
+  border: 1px solid #7a6040; border-radius: 8px; box-shadow: 0 0 40px #000; padding: 14px 16px; max-height: 92vh; overflow: auto; }
+.phead { font-size: 18px; color: #f0d8a0; letter-spacing: .1em; margin-bottom: 12px; display: flex; align-items: center; gap: 14px; }
+.phead .hint { font-size: 12px; color: #998a70; letter-spacing: 0; flex: 1; }
+.phead button { background: none; border: 1px solid #6a5434; color: #ddd; width: 28px; height: 28px; border-radius: 4px; cursor: pointer; }
+.inv-body { display: flex; gap: 20px; }
+.sub { font-size: 13px; color: #b8a888; margin-bottom: 6px; }
+#equip { display: grid; grid-template-columns: repeat(3, 58px); grid-template-areas: ". helm amulet" "weapon armor gloves" "ring boots ."; gap: 6px; margin-bottom: 12px; }
+.eq-weapon { grid-area: weapon; } .eq-helm { grid-area: helm; } .eq-armor { grid-area: armor; } .eq-gloves { grid-area: gloves; }
+.eq-boots { grid-area: boots; } .eq-ring { grid-area: ring; } .eq-amulet { grid-area: amulet; }
+#bag { display: grid; grid-template-columns: repeat(6, 50px); gap: 4px; }
+.slot { width: 50px; height: 50px; border: 1px solid #3a3024; background: #0c0a08; border-radius: 3px;
+  display: flex; align-items: center; justify-content: center; font-size: 11px; color: #554a3a; }
+.eqslot .slot { width: 58px; height: 58px; }
+.slot.item { cursor: pointer; font-size: 22px; font-weight: bold; text-shadow: 0 1px 3px #000; }
+.slot.item:hover { filter: brightness(1.3); }
+.r0 { color: #cfcfcf; border-color: #555; background: radial-gradient(#2a2a2a, #0c0c0c); }
+.r1 { color: #7ab0ff; border-color: #3a5a9a; background: radial-gradient(#1a2a4a, #0a0c14); }
+.r2 { color: #ffd23f; border-color: #9a7a1a; background: radial-gradient(#4a3a0a, #120e04); }
+.r3 { color: #ff8a2c; border-color: #c05a10; background: radial-gradient(#5a2a08, #140804); box-shadow: 0 0 8px rgba(255,120,30,.5); }
+#stats { font-size: 12px; width: 186px; }
+#stats div { display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px solid #241c14; }
+#stats span { color: #998a70; }
+
+#talents { width: min(560px, 94vw); }
+#talentList h3 { font-size: 14px; color: #b8a888; margin: 14px 0 6px; font-weight: normal; letter-spacing: .1em; }
+.talent { display: grid; grid-template-columns: 150px 1fr 56px 34px; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid #241c14; }
+.tname { color: #f0d8a0; } .tdesc { font-size: 12px; color: #a89a80; } .trank { font-size: 13px; text-align: right; }
+.talent button { width: 30px; height: 30px; background: #3a2a14; border: 1px solid #a08040; color: #ffe0a0; font-size: 18px; border-radius: 4px; cursor: pointer; }
+.talent button:disabled { opacity: .3; cursor: default; }
+
+#status { width: min(860px, 96vw); }
+.status-body { display: flex; gap: 22px; }
+.portrait-col { width: 240px; flex-shrink: 0; text-align: center; }
+.portrait { width: 240px; height: 300px; position: relative; border: 2px solid #8a6a3a; border-radius: 6px; overflow: hidden;
+  box-shadow: 0 0 18px rgba(255,140,40,.25), inset 0 0 30px #000; background: #0a0706; }
+.portrait canvas, .portrait img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.portrait::after { content: ''; position: absolute; inset: 0; pointer-events: none;
+  box-shadow: inset 0 0 0 1px rgba(255,220,160,.15), inset 0 -60px 50px -30px rgba(0,0,0,.8); }
+#charName { margin-top: 10px; font-size: 18px; color: #f0d8a0; letter-spacing: .15em; }
+#charLevel { font-size: 13px; color: #b8a888; margin: 2px 0 6px; }
+.xpline { height: 6px; background: #1a1610; border: 1px solid #4a3a26; }
+#charXp { height: 100%; background: linear-gradient(90deg, #c08a2a, #ffd36a); }
+#charXpText { font-size: 11px; color: #998a70; margin-top: 3px; }
+#charRes { display: flex; justify-content: space-around; margin-top: 10px; font-size: 13px; }
+#charRes b { display: block; font-size: 17px; }
+.status-cols { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 20px; min-width: 0; }
+.status-cols h3 { font-size: 13px; color: #b8a888; font-weight: normal; letter-spacing: .15em; margin: 0 0 6px;
+  border-bottom: 1px solid #5a4a36; padding-bottom: 4px; }
+.status-cols h3:not(:first-child) { margin-top: 14px; }
+.statlist div, .equiplist div, .skilllist div { display: flex; justify-content: space-between; gap: 8px; font-size: 12.5px;
+  padding: 3px 0; border-bottom: 1px solid #241c14; }
+.statlist span, .equiplist span, .skilllist span { color: #998a70; white-space: nowrap; }
+.statlist .grp { color: #d8b890; border: 0; padding-top: 8px; font-size: 12px; }
+.equiplist b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: normal; }
+@media (max-width: 760px) { .status-body { flex-direction: column; align-items: center; } .status-cols { grid-template-columns: 1fr; width: 100%; } }
+
+#tooltip { position: fixed; z-index: 50; max-width: 320px; background: rgba(8,6,4,.97); border: 1px solid #7a6040;
+  border-radius: 4px; padding: 8px 12px; font-size: 13px; line-height: 1.55; pointer-events: none; }
+#tooltip .big { font-size: 16px; font-weight: bold; }
+#tooltip hr { border: 0; border-top: 1px solid #3a3024; margin: 5px 0; }
+
+.overlay { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+  background: radial-gradient(ellipse at center, rgba(60,24,10,.85), rgba(4,3,6,.97) 70%); z-index: 20; }
+.logo { font-size: clamp(48px, 9vw, 96px); letter-spacing: .25em; color: #ffb35a; font-family: Georgia, serif;
+  text-shadow: 0 0 30px rgba(255,120,30,.6), 0 4px 0 #3a1a08; }
+.logo.dead { color: #c03030; text-shadow: 0 0 30px rgba(200,0,0,.5); letter-spacing: .1em; }
+.sublogo { font-size: 22px; letter-spacing: .6em; color: #d8b890; margin-top: -10px; }
+.lore { color: #a89878; text-align: center; line-height: 1.8; }
+.btn { min-width: 280px; padding: 12px 24px; font-size: 16px; background: linear-gradient(#4a3018, #24160a); color: #ffe0b0;
+  border: 1px solid #a07040; border-radius: 4px; cursor: pointer; font-family: inherit; letter-spacing: .1em; }
+.btn:hover { background: linear-gradient(#6a4420, #3a220e); }
+.controls { display: grid; grid-template-columns: repeat(3, auto); gap: 6px 24px; font-size: 13px; color: #b8a888; margin: 10px 0; }
+.controls b { color: #ffe0a0; margin-right: 6px; }
+.controls.small { margin-top: 24px; opacity: .8; }
+#pause { text-align: center; }

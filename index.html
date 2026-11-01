@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Emberfall — 残り火の深淵</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="topinfo"></div>
+<canvas id="minimap" width="200" height="200"></canvas>
+<div id="bossbar" class="hidden"><div id="bossName"></div><div class="bar"><div id="bossFill"></div></div></div>
+<div id="messages"></div>
+<div id="talentHint" class="hidden">タレントポイントがあります [T]</div>
+
+<div id="hud">
+  <div class="orb life"><div class="fill" id="lifeFill"></div><span id="lifeText"></span></div>
+  <div class="center">
+    <div id="potion"></div>
+    <div id="skillbar"></div>
+    <div id="xpbar"><div id="xpFill"></div></div>
+  </div>
+  <div class="orb mana"><div class="fill" id="manaFill"></div><span id="manaText"></span></div>
+</div>
+
+<div id="inventory" class="panel hidden">
+  <div class="phead">インベントリ <span class="hint">クリック：装備／外す　右クリック：売却</span><button data-close>×</button></div>
+  <div class="inv-body">
+    <div class="left">
+      <div id="equip"></div>
+      <div id="stats"></div>
+    </div>
+    <div class="right">
+      <div class="sub">所持品 <span id="bagCount"></span></div>
+      <div id="bag"></div>
+    </div>
+  </div>
+</div>
+
+<div id="talents" class="panel hidden">
+  <div class="phead">タレント <span class="hint">残りポイント <b id="talentPts"></b></span><button data-close>×</button></div>
+  <div id="talentList"></div>
+</div>
+
+<div id="status" class="panel hidden">
+  <div class="phead">キャラクター <span class="hint">[C] で開閉</span><button data-close>×</button></div>
+  <div class="status-body">
+    <div class="portrait-col">
+      <div class="portrait">
+        <canvas id="portraitCanvas" width="240" height="300"></canvas>
+        <img id="portraitImg" class="hidden" alt="肖像画">
+      </div>
+      <div id="charName">灯火の探索者</div>
+      <div id="charLevel"></div>
+      <div class="xpline"><div id="charXp"></div></div>
+      <div id="charXpText"></div>
+      <div id="charRes"></div>
+    </div>
+    <div class="status-cols">
+      <div><h3>能力値</h3><div id="charStats" class="statlist"></div></div>
+      <div>
+        <h3>装備</h3><div id="charEquip" class="equiplist"></div>
+        <h3>スキル</h3><div id="charSkills" class="skilllist"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="pause" class="panel hidden">
+  <div class="phead">一時停止<button data-close>×</button></div>
+  <div class="controls">
+    <div><b>WASD</b> 移動</div><div><b>左クリック</b> 斬撃</div><div><b>右クリック</b> ファイアボール</div>
+    <div><b>Q</b> フロストノヴァ</div><div><b>E</b> チェインライトニング</div><div><b>R</b> メテオ</div>
+    <div><b>Space</b> シャドウダッシュ</div><div><b>F</b> 回復薬</div><div><b>I / Tab</b> インベントリ</div>
+    <div><b>T</b> タレント</div><div><b>C</b> キャラクター</div><div><b>Esc</b> 閉じる／一時停止</div>
+  </div>
+  <button id="quitBtn" class="btn">セーブしてタイトルへ</button>
+</div>
+
+<div id="tooltip" class="hidden"></div>
+
+<div id="title" class="overlay">
+  <div class="logo">EMBERFALL</div>
+  <div class="sublogo">残り火の深淵</div>
+  <p class="lore">灯火を手に、果てしなく続く深淵へ降りよ。<br>番人を倒し、より深く、より強く。</p>
+  <button id="continueBtn" class="btn hidden"></button>
+  <button id="newBtn" class="btn">新しく始める</button>
+  <div class="controls small">
+    <div><b>WASD</b> 移動</div><div><b>左/右クリック</b> 斬撃 / ファイアボール</div>
+    <div><b>Q E R</b> スキル</div><div><b>Space</b> ダッシュ</div><div><b>F</b> 回復薬</div><div><b>I / T / C</b> 所持品 / タレント / キャラ</div>
+  </div>
+</div>
+
+<div id="death" class="overlay hidden">
+  <div class="logo dead">力尽きた…</div>
+  <p class="lore">経験値の一部を失い、この深度の入口から再挑戦します。</p>
+  <button id="retryBtn" class="btn">再挑戦する</button>
+</div>
+
+<script src="js/util.js"></script>
+<script src="js/data.js"></script>
+<script src="js/dungeon.js"></script>
+<script src="js/items.js"></script>
+<script src="js/game.js"></script>
+<script src="js/render.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
