@@ -14,17 +14,17 @@ const SKILLS := {
 		"tags": ["spell", "projectile", "aoe", "fire"], "desc": "着弾時に爆発する火球を放つ。"},
 	"ice_spear": {"name": "アイススピア", "icon": "➶", "mana": 8, "cd": 0.0, "cast": 0.35, "color": Color("#9fe8ff"), "lvl": 3,
 		"tags": ["spell", "projectile", "cold"], "desc": "敵を貫通する氷の槍を放ち、短時間凍結させる。"},
-	"nova": {"name": "フロストノヴァ", "icon": "❄", "mana": 16, "cd": 5.0, "cast": 0.3, "color": Color("#7fd4ff"), "lvl": 1,
+	"nova": {"name": "フロストノヴァ", "icon": "❄", "mana": 16, "cd": 0.0, "cast": 0.5, "color": Color("#7fd4ff"), "lvl": 1,
 		"tags": ["spell", "aoe", "cold"], "desc": "周囲に冷気を放ち、敵を凍結させる。"},
-	"chain": {"name": "チェインライトニング", "icon": "ϟ", "mana": 12, "cd": 1.0, "cast": 0.35, "color": Color("#c9a8ff"), "lvl": 1,
+	"chain": {"name": "チェインライトニング", "icon": "ϟ", "mana": 12, "cd": 0.0, "cast": 0.4, "color": Color("#c9a8ff"), "lvl": 1,
 		"tags": ["spell", "chain", "lightning"], "desc": "カーソル付近の敵に雷を放ち、次々と連鎖する。"},
-	"storm": {"name": "サンダーストーム", "icon": "☈", "mana": 24, "cd": 7.0, "cast": 0.4, "color": Color("#b0a0ff"), "lvl": 6,
+	"storm": {"name": "サンダーストーム", "icon": "☈", "mana": 24, "cd": 0.0, "cast": 0.75, "color": Color("#b0a0ff"), "lvl": 6,
 		"tags": ["spell", "aoe", "lightning"], "desc": "カーソル位置に雷雲を呼び、範囲内の敵に落雷を降らせ続ける。"},
-	"meteor": {"name": "メテオ", "icon": "☄", "mana": 30, "cd": 9.0, "cast": 0.5, "color": Color("#ff4d2a"), "lvl": 1,
+	"meteor": {"name": "メテオ", "icon": "☄", "mana": 30, "cd": 0.0, "cast": 0.9, "color": Color("#ff4d2a"), "lvl": 1,
 		"tags": ["spell", "aoe", "fire"], "desc": "カーソル位置に隕石を落とし、地面を燃やす。"},
 	"dash": {"name": "シャドウダッシュ", "icon": "➤", "mana": 8, "cd": 2.5, "color": Color("#9a8cff"), "lvl": 1,
 		"tags": ["attack", "movement"], "desc": "カーソル方向へ駆け抜け、通過した敵を切り裂く。移動中は無敵。"},
-	"skeleton": {"name": "骸骨召喚", "icon": "☠", "mana": 20, "cd": 0.8, "cast": 0.5, "color": Color("#e8e0c8"), "lvl": 2,
+	"skeleton": {"name": "骸骨召喚", "icon": "☠", "mana": 20, "cd": 0.0, "cast": 0.6, "color": Color("#e8e0c8"), "lvl": 2,
 		"tags": ["spell", "minion"], "desc": "戦う骸骨の戦士を2体呼び出す（最大3体）。骸骨は近くの敵に斬りかかる。"},
 }
 const TAG_NAMES := {"attack": "攻撃", "melee": "近接", "spell": "スペル", "projectile": "投射", "aoe": "範囲", "fire": "火炎",
@@ -215,7 +215,7 @@ const AFFIXES := [
 	{"k": "life_regen", "fmt": "ライフ回復 +%d/秒", "word": "再生の", "min": 1, "max": 3, "sc": 0.1, "slots": ["armor", "helm", "amulet", "boots"]},
 	{"k": "mana_regen", "fmt": "マナ回復 +%d/秒", "word": "瞑想の", "min": 1, "max": 3, "sc": 0.05, "slots": ["helm", "ring", "amulet", "armor"]},
 	{"k": "life_on_kill", "fmt": "撃破時ライフ +%d", "word": "貪欲な", "min": 2, "max": 5, "sc": 0.12, "slots": ["weapon", "gloves", "ring"]},
-	{"k": "cdr", "fmt": "クールダウン短縮 +%d%%", "word": "時を刻む", "min": 3, "max": 7, "sc": 0.0, "slots": ["helm", "amulet"]},
+	{"k": "cdr", "fmt": "移動スキルのクールダウン短縮 +%d%%", "word": "時を刻む", "min": 3, "max": 7, "sc": 0.0, "slots": ["helm", "amulet"]},
 ]
 
 const LEGENDARY := [

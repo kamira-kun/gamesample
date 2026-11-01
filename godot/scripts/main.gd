@@ -933,9 +933,9 @@ func _try_cast(i: int) -> void:
 	if not s.totem and id == "chain" and _chain_target(c) == null:
 		return
 	p.mana -= cost
-	var cd: float = maxf(sk.cd, 1.5) if s.totem else sk.cd
-	if cd > 0.0:
-		p.cds[id] = cd * (1.0 - p.s.cdr / 100.0)
+	# only movement skills keep a cooldown; everything else is paced by attack / cast speed
+	if sk.cd > 0.0:
+		p.cds[id] = sk.cd * (1.0 - p.s.cdr / 100.0)
 	if sk.get("attack", false):
 		p.action_t = 1.0 / p.s.attack_rate / s.speed
 	elif sk.has("cast"):
@@ -1037,7 +1037,7 @@ func _cast_ice_spear(c: Dictionary) -> void:
 
 func _cast_nova(c: Dictionary, free := false) -> void:
 	if c.player and not free:
-		player.act("Spellcast_Raise", 2.2, 0.35)
+		player.act("Spellcast_Raise", 2.2, player.action_t)
 	var rad: float = 8.0 * sup.aoe
 	Fx.ring(level_root, to3(c.pos), rad, Color("#8cdcff"), 0.4)
 	Fx.burst(level_root, to3(c.pos, 0.6), 50, Color("#aee8ff"), 14.0, 0.5, 0.0)
@@ -1129,7 +1129,7 @@ func _update_storms(delta: float) -> void:
 
 func _cast_meteor(c: Dictionary) -> void:
 	if c.player:
-		player.act("Spellcast_Long", 2.0, 0.5)
+		player.act("Spellcast_Long", 2.0, player.action_t)
 	var at := _aim_point(c, 20.0)
 	_drop_meteor(at, 0.75)
 	if player.effects.has("meteor_shower"):
@@ -1335,7 +1335,7 @@ func _update_totems(delta: float) -> void:
 			t.cast_t = 0.3
 			continue
 		var sk: Dictionary = Data.SKILLS[t.skill]
-		t.cast_t = maxf(0.45, maxf(sk.get("cast", 0.4) * 1.5 / t.sup.speed, sk.cd * 0.7))
+		t.cast_t = maxf(0.45, sk.get("cast", 0.4) * 1.5 / t.sup.speed)
 		t.face = (best.pos - t.pos).angle()
 		var c := {"pos": t.pos, "aim": t.face, "to": best.pos, "player": false}
 		_with_sup(t.sup, func(): call("_cast_" + t.skill, c))
