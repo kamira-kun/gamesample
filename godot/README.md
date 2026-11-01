@@ -35,6 +35,7 @@
 - `scripts/main.gd` — ゲームループ、ダンジョンの3D化、スキル・敵AI・戦闘、カメラ
 - `scripts/dungeon.gd` — 部屋と通路のダンジョン生成、経路探索（ゲームの計算は平面グリッド上）
 - `scripts/player.gd` / `enemy.gd` / `actor.gd` — キャラクターと仮モデル
+- `scripts/heroine.gd` — 操作キャラの見た目（騎士の体にローグの顔、ピンクの髪・アホ毛・丸メガネ、紺と銀の鎧）
 - `scripts/hud.gd` — HUD（オーブ、スキルバー、体力バー、ダメージ数字、死亡画面）
 - `scripts/items.gd` / `inventory_ui.gd` / `item_slot.gd` — アイテム生成・クラフト・インベントリ画面
 - `scripts/item_icon.gd` — 装備のベースごとのアイコン（ベクター描画）
@@ -53,7 +54,7 @@
 ## 素材（CC0）
 `assets/kaykit/` に Kay Lousberg 氏の KayKit シリーズ（CC0）を収録しています。各フォルダに LICENSE.txt があります。
 - [KayKit Dungeon Remastered](https://github.com/KayKit-Game-Assets/KayKit-Dungeon-Remastered-1.0) — 床、壁、柱、たいまつ、小物
-- [KayKit Character Pack: Adventurers](https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0) — プレイヤー（騎士）、ボス（バーバリアン）、プレイヤーが手に持つ武器（装備中の武器に合わせて切り替え）
+- [KayKit Character Pack: Adventurers](https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0) — プレイヤー（騎士の体とローグの頭を組み合わせて色を塗り替え）、ボス（バーバリアン）、プレイヤーが手に持つ武器（装備中の武器に合わせて切り替え）
 - [KayKit Character Pack: Skeletons](https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Skeletons-1.0) — スケルトン系の敵
 
 インプと灯り狐はまだ仮の図形です。灼熱の巨像は大きなスケルトン戦士、凍嵐の魔女は魔法使いのモデルを使っています。

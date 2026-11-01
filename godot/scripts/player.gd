@@ -43,7 +43,7 @@ const WEAPON_MODELS := {
 	"片手剣": {"rig": "1H_Sword"}, "戦斧": {"gltf": "axe_1handed"}, "大槌": {"gltf": "axe_2handed", "two": true},
 	"ルーンの杖": {"gltf": "staff", "two": true}, "短剣": {"gltf": "dagger"},
 }
-var _gear_key := ""
+var _gear_key := "-"          # weapon base last shown; "-" forces the first refresh
 var _held: Node3D
 # loot filter: per rarity "pick" | "sell" (sold on pickup) | "hide" (sold the moment it drops);
 # unchecked equipment slots are hidden too, except legendaries
@@ -64,6 +64,7 @@ func _init() -> void:
 func _ready() -> void:
 	r = 0.45
 	use_rig(Assets.ADVENTURERS + "Knight.glb", 1.0, ["1H_Sword", "Round_Shield"])
+	Heroine.dress(self)
 	torch = OmniLight3D.new()
 	torch.position = Vector3(0, 3.2, 0)
 	torch.omni_range = 15.0
@@ -148,19 +149,17 @@ func recalc(full := false) -> void:
 	refresh_gear()
 
 
-## show the equipped weapon in hand, the shield with one-handers, and the helmet only when a helm is worn
+## show the equipped weapon in hand and the shield with one-handers
 func refresh_gear() -> void:
 	if rig == null:
 		return
 	var base: String = equip.get("weapon", {}).get("base", "")
-	var key := "%s|%s" % [base, equip.has("helm")]
-	if key == _gear_key:
+	if base == _gear_key:
 		return
-	_gear_key = key
+	_gear_key = base
 	var m: Dictionary = WEAPON_MODELS.get(base, {})
 	rig.find_child("1H_Sword", true, false).visible = m.get("rig", "") == "1H_Sword"
 	rig.find_child("Round_Shield", true, false).visible = not m.is_empty() and not m.get("two", false)
-	rig.find_child("Knight_Helmet", true, false).visible = equip.has("helm")
 	if _held:
 		for mi in _held.find_children("*", "MeshInstance3D", true, false):
 			rig_meshes.erase(mi)
