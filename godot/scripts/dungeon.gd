@@ -9,6 +9,7 @@ var w: int
 var h: int
 var level: int
 var tiles := PackedByteArray()   # 0 = wall, 1 = floor
+var blocked := PackedByteArray() # 1 = floor tile occupied by a prop
 var noise := PackedByteArray()
 var flow := PackedInt32Array()
 var rooms: Array = []            # Dictionary {x, y, w, h, cx, cy}
@@ -21,6 +22,7 @@ func _init(width: int, height: int, lvl: int) -> void:
 	h = height
 	level = lvl
 	tiles.resize(w * h)
+	blocked.resize(w * h)
 	noise.resize(w * h)
 	for i in noise.size():
 		noise[i] = randi() % 256
@@ -33,7 +35,7 @@ func idx(x: int, y: int) -> int:
 
 
 func is_wall(tx: int, ty: int) -> bool:
-	return tx < 0 or ty < 0 or tx >= w or ty >= h or tiles[ty * w + tx] == 0
+	return tx < 0 or ty < 0 or tx >= w or ty >= h or tiles[ty * w + tx] == 0 or blocked[ty * w + tx] == 1
 
 
 func solid_at(p: Vector2) -> bool:

@@ -3,7 +3,6 @@ extends Node3D
 ## Logic works on the flat grid (Vector2 = ground x/z); nodes only mirror it.
 
 const T := Dungeon.T
-const WALL_H := 1.6
 const CAM_PITCH := 0.96      # ~55 degrees above the ground
 const CAM_YAW := PI / 4.0
 const CAM_DIST := 36.0
@@ -140,7 +139,7 @@ func spawn_floor() -> void:
 	add_child(level_root)
 	map = Dungeon.new(72, 72, floor_level)
 	theme = Data.THEMES[((floor_level - 1) / 3) % Data.THEMES.size()]
-	_build_level_mesh()
+	LevelBuilder.build(map, theme, level_root)
 	player.pos = map.tile_center(map.start.cx, map.start.cy)
 	player.dead = false
 	player.dash = {}
@@ -150,48 +149,6 @@ func spawn_floor() -> void:
 	_spawn_enemies()
 	hud.set_boss(null)
 	hud.message("深度 %d — %s" % [floor_level, theme.name], Color("#e8d8b0"))
-
-
-func _near_floor(tx: int, ty: int) -> bool:
-	for dy in range(-1, 2):
-		for dx in range(-1, 2):
-			if not map.is_wall(tx + dx, ty + dy):
-				return true
-	return false
-
-
-## floor tiles and wall blocks as two multimeshes (one draw call each)
-func _build_level_mesh() -> void:
-	var floors: Array[Vector2i] = []
-	var walls: Array[Vector2i] = []
-	for ty in map.h:
-		for tx in map.w:
-			if not map.is_wall(tx, ty):
-				floors.append(Vector2i(tx, ty))
-			elif _near_floor(tx, ty):
-				walls.append(Vector2i(tx, ty))
-	_add_tiles(floors, Fx.box(Vector3(T - 0.06, 0.3, T - 0.06)), -0.15, theme.floor, 0.012)
-	_add_tiles(walls, Fx.box(Vector3(T, WALL_H, T)), WALL_H / 2.0, theme.wall, 0.02)
-
-
-func _add_tiles(cells: Array[Vector2i], m: Mesh, y: float, base: Color, vary: float) -> void:
-	var mm := MultiMesh.new()
-	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.use_colors = true
-	mm.mesh = m
-	mm.instance_count = cells.size()
-	for i in cells.size():
-		var c := cells[i]
-		mm.set_instance_transform(i, Transform3D(Basis(), Vector3(c.x * T + T / 2.0, y, c.y * T + T / 2.0)))
-		var v := (map.noise[map.idx(c.x, c.y)] % 17 - 8) * vary
-		mm.set_instance_color(i, Color(base.r + v, base.g + v, base.b + v))
-	var material := StandardMaterial3D.new()
-	material.vertex_color_use_as_albedo = true
-	material.roughness = 0.95
-	var mmi := MultiMeshInstance3D.new()
-	mmi.multimesh = mm
-	mmi.material_override = material
-	level_root.add_child(mmi)
 
 
 func _spawn_enemies() -> void:
@@ -242,8 +199,8 @@ func _spawn_pack(c: Vector2, pack_id: int, n: int, pool: Array) -> void:
 
 func _make_enemy(kind: String, at: Vector2, pack_id: int, affix: Dictionary = {}) -> Enemy:
 	var e := Enemy.new()
-	e.setup(kind, at, floor_level, pack_id, affix)
 	level_root.add_child(e)
+	e.setup(kind, at, floor_level, pack_id, affix)
 	e.sync_node(0.0, false)
 	enemies.append(e)
 	return e
@@ -261,10 +218,11 @@ func _process(delta: float) -> void:
 			flow_t = 0.25
 			map.compute_flow(player.pos)
 		for e in enemies:
-			if not e.dead and e.pos.distance_squared_to(player.pos) < 60.0 * 60.0:
+			var d2 := e.pos.distance_squared_to(player.pos)
+			if not e.dead and d2 < 60.0 * 60.0:
 				_update_enemy(e, delta)
 			if not e.dead:
-				e.animate(delta, e.aggro and e.windup <= 0.0)
+				e.animate(delta, e.aggro and e.windup <= 0.0 and e.frozen <= 0.0, d2 < 45.0 * 45.0)
 		_separate_enemies()
 		_remove_dead()
 		_update_projectiles(delta)
@@ -295,7 +253,7 @@ func _update_camera(delta: float) -> void:
 func _remove_dead() -> void:
 	for e in enemies:
 		if e.dead:
-			e.queue_free()
+			e.die()
 	enemies = enemies.filter(func(e): return not e.dead)
 
 
@@ -303,6 +261,7 @@ func _remove_dead() -> void:
 func _update_player(delta: float) -> void:
 	var p := player
 	if p.dead:
+		p.animate(delta, false)
 		return
 	var s := p.s
 	p.life = minf(s.max_life, p.life + s.life_regen * delta)
@@ -515,6 +474,7 @@ func _cast_slash() -> void:
 	var p := player
 	var reach := 3.2
 	p.swing_t = 0.2
+	p.act("1H_Melee_Attack_Slice_Horizontal", 2.2, p.action_t)
 	for e in enemies:
 		if e.dead:
 			continue
@@ -537,6 +497,7 @@ func _cast_slash() -> void:
 
 func _cast_fireball() -> void:
 	var p := player
+	p.act("Spellcast_Shoot", 2.0, p.action_t)
 	var dir := Vector2.from_angle(p.aim)
 	var root := Node3D.new()
 	root.position = to3(p.pos + dir * 0.6, 1.0)
@@ -552,6 +513,7 @@ func _cast_fireball() -> void:
 
 func _cast_nova() -> void:
 	var p := player
+	p.act("Spellcast_Raise", 2.2, 0.35)
 	var rad := 8.0
 	Fx.ring(level_root, to3(p.pos), rad, Color("#8cdcff"), 0.4)
 	Fx.burst(level_root, to3(p.pos, 0.6), 50, Color("#aee8ff"), 14.0, 0.5, 0.0)
@@ -573,6 +535,7 @@ func _chain_target(from: Vector2) -> Variant:
 
 
 func _cast_chain() -> void:
+	player.act("Spellcast_Shoot", 2.0, player.action_t)
 	var target: Variant = _chain_target(player.pos)
 	var hit := {}
 	var src := to3(player.pos, 1.2)
@@ -599,6 +562,7 @@ func _cast_chain() -> void:
 
 func _cast_meteor() -> void:
 	var p := player
+	p.act("Spellcast_Long", 2.0, 0.5)
 	var to := mouse_ground - p.pos
 	var at := p.pos + to.limit_length(20.0)
 	var rad := 4.6

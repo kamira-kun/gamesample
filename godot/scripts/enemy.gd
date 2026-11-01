@@ -25,6 +25,17 @@ var boss := false
 var pack := 0
 var dead := false
 var display_name := ""
+var aura: MeshInstance3D
+var winding := false
+
+# KayKit rigs per monster type (imps keep their primitive look)
+const RIGS := {
+	"ghoul": {"path": "res://assets/kaykit/skeletons/Characters/gltf/Skeleton_Minion.glb", "scale": 0.85, "weapon": "res://assets/kaykit/skeletons/Assets/gltf/Skeleton_Blade.gltf", "run": "Walking_D_Skeletons", "run_speed": 1.3, "attack": "1H_Melee_Attack_Chop"},
+	"archer": {"path": "res://assets/kaykit/skeletons/Characters/gltf/Skeleton_Rogue.glb", "scale": 0.85, "weapon": "res://assets/kaykit/skeletons/Assets/gltf/Skeleton_Crossbow.gltf", "run": "Running_A", "attack": "1H_Ranged_Shoot"},
+	"shaman": {"path": "res://assets/kaykit/skeletons/Characters/gltf/Skeleton_Mage.glb", "scale": 0.85, "weapon": "res://assets/kaykit/skeletons/Assets/gltf/Skeleton_Staff.gltf", "run": "Walking_B", "attack": "Spellcast_Long", "atk_speed": 1.0},
+	"brute": {"path": "res://assets/kaykit/skeletons/Characters/gltf/Skeleton_Warrior.glb", "scale": 1.3, "weapon": "res://assets/kaykit/skeletons/Assets/gltf/Skeleton_Axe.gltf", "run": "Walking_D_Skeletons", "attack": "1H_Melee_Attack_Jump_Chop", "atk_speed": 1.0},
+	"boss": {"path": "res://assets/kaykit/adventurers/Characters/gltf/Barbarian.glb", "scale": 1.9, "keep": ["2H_Axe", "Barbarian_Round_Shield"], "run": "Walking_C", "attack": "2H_Melee_Attack_Chop", "atk_speed": 1.0},
+}
 
 
 func setup(kind: String, at: Vector2, level: int, pack_id: int, affix: Dictionary = {}) -> void:
@@ -65,79 +76,63 @@ func setup(kind: String, at: Vector2, level: int, pack_id: int, affix: Dictionar
 
 
 func _build() -> void:
-	var c: Color = t.color
-	var h: float = t.h
-	var eye := Color("#ffda4a")
-	match type:
-		"imp":
-			part(Fx.capsule(0.3, 0.8), c, Vector3(0, 0.45, 0))
-			part(Fx.cone(0.08, 0.3), Color("#2a1410"), Vector3(-0.15, 0.95, 0))
-			part(Fx.cone(0.08, 0.3), Color("#2a1410"), Vector3(0.15, 0.95, 0))
-		"ghoul":
-			var body := part(Fx.capsule(0.38, 1.2), c, Vector3(0, 0.65, -0.1))
-			body.rotation.x = -0.35
-			part(Fx.sphere(0.26), c.darkened(0.2), Vector3(0, 1.2, -0.38))
-		"archer":
-			part(Fx.capsule(0.26, 1.3), c, Vector3(0, 0.7, 0))
-			part(Fx.sphere(0.22), c, Vector3(0, 1.5, 0))
-			var bow := TorusMesh.new()
-			bow.inner_radius = 0.42
-			bow.outer_radius = 0.47
-			var b := part(bow, Color("#7a5a30"), Vector3(0.3, 0.9, -0.2))
-			b.rotation = Vector3(0, 0, PI / 2)
-			eye = Color("#44ffff")
-		"brute":
-			part(Fx.capsule(0.75, 2.0), c, Vector3(0, 1.0, 0))
-			part(Fx.sphere(0.4), c.darkened(0.15), Vector3(0, 1.95, -0.2))
-			for sx in [-1, 1]:
-				var horn := part(Fx.cone(0.12, 0.5), Color("#d8ccb0"), Vector3(0.28 * sx, 2.3, -0.2))
-				horn.rotation.z = -0.5 * sx
-				part(Fx.sphere(0.3), c.darkened(0.3), Vector3(0.85 * sx, 1.1, -0.1))
-		"shaman":
-			part(Fx.capsule(0.3, 1.2), c, Vector3(0, 0.65, 0))
-			part(Fx.cone(0.3, 0.5), c.darkened(0.3), Vector3(0, 1.45, 0))
-			part(Fx.box(Vector3(0.06, 1.6, 0.06)), Color("#5a4020"), Vector3(0.38, 0.8, -0.1))
-			Fx.mesh(model, Fx.sphere(0.12), Fx.mat(Color("#5ad8e8"), 4.0), Vector3(0.38, 1.65, -0.1))
-		"boss":
-			part(Fx.capsule(1.2, 3.0), c, Vector3(0, 1.5, 0))
-			part(Fx.sphere(0.6), c.darkened(0.2), Vector3(0, 3.0, -0.3))
-			for sx in [-1, 1]:
-				var horn := part(Fx.cone(0.2, 0.9), Color("#d8ccb0"), Vector3(0.45 * sx, 3.5, -0.3))
-				horn.rotation.z = -0.6 * sx
-				part(Fx.sphere(0.5), c.darkened(0.35), Vector3(1.35 * sx, 1.8, 0))
-			eye = Color("#ffff40")
+	if RIGS.has(type):
+		var rc: Dictionary = RIGS[type]
+		use_rig(rc.path, rc.scale, rc.get("keep", []), rc.get("weapon", ""))
+		play("Idle")
+		anim.seek(randf() * 2.0, true)   # don't let a whole pack idle in sync
+		if boss:
 			var glow := OmniLight3D.new()
 			glow.light_color = Color("#ff4030")
 			glow.light_energy = 1.5
-			glow.omni_range = 6.0
-			glow.position = Vector3(0, 2.5, 0)
+			glow.omni_range = 7.0
+			glow.position = Vector3(0, 3.0, 0)
 			model.add_child(glow)
-	# glowing eyes on the front (-Z)
-	var ey := h * 0.82
-	var ez := -r * 0.95 if type != "ghoul" else -0.55
-	if type == "ghoul":
-		ey = 1.25
-	elif type == "boss":
-		ey = 3.05
-		ez = -0.85
-	elif type == "brute":
-		ey = 2.0
-		ez = -0.55
-	elif type == "archer" or type == "shaman":
-		ey = 1.5
-		ez = -0.2
-	for sx in [-1, 1]:
-		Fx.mesh(model, Fx.sphere(0.045 * (2.0 if boss else 1.0)), Fx.mat(eye, 5.0, true), Vector3(0.09 * sx * (2.5 if boss else 1.0), ey, ez))
+	else:
+		# imps have no KayKit counterpart yet: a small horned devil with glowing eyes
+		var c: Color = t.color
+		part(Fx.capsule(0.3, 0.8), c, Vector3(0, 0.45, 0))
+		part(Fx.cone(0.08, 0.3), Color("#2a1410"), Vector3(-0.15, 0.95, 0))
+		part(Fx.cone(0.08, 0.3), Color("#2a1410"), Vector3(0.15, 0.95, 0))
+		for sx in [-1, 1]:
+			Fx.mesh(model, Fx.sphere(0.045), Fx.mat(Color("#ffda4a"), 5.0, true), Vector3(0.09 * sx, 0.8, -r * 0.95))
 	if not elite.is_empty() or boss:
-		var aura := Fx.mesh(self, Fx.disc(), Fx.mat(Color(1.0, 0.25, 0.2, 0.35) if boss else Color(0.3, 0.55, 1.0, 0.35), 2.0, true), Vector3(0, 0.03, 0))
+		aura = Fx.mesh(self, Fx.disc(), Fx.mat(Color(1.0, 0.25, 0.2, 0.35) if boss else Color(0.3, 0.55, 1.0, 0.35), 2.0, true), Vector3(0, 0.03, 0))
 		aura.scale = Vector3(r * 1.8, 1, r * 1.8)
 
 
-func animate(delta: float, moving: bool) -> void:
+func animate(delta: float, moving: bool, near := true) -> void:
+	frosted = frozen > 0.0
 	sync_node(delta, moving)
-	if frozen > 0.0:
-		tint(Color("#9fdcff"), 0.7)
+	if anim == null:
+		model.position.x = randf_range(-0.04, 0.04) if windup > 0.0 else 0.0
+		return
+	anim.active = near
+	if not near:
+		return
+	anim.speed_scale = 0.0 if frosted else 1.0
+	var rc: Dictionary = RIGS[type]
 	if windup > 0.0:
-		model.position.x = randf_range(-0.04, 0.04)
+		if not winding:
+			winding = true
+			play(rc.attack, rc.get("atk_speed", 1.3), true, 0.05)
 	else:
-		model.position.x = 0.0
+		winding = false
+		if cur_anim == rc.attack and anim.is_playing():
+			return       # let the swing finish
+		if moving:
+			play(rc.run, rc.get("run_speed", 1.0))
+		else:
+			play("Idle_Combat" if aggro else "Idle")
+
+
+## fall over, then disappear
+func die() -> void:
+	if aura:
+		aura.queue_free()
+	if anim:
+		anim.speed_scale = 1.0
+		play("Death_A", 1.3, true, 0.05)
+		get_tree().create_timer(2.0).timeout.connect(queue_free)
+	else:
+		queue_free()

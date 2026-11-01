@@ -9,32 +9,23 @@ var s := {}                 # derived stats
 var cds := {}
 var action_t := 0.0
 var swing_t := 0.0
-var swing_dir := 0.0
 var invuln := 0.0
 var aim := 0.0
 var dash := {}
 var dead := false
 var potions := 3
 var potion_prog := 0
-var sword_pivot := Node3D.new()
 var torch: OmniLight3D
+var act_left := 0.0          # time the current one-shot animation still owns the body
 
 
 func _ready() -> void:
 	r = 0.45
-	part(Fx.capsule(0.32, 1.3), Color("#3c4f6e"), Vector3(0, 0.75, 0))
-	part(Fx.box(Vector3(0.5, 0.55, 0.12)), Color("#6a1e22"), Vector3(0, 0.95, 0.22))      # cape
-	part(Fx.sphere(0.2), Color("#c9a98a"), Vector3(0, 1.6, 0))                               # head
-	part(Fx.box(Vector3(0.44, 0.12, 0.34)), Color("#8a7a5a"), Vector3(0, 1.05, 0))          # belt / pauldrons
-	model.add_child(sword_pivot)
-	sword_pivot.position = Vector3(0.32, 0.95, 0)
-	var blade := Fx.mesh(sword_pivot, Fx.box(Vector3(0.06, 0.04, 1.0)), Fx.mat(Color("#d8d8e0"), 0.4), Vector3(0, 0, -0.55))
-	blade.name = "Blade"
-	Fx.mesh(sword_pivot, Fx.box(Vector3(0.24, 0.06, 0.06)), Fx.mat(Color("#b08a40")), Vector3(0, 0, -0.06))
+	use_rig(Assets.ADVENTURERS + "Knight.glb", 1.0, ["1H_Sword", "Round_Shield"])
 	torch = OmniLight3D.new()
 	torch.position = Vector3(0, 3.2, 0)
 	torch.omni_range = 15.0
-	torch.light_energy = 2.4
+	torch.light_energy = 2.2
 	torch.shadow_enabled = true
 	add_child(torch)
 	recalc(true)
@@ -53,12 +44,23 @@ func recalc(full := false) -> void:
 	mana = s.max_mana if full else s.max_mana * old_m
 
 
+## play an attack/cast clip that holds for `hold` seconds before locomotion resumes
+func act(clip: String, speed: float, hold: float) -> void:
+	play(clip, speed, true, 0.05)
+	act_left = hold
+
+
 func animate(delta: float, moving: bool) -> void:
 	face = aim
 	sync_node(delta, moving)
-	# sword swings across the front while attacking
-	var a := 0.0
-	if swing_t > 0.0:
-		a = lerpf(1.3, -1.3, 1.0 - swing_t / 0.2)
-	sword_pivot.rotation.y = a
-	model.visible = not (invuln > 0.0 and not dash.is_empty() and int(Time.get_ticks_msec() / 50) % 2 == 0)
+	act_left -= delta
+	if dead:
+		play("Death_A", 1.0, false, 0.1)
+	elif not dash.is_empty():
+		play("Dodge_Forward", 2.0)
+	elif act_left > 0.0:
+		pass
+	elif moving:
+		play("Running_A", 1.2)
+	else:
+		play("Idle")

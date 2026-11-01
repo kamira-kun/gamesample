@@ -23,7 +23,15 @@
 - `scripts/fx.gd` — 仮メッシュ・マテリアル・エフェクトの生成
 - `scripts/data.gd` — スキル・敵・テーマのデータ（オートロード `Data`）
 
-モデルは仮の図形です。CC0 の3D素材（KayKit など）に差し替える予定です。
+- `scripts/assets.gd` / `level_builder.gd` — KayKit 素材の読み込みと、ダンジョンへの床・壁・たいまつ・小物の配置
+
+## 素材（CC0）
+`assets/kaykit/` に Kay Lousberg 氏の KayKit シリーズ（CC0）を収録しています。各フォルダに LICENSE.txt があります。
+- [KayKit Dungeon Remastered](https://github.com/KayKit-Game-Assets/KayKit-Dungeon-Remastered-1.0) — 床、壁、柱、たいまつ、小物
+- [KayKit Character Pack: Adventurers](https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0) — プレイヤー（騎士）、ボス（バーバリアン）
+- [KayKit Character Pack: Skeletons](https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Skeletons-1.0) — スケルトン系の敵
+
+インプはまだ仮の図形です。
 
 ## 開発用
 自動テスト（スキル発動・ボス撃破・ポータル・死亡と再挑戦）:
