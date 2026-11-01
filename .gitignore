@@ -1,2 +1,2 @@
-# user-supplied images (e.g. portrait.png) stay local
-assets/*.png
+# browser version, kept locally only
+OLD/
