@@ -1,0 +1,26 @@
+; Engine configuration file.
+; Edit through the Godot editor's Project Settings when possible.
+
+config_version=5
+
+[application]
+
+config/name="Emberfall"
+config/description="Isometric action RPG (Godot port of the browser prototype)"
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.7", "Forward Plus")
+config/icon="res://icon.svg"
+
+[autoload]
+
+Data="*res://scripts/data.gd"
+
+[display]
+
+window/size/viewport_width=1600
+window/size/viewport_height=900
+window/stretch/aspect="expand"
+
+[rendering]
+
+anti_aliasing/quality/msaa_3d=2
