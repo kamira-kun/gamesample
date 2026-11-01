@@ -677,3 +677,45 @@ static func map_mod(k: String) -> Dictionary:
 		if m.k == k:
 			return m
 	return {}
+
+
+# =================== seasons ===================
+## each season runs from `start` up to (not including) `end`, as UTC dates; characters made in it
+## play in their own league with its own stash, and move to standard when it ends
+const SEASONS := [
+	{"id": "s1", "name": "灰の目覚め", "start": "2026-11-01", "end": "2027-02-01", "color": Color("#ff9a5a")},
+]
+
+static var date_override := ""   # dev runs: `--date=YYYY-MM-DD` pretends it is that day
+
+
+static func today() -> String:
+	if date_override != "":
+		return date_override
+	return Time.get_datetime_string_from_system(true).substr(0, 10)
+
+
+static func season(id: String) -> Dictionary:
+	for s in SEASONS:
+		if s.id == id:
+			return s
+	return {}
+
+
+static func season_running(id: String, day := today()) -> bool:
+	var s := season(id)
+	return not s.is_empty() and day >= s.start and day < s.end
+
+
+## the season open for new characters today, or {}
+static func current_season(day := today()) -> Dictionary:
+	for s in SEASONS:
+		if day >= s.start and day < s.end:
+			return s
+	return {}
+
+
+## whole days left in a running season
+static func season_days_left(s: Dictionary, day := today()) -> int:
+	var now := Time.get_unix_time_from_datetime_string(day)
+	return ceili((Time.get_unix_time_from_datetime_string(s.end) - now) / 86400.0)
