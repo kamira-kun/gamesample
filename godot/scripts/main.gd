@@ -822,7 +822,7 @@ func roll_damage(coef: float, type: String, spell := false) -> Dictionary:
 	d *= (1.0 + inc / 100.0) * sup.dmg * sup.get("m_" + type, 1.0) * (1.0 + 0.15 * player.talents.get(sup.skill, 0))
 	if sup.lowlife > 0.0 and player.life <= player.s.max_life * 0.5:
 		d *= 1.0 + sup.lowlife
-	var crit: bool = force_crit or randf() * 100.0 < s.crit + sup.crit
+	var crit: bool = force_crit or (randf() * 100.0 < s.crit + sup.crit and not player.effects.has("no_crit"))
 	if crit:
 		d *= (s.crit_multi + sup.critm) / 100.0
 	return {"dmg": maxi(1, roundi(d)), "crit": crit, "type": type, "spell": spell}
