@@ -35,7 +35,8 @@ var area: Dictionary = Data.HIDEOUT   # current atlas node, or the hideout
 var run_mods: Array = []
 var mod_fx := Atlas.effects([])
 var shop := {}
-var interacts: Array = []   # hideout objects: {kind, name, pos, r}
+var interacts: Array = []   # hideout objects and dormant altars: {kind, name, pos, r}
+var altars: Array = []      # cinder altars in this map (see Farm)
 var boss: Enemy = null
 var flow_t := 0.0
 var time := 0.0
@@ -132,6 +133,8 @@ func _ready() -> void:
 				enter_map("ash")
 				for i in 3:
 					_make_enemy("imp", player.pos + Vector2(2.5 + i * 1.2, -2.5 + i * 0.8), 999)
+			elif kind.begins_with("altar") or kind == "forge":
+				_view_altar(kind)
 			elif kind.begins_with("aura"):   # auras on the bar: `aura0` none on, `aura` three on and a fourth refused, `aura_off` one switched off again
 				enter_map("ash")
 				player.invuln = 1e9
@@ -341,6 +344,128 @@ func _smoke_exchange() -> void:
 	var msgs0 := hud.messages.get_child_count()
 	market_notes()
 	print("SMOKE exchange notes shown=%s left=%d" % [hud.messages.get_child_count() > msgs0 or msgs0 >= 5, Market.state(lg).pending.size()])
+
+
+## `--view=altar` a dormant altar beside the player, `altar_vow` its vow panel, `altar_wave` kindled with a vow
+## and fighting, `altar_reward` every wave cleared and the reward on the ground, `forge` the hideout forge with crystals
+func _view_altar(kind: String) -> void:
+	var f := Farm.state(league())
+	f.renown = Farm.rank_need(4)
+	if kind == "forge":
+		f.cinder = 180
+		player.pos = interacts[4].pos + Vector2(0, 3)
+		open_interact("forge")
+		return
+	enter_map("ash")
+	player.invuln = 1e9
+	var a := place_altar(_free_spot(player.pos, 5.0))
+	if kind == "altar_vow":
+		open_interact("altar", {"altar": a})
+	elif kind != "altar":
+		await get_tree().create_timer(1.0).timeout
+		kindle_altar(a, "fury")
+		while kind == "altar_reward" and a.state == "active":
+			await get_tree().create_timer(0.3).timeout
+			for e in a.spawned:
+				if is_instance_valid(e) and not e.dead:
+					hit_enemy(e, {"dmg": 999999, "crit": false, "type": "fire"})
+
+
+## a free spot about `d` away from `c` that the player can see
+func _free_spot(c: Vector2, d: float) -> Vector2:
+	for k in 32:
+		var at := c + Vector2.from_angle(k * TAU / 32.0 - PI / 2) * (d + k / 8)
+		if not map.circle_hits(at, 1.6) and map.los(c, at):
+			return at
+	return c
+
+
+## cinder altars: placement and beacons, kindling with a vow, the waves and the guardian, the reward,
+## a trial running out, the forge, and the league split with the season-end handover (an in-memory profile file)
+func _smoke_farm() -> void:
+	var p := player
+	p.invuln = 1e9
+	Profiles.data = Profiles.fresh()
+	var f := Farm.state(league())
+	enter_map("ash")
+	var placed := altars.size()
+	var dormant := interacts.filter(func(o): return o.kind == "altar").size()
+	var on_floor := altars.all(func(a): return not map.solid_at(a.pos + Vector2(1.6, 0)) or not map.solid_at(a.pos - Vector2(1.6, 0)))
+	f.beacons = 1
+	enter_map("ash")
+	print("SMOKE farm placed=%d labels=%d floor=%s beacon_map=%d beacons_left=%d" % [placed, dormant, on_floor, altars.size(), f.beacons])
+	# a locked vow is refused; 烈火の誓約 kindles the first altar
+	var a: Dictionary = altars[0]
+	p.pos = map.move_circle(a.pos + Vector2(0, 2.0), p.r, Vector2.ZERO)
+	open_interact("altar", {"altar": a})
+	hud.cinder_ui.choose("trial")
+	var refused: bool = a.state == "dormant" and hud.cinder_ui.visible
+	hud.cinder_ui.choose("fury")
+	var first: int = a.spawned.size()
+	var boosted: bool = a.spawned.all(func(e): return e.aggro and e.has_meta("cinder"))
+	print("SMOKE farm kindle refused=%s state=%s panel_closed=%s wave=%d first=%d planned=%d boosted=%s label_gone=%s" % [refused, a.state,
+		not hud.cinder_ui.visible, a.wave, first, a.plan.waves[0], boosted, not interacts.any(func(o): return o.get("altar") == a)])
+	var guards := 0
+	for i in 120:
+		if a.state != "active":
+			break
+		for e in a.spawned:
+			if is_instance_valid(e) and not e.dead:
+				guards += 1 if e.display_name == "燼魂の守り手" else 0
+				hit_enemy(e, {"dmg": 999999, "crit": false, "type": "phys"})
+		await get_tree().create_timer(0.1).timeout
+	var reward: Dictionary = a.get("reward", {})
+	var crystals: int = drops.filter(func(d): return d.k == Farm.KEY).map(func(d): return d.n).reduce(func(x, y): return x + y, 0)
+	print("SMOKE farm waves=%d/%d killed=%d guards=%d state=%s renown=%d lit=%d rank=%d on_ground=%d reward=%d" % [a.wave,
+		a.plan.waves.size(), a.spawned.size(), guards, a.state, f.renown, f.lit, Farm.rank(f), crystals, reward.get("cinder", -1)])
+	p.pos = a.pos + Vector2(0, 2.0)
+	_collect_nearby(60.0)
+	print("SMOKE farm collected cinder=%d char_cur_clean=%s status='%s'" % [f.cinder, not p.cur.has(Farm.KEY), altar_status()])
+	# 灼刻の誓約 opens at rank 2; running out of time leaves the altar cold and pays nothing
+	if altars.size() < 2:
+		place_altar(_free_spot(p.pos, 6.0))
+	f.renown = Farm.rank_need(2)
+	var b: Dictionary = altars[1]
+	kindle_altar(b, "trial")
+	var r0: int = f.renown
+	b.t = Farm.TRIAL_TIME + 1.0
+	await get_tree().create_timer(0.2).timeout
+	print("SMOKE farm trial state=%s renown_same=%s status='%s'" % [b.state, f.renown == r0, altar_status()])
+	for e in b.spawned:
+		hit_enemy(e, {"dmg": 999999, "crit": false, "type": "phys"})
+	# the forge in the hideout: crystals buy loot, gated by renown
+	enter_hideout()
+	f.cinder = 200
+	f.renown = 0
+	var bag0 := p.bag.size()
+	open_interact("forge")
+	hud.cinder_ui.buy("rare")
+	var after_rare: int = f.cinder
+	hud.cinder_ui.buy("legend")
+	var refused_legend: String = hud.cinder_ui.error.text
+	f.renown = Farm.rank_need(4)
+	hud.cinder_ui.buy("legend")
+	hud.cinder_ui.buy("beacon")
+	var legends := p.bag.slice(bag0).filter(func(it): return it.rarity == 3).size()
+	print("SMOKE farm forge open=%s bag+%d cinder=%d->%d->%d locked='%s' legends=%d beacons=%d cards=%d" % [hud.cinder_ui.visible,
+		p.bag.size() - bag0, 200, after_rare, f.cinder, refused_legend, legends, f.beacons, hud.cinder_ui.cards.get_child_count()])
+	hud.close_panels()
+	# leagues keep their own progress; a finished season hands its crystals and the higher renown to standard
+	var sid: String = Data.SEASONS[0].id
+	var sf := Farm.state(sid)
+	var split: bool = sf.cinder == 0 and sf.renown == 0
+	sf.cinder = 70
+	sf.renown = Farm.rank_need(6)
+	sf.beacons = 2
+	var d = JSON.parse_string(JSON.stringify(Profiles.data))
+	Profiles.normalize(d)
+	var round_trip: bool = d.farm[sid].cinder == 70 and typeof(d.farm[sid].cinder) == TYPE_INT
+	var std0: int = f.cinder
+	var notes := Profiles.migrate(Profiles.data, Data.SEASONS[0].end)
+	var std := Farm.state(Profiles.STANDARD)
+	print("SMOKE farm leagues split=%s json=%s season_end cinder=%d->%d rank=%d beacons=%d season_gone=%s note=%s" % [split, round_trip,
+		std0, std.cinder, Farm.rank(std), std.beacons, not Profiles.data.farm.has(sid), notes.any(func(t): return "燼晶" in t)])
+	Profiles.data = Profiles.fresh()
 
 
 ## automated run used during development: `godot -- --smoke`
@@ -589,6 +714,7 @@ func _smoke_test() -> void:
 	print("SMOKE json roundtrip=%s" % (back == it))
 	await get_tree().create_timer(0.5).timeout
 	hud.toggle_inventory()
+	await _smoke_farm()
 	get_tree().quit()
 
 
@@ -642,7 +768,7 @@ static func to3(p: Vector2, y := 0.0) -> Vector3:
 func _reset_world(new_map: Dungeon, new_theme: Dictionary) -> void:
 	if level_root:
 		level_root.queue_free()
-	for list in [projs, proj_spawn, eprojs, teles, hazards, storms, zones, texts, ground, drops, interacts]:
+	for list in [projs, proj_spawn, eprojs, teles, hazards, storms, zones, texts, ground, drops, interacts, altars]:
 		list.clear()
 	enemies.clear()
 	minions.clear()
@@ -673,9 +799,12 @@ func in_hideout() -> bool:
 func spawn_floor() -> void:
 	_reset_world(Dungeon.new(72, 72, floor_level), Data.THEMES[atlas.node_theme(area)])
 	_spawn_enemies()
+	_place_altars()
 	hud.message("%s — エリアレベル %d" % [area.name, floor_level], Color("#e8d8b0"))
 	for k in run_mods:
 		hud.message("◆ " + Data.map_mod(k).name, Color("#ff9a7a"))
+	if altars.size() > 0:
+		hud.message("燼火の祭壇が %d つ眠っている" % altars.size(), Farm.COLOR)
 	save_game()
 
 
@@ -697,7 +826,9 @@ func enter_hideout() -> void:
 	interacts.append({"kind": "merchant", "name": "商人", "pos": c + Vector2(-4 * T, 0), "r": 1.0})
 	interacts.append({"kind": "stash", "name": "スタッシュ", "pos": map.tile_center(r.x + r.w - 1, r.y + 6), "r": 1.0})
 	interacts.append({"kind": "exchange", "name": "取引所", "pos": map.tile_center(r.x + 3, r.y), "r": 1.2})
+	interacts.append({"kind": "forge", "name": "燼火の炉", "pos": c + Vector2(4 * T, 0), "r": 1.2})
 	_build_device(interacts[0].pos)
+	_build_altar(interacts[4].pos, true)
 	var merchant := Actor.new()
 	merchant.pos = interacts[1].pos
 	merchant.face = 0.0
@@ -777,18 +908,22 @@ func _update_interact() -> bool:
 		if not near and not clicked:
 			continue
 		lmb = false
-		open_interact(o.kind)
+		open_interact(o.kind, o)
 		return true
 	return false
 
 
-func open_interact(kind: String) -> void:
+func open_interact(kind: String, o := {}) -> void:
 	if kind == "merchant":
 		hud.shop_ui.open_close()
 	elif kind == "stash":
 		hud.stash_ui.open_close()
 	elif kind == "exchange":
 		hud.exchange_ui.open_close()
+	elif kind == "forge":
+		hud.cinder_ui.open_forge()
+	elif kind == "altar":
+		hud.cinder_ui.open_altar(o.altar)
 	else:
 		hud.atlas_ui.open_close()
 
@@ -926,7 +1061,7 @@ func _process(delta: float) -> void:
 			hud.close_panels()
 		elif not player.dead and not hud.char_ui.visible:
 			hud.pause_ui.open_close()
-	if not hud.blocking() and in_hideout():
+	if not hud.blocking() and not player.dead:
 		_update_interact()
 	if not hud.blocking():
 		time += delta
@@ -954,6 +1089,7 @@ func _process(delta: float) -> void:
 		_update_zones(delta)
 		_update_loot(delta)
 		_update_portal(delta)
+		_update_altars(delta)
 		save_t += delta
 		if save_t > 20.0 and not player.dead:
 			save_t = 0.0
@@ -1288,6 +1424,8 @@ func _kill_enemy(e: Enemy) -> void:
 	if p.effects.has("soul_feed"):
 		for a in _allies():
 			a.life = minf(a.max_life, a.life + a.max_life * 0.1)
+	if e.has_meta("cinder") and randf() < 0.3:
+		_drop_currency(Farm.KEY, randi_range(1, 2), e.pos)
 	p.potion_prog += 1
 	if p.potion_prog >= 14:
 		p.potion_prog = 0
@@ -2768,6 +2906,230 @@ func _separate_enemies() -> void:
 			a.pos = map.move_circle(a.pos, a.r, dp / dl * (pr - dl))
 
 
+# =================== cinder altars ===================
+## a few dormant altars in the rooms of a new map (more with renown, and two more per league beacon)
+func _place_altars() -> void:
+	var f := Farm.state(league())
+	var n := Farm.altars_for_map(f)
+	var rooms := map.rooms.filter(func(r): return r != map.start and r != map.boss_room)
+	rooms.shuffle()
+	for room in rooms:
+		if altars.size() >= n:
+			break
+		for tries in 12:
+			var tx: int = randi_range(room.x + 2, room.x + room.w - 3) if tries > 0 else int(room.cx)
+			var ty: int = randi_range(room.y + 2, room.y + room.h - 3) if tries > 0 else int(room.cy)
+			if map.is_wall(tx, ty) or map.circle_hits(map.tile_center(tx, ty), 1.4):
+				continue
+			place_altar(map.tile_center(tx, ty))
+			break
+
+
+## a dormant altar at `at`, kindled from its [B] label
+func place_altar(at: Vector2) -> Dictionary:
+	var a := {"pos": at, "state": "dormant", "vow": "", "wave": 0, "spawned": [], "t": 0.0, "wave_t": 0.0, "plan": {}}
+	a.merge(_build_altar(at, false))
+	altars.append(a)
+	interacts.append({"kind": "altar", "name": "燼火の祭壇", "pos": at, "r": 1.4, "altar": a})
+	var t := Vector2i(floori(at.x / T), floori(at.y / T))
+	map.blocked[map.idx(t.x, t.y)] = 1
+	return a
+
+
+## a dark stone dais with four standing stones and a brazier; `lit` for the hideout forge
+func _build_altar(at: Vector2, lit: bool) -> Dictionary:
+	var root := Node3D.new()
+	root.position = to3(at)
+	level_root.add_child(root)
+	var dais := CylinderMesh.new()
+	dais.top_radius = 1.25
+	dais.bottom_radius = 1.5
+	dais.height = 0.35
+	dais.radial_segments = 8
+	Fx.mesh(root, dais, Fx.mat(Color("#2e2622")), Vector3(0, 0.17, 0))
+	for k in 4:
+		var stone := Fx.mesh(root, Fx.box(Vector3(0.32, 1.5, 0.32)), Fx.mat(Color("#3a302a")), to3(Vector2.from_angle(k * PI / 2 + PI / 4) * 1.15, 0.9))
+		stone.rotation.y = k * PI / 2 + PI / 4
+	var bowl := CylinderMesh.new()
+	bowl.top_radius = 0.6
+	bowl.bottom_radius = 0.25
+	bowl.height = 0.5
+	Fx.mesh(root, bowl, Fx.mat(Color("#4a3a30")), Vector3(0, 0.6, 0))
+	var flame_mat := Fx.mat(Farm.COLOR, 5.0 if lit else 0.6, true)
+	var flame := Fx.mesh(root, Fx.sphere(0.42), flame_mat, Vector3(0, 1.05, 0))
+	flame.scale = Vector3(1.0, 1.4, 1.0) if lit else Vector3(0.6, 0.4, 0.6)
+	var light := OmniLight3D.new()
+	light.light_color = Farm.COLOR
+	light.light_energy = 2.6 if lit else 0.7
+	light.omni_range = 9.0 if lit else 4.0
+	light.position.y = 1.6
+	root.add_child(light)
+	if lit:
+		var tw := flame.create_tween().set_loops()
+		tw.tween_property(flame, "scale:y", 1.7, 0.5).set_trans(Tween.TRANS_SINE)
+		tw.tween_property(flame, "scale:y", 1.3, 0.5).set_trans(Tween.TRANS_SINE)
+	return {"node": root, "flame": flame, "flame_mat": flame_mat, "light": light}
+
+
+## light the altar with a vow: a ring marks the ground and the first wave comes in
+func kindle_altar(a: Dictionary, vow_id: String) -> void:
+	if a.state != "dormant":
+		return
+	var v := Farm.vow(vow_id)
+	a.state = "active"
+	a.vow = vow_id
+	a.plan = Farm.plan(floor_level, vow_id)
+	interacts = interacts.filter(func(o): return o.get("altar") != a)
+	a.flame.scale = Vector3(1.2, 1.8, 1.2)
+	a.flame_mat.emission_energy_multiplier = 6.0
+	a.light.light_energy = 3.2
+	a.light.omni_range = 12.0
+	var ring_mesh := TorusMesh.new()
+	ring_mesh.inner_radius = Farm.RADIUS - 0.12
+	ring_mesh.outer_radius = Farm.RADIUS
+	ring_mesh.rings = 64
+	a.ring = Fx.mesh(a.node, ring_mesh, Fx.mat(Color(Farm.COLOR, 0.7), 3.0, true), Vector3(0, 0.05, 0))
+	Fx.ring(level_root, to3(a.pos), Farm.RADIUS, Farm.COLOR, 0.6, false)
+	Fx.burst(level_root, to3(a.pos, 1.2), 40, Farm.COLOR, 7.0)
+	shake = maxf(shake, 5.0)
+	hud.message("燼火の祭壇に点火した — %s" % v.name, Farm.COLOR)
+	if a.plan.timer > 0.0:
+		hud.message("%d秒以内にすべての波を倒せ！" % int(a.plan.timer), Color("#ffb070"))
+	_altar_wave(a)
+
+
+## the next wave around the altar; the last one brings the guardians
+func _altar_wave(a: Dictionary) -> void:
+	var v := Farm.vow(a.vow)
+	var last: bool = a.wave == a.plan.waves.size() - 1
+	var pool := [{"k": "imp", "w": 3.0}, {"k": "ghoul", "w": 3.0}, {"k": "archer", "w": 2.0}, {"k": "shaman", "w": 1.2},
+		{"k": "brute", "w": 0.8 if floor_level >= 2 else 0.3}]
+	var pid: int = 10000 + altars.find(a) * 100 + a.wave
+	var count: int = a.plan.waves[a.wave]
+	for i in count + (int(a.plan.guards) if last else 0):
+		var guard: bool = i >= count
+		var at := _altar_spot(a.pos)
+		var e := _make_enemy("brute" if guard else _weighted(pool).k, at, pid, Data.ELITE_AFFIXES.pick_random() if guard else {})
+		e.set_meta("cinder", true)
+		e.max_life *= float(v.get("life", 1.0)) * (3.0 if guard else 1.15)
+		e.life = e.max_life
+		e.dmg *= float(v.get("dmg", 1.0))
+		e.aggro = true
+		if guard:
+			e.display_name = "燼魂の守り手"
+			e.xp *= 2.0
+		Fx.burst(level_root, to3(at, 0.6), 10, Farm.COLOR, 4.0)
+		a.spawned.append(e)
+	a.wave += 1
+	a.wave_t = 0.0
+	hud.message("第%d波（全%d波）%s" % [a.wave, a.plan.waves.size(), "　燼魂の守り手が現れた！" if last else ""], Farm.COLOR)
+
+
+## a free floor spot on the ring around an altar
+func _altar_spot(c: Vector2) -> Vector2:
+	for k in 16:
+		var at := c + Vector2.from_angle(randf() * TAU) * randf_range(4.0, Farm.RADIUS)
+		if not map.circle_hits(at, 0.9) and map.los(c, at):
+			return at
+	return map.move_circle(c, 0.6, Vector2.from_angle(randf() * TAU) * 2.5)
+
+
+func altar_alive(a: Dictionary) -> int:
+	return a.spawned.filter(func(e): return is_instance_valid(e) and not e.dead).size()
+
+
+func _update_altars(delta: float) -> void:
+	for a in altars:
+		if a.state != "active":
+			continue
+		a.t += delta
+		a.wave_t += delta
+		a.ring.rotate_y(delta * 0.4)
+		var alive := altar_alive(a)
+		if a.plan.timer > 0.0 and a.t > a.plan.timer and alive > 0:
+			_end_altar(a, false)
+		elif a.wave < a.plan.waves.size() and (alive <= 2 or a.wave_t >= Farm.WAVE_TIME):
+			_altar_wave(a)
+		elif a.wave >= a.plan.waves.size() and alive == 0:
+			_end_altar(a, true)
+
+
+## every wave down: crystals, items and renown; a trial run out of time leaves the altar cold
+func _end_altar(a: Dictionary, won: bool) -> void:
+	a.state = "done" if won else "failed"
+	a.ring.queue_free()
+	a.flame.scale = Vector3(0.5, 0.3, 0.5)
+	a.flame_mat.emission_energy_multiplier = 0.4
+	a.light.light_energy = 0.4
+	if not won:
+		for e in a.spawned:
+			if is_instance_valid(e) and not e.dead:
+				e.remove_meta("cinder")   # the stragglers stay, but drop no crystals
+		hud.message("燼火が燃え尽きた……（時間切れ）", Color("#ff8a70"))
+		return
+	var f := Farm.state(league())
+	var rw := Farm.reward(floor_level, a.vow, f)
+	var left: int = rw.cinder
+	while left > 0:
+		var n := mini(left, 5)
+		_drop_currency(Farm.KEY, n, a.pos + Vector2.from_angle(randf() * TAU) * 1.6)
+		left -= n
+	for i in rw.items:
+		drop_item(Items.generate(floor_level + 1, rw.rarity, 2 if i == 0 else -1), a.pos + Vector2.from_angle(randf() * TAU) * 1.8)
+	_drop_currency("ember", roundi(randf_range(8, 14) * floor_level * mod_fx.gold), a.pos + Vector2(0, 1.8))
+	a.reward = rw
+	var up := Farm.credit(f, rw.renown)
+	Fx.burst(level_root, to3(a.pos, 1.4), 60, Color("#ffd27a"), 9.0)
+	Fx.ring(level_root, to3(a.pos), 6.0, Color("#ffd27a"), 0.7, false)
+	hud.message("燼火の祭壇を鎮めた！ %s 燼晶 ×%d　位階 +%d" % [Farm.CURRENCY.icon, rw.cinder, rw.renown], Color("#ffd27a"))
+	if up:
+		hud.message("燼火の位階が %d に上がった（隠れ家の燼火の炉で確認）" % Farm.rank(f), Color("#ffe27a"))
+	save_game()
+
+
+## one line for the HUD while an altar burns
+func altar_status() -> String:
+	for a in altars:
+		if a.state == "active":
+			var s := "燼火の祭壇 第%d/%d波 残り%d体" % [a.wave, a.plan.waves.size(), altar_alive(a)]
+			if a.plan.timer > 0.0:
+				s += " ⏱%d秒" % ceili(maxf(0.0, a.plan.timer - a.t))
+			return s
+	return ""
+
+
+## the cinder forge: spend the league's crystals; "" when it went through, else why not
+func forge_buy(id: String) -> String:
+	var f := Farm.state(league())
+	var p := player
+	var lvl := maxi(floor_level, atlas.hideout_level())
+	if id in ["rare", "legend"] and p.bag.size() >= Player.BAG_SIZE:
+		return "インベントリが一杯です"
+	var missing := Data.SUPPORTS.filter(func(g): return not g.id in p.gems)
+	if id == "gem" and missing.is_empty():
+		return "サポートジェムはすべて持っている"
+	var err := Farm.buy(f, id)
+	if err != "":
+		return err
+	match id:
+		"rare":
+			pickup_item(Items.generate(lvl + 1, 1.0, 2), p.pos)
+		"legend":
+			pickup_item(Items.generate(lvl + 1, 0.0, 3), p.pos)
+		"chaos":
+			p.cur.chaos += 3
+		"divine":
+			p.cur.divine += 1
+		"gem":
+			unlock_gem(missing.pick_random().id)
+		"beacon":
+			f.beacons += 1
+	hud.message("燼火の炉：%s と交換した" % Farm.offer(id).name, Farm.COLOR)
+	hud.refresh_inventory()
+	save_game()
+	return ""
+
+
 # =================== portal ===================
 func _open_portal(at: Vector2) -> void:
 	var root := Node3D.new()
@@ -2881,7 +3243,7 @@ func drop_item(it: Dictionary, at: Vector2) -> void:
 func _drop_currency(k: String, n: int, at: Vector2) -> void:
 	if n <= 0:
 		return
-	var c := Data.currency(k)
+	var c := Farm.CURRENCY if k == Farm.KEY else Data.currency(k)
 	var pos := _scatter(at)
 	var shard := SphereMesh.new()
 	shard.radius = 0.14 if k == "ember" else 0.2
@@ -2943,6 +3305,10 @@ func _take(g: Dictionary) -> void:
 		return
 	if g.k == "gem":
 		unlock_gem(g.gem)
+		return
+	if g.k == Farm.KEY:   # cinder crystals belong to the league, not the character
+		Farm.state(league()).cinder += g.n
+		hud.message("%s %s ×%d を拾った（所持 %d）" % [Farm.CURRENCY.icon, Farm.CURRENCY.name, g.n, Farm.state(league()).cinder], Farm.COLOR)
 		return
 	player.cur[g.k] += g.n
 	if g.k != "ember":

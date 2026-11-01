@@ -3,7 +3,8 @@ class_name Profiles
 ## or a season id from Data.SEASONS. Each league shares one stash between its characters.
 ## When a season ends its characters and stash tabs move to standard (see `migrate`).
 ## Each league also has a currency exchange (`market`, see Market) and a stash currency pool
-## (`stash_cur`) that holds currency handed back while no character was there to take it.
+## (`stash_cur`) that holds currency handed back while no character was there to take it,
+## and its cinder altar progress (`farm`, see Farm).
 
 const PATH := "user://emberfall_profiles.json"
 const OLD_PATH := "user://emberfall_save.json"   # v1: the single character before seasons; left in place as a backup
@@ -38,7 +39,7 @@ static func load_all(today := Data.today()) -> Array:
 
 
 static func fresh() -> Dictionary:
-	return {"version": VERSION, "next_id": 1, "chars": [], "stash": {}, "market": {}, "stash_cur": {}}
+	return {"version": VERSION, "next_id": 1, "chars": [], "stash": {}, "market": {}, "stash_cur": {}, "farm": {}}
 
 
 ## fill in anything an older or hand-edited file lacks
@@ -79,6 +80,7 @@ static func normalize(d: Dictionary) -> void:
 			continue
 		for k in w.keys():
 			w[k] = int(w[k])
+	Farm.normalize(d)
 
 
 ## move the characters and stash of every season that is no longer running into standard
@@ -124,6 +126,7 @@ static func migrate(d: Dictionary, today: String) -> Array:
 		for k in d.stash_cur[lg]:
 			w[k] = w.get(k, 0) + d.stash_cur[lg][k]
 		d.stash_cur.erase(lg)
+	notes.append_array(Farm.migrate(d, today))
 	return notes
 
 
