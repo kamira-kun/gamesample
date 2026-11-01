@@ -4,6 +4,7 @@ extends Control
 ## current fill height, set in a forged bronze ring with an ember crest, a wing
 ## on the outer side and a plaque showing "current / max".
 ## Recent losses linger as a pale band that drains away after a moment.
+## The share held by auras is sealed off at the top of the glass behind a frosted, banded lid.
 
 const RAD := 66.0          # radius of the glass
 const LIQUID := """
@@ -14,6 +15,7 @@ uniform vec4 deep : source_color;
 uniform vec4 bright : source_color;
 uniform float pulse = 0.0;    // extra glow, e.g. at low life
 uniform float seed = 0.0;
+uniform float reserve = 0.0;  // share of the globe held by auras, sealed at the top
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p) {
@@ -72,6 +74,16 @@ void fragment() {
 	}
 	col = mix(col, liq, in_l);
 
+	// reserved share: a frosted lid with slanted bands drifting slowly, behind a bright seal line
+	float rsurf = -1.0 + 2.0 * reserve;
+	float in_r = reserve > 0.001 ? 1.0 - smoothstep(rsurf - edge, rsurf + edge, p.y) : 0.0;
+	float band = smoothstep(0.35, 0.5, fract((p.x - p.y) * 5.0 + t * 0.06)) * smoothstep(1.0, 0.65, fract((p.x - p.y) * 5.0 + t * 0.06));
+	vec3 res = mix(deep.rgb * 0.5 + vec3(0.07, 0.065, 0.06), mix(bright.rgb, vec3(0.9, 0.85, 0.75), 0.55) * 0.55, band * 0.55);
+	res += vec3(0.9, 0.85, 0.75) * 0.12 * fbm(p * 5.0 + vec2(0.0, t * 0.1));
+	res *= 1.0 - 0.45 * r * r;
+	col = mix(col, res, in_r);
+	col += vec3(1.0, 0.86, 0.55) * exp(-abs(p.y - rsurf) * 70.0) * step(0.001, reserve) * 0.9;
+
 	// bright meniscus where the liquid meets the air
 	float men = exp(-abs(p.y - surf) * 55.0) * step(0.004, level) * step(level, 0.996);
 	col += mix(bright.rgb, vec3(1.0), 0.4) * men * 0.75;
@@ -95,6 +107,8 @@ var bright := Color.RED
 var gem := Color.ORANGE    # crest colour
 var side := -1             # -1: wing on the left (life), 1: on the right (mana)
 var low_pulse := false     # glow and throb when the fill is low
+var reserve := 0.0         # share of the max held by auras, 0..1, sealed at the top
+var reserve_text := ""     # shown on the sealed band when it is tall enough
 var shown := 1.0
 var trail := 1.0
 var _hold := 0.0
@@ -159,6 +173,7 @@ func _process(delta: float) -> void:
 	_mat.set_shader_parameter("level", shown)
 	_mat.set_shader_parameter("trail", maxf(trail, shown))
 	_mat.set_shader_parameter("pulse", pulse)
+	_mat.set_shader_parameter("reserve", clampf(reserve, 0.0, 1.0))
 	_front.queue_redraw()
 
 
@@ -229,3 +244,9 @@ class Front extends Control:
 		var ty := pr.position.y + 16.5
 		draw_string_outline(Data.ui_font, Vector2(pr.position.x, ty), orb.text, HORIZONTAL_ALIGNMENT_CENTER, pw, 15, 4, Color.BLACK)
 		draw_string(Data.ui_font, Vector2(pr.position.x, ty), orb.text, HORIZONTAL_ALIGNMENT_CENTER, pw, 15, orb.bright.lerp(Color.WHITE, 0.7))
+		# what the auras hold, written on the sealed band (or just under its seal when the band is thin)
+		if orb.reserve > 0.001 and orb.reserve_text != "":
+			var by := c.y - r + 2.0 * r * orb.reserve
+			var ly := by - 5.0 if orb.reserve > 0.2 else by + 15.0
+			draw_string_outline(Data.ui_font, Vector2(c.x - r, ly), orb.reserve_text, HORIZONTAL_ALIGNMENT_CENTER, r * 2.0, 12, 4, Color.BLACK)
+			draw_string(Data.ui_font, Vector2(c.x - r, ly), orb.reserve_text, HORIZONTAL_ALIGNMENT_CENTER, r * 2.0, 12, Color("#ffe2a8"))

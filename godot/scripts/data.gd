@@ -15,7 +15,8 @@ const SKILL_ORDER := ["slash", "fireball", "nova", "chain", "meteor", "dash", "t
 	"glacial_hammer", "ball_thunder", "miasma", "arcane_surge",
 	"blade_tempest", "fire_rain", "stone_skin", "stone_golem",
 	"fire_wheel", "frost_vortex", "earthquake", "soul_wisps", "blood_rage",
-	"blade_rain", "blizzard", "phantom_host", "comet", "fissure", "doom"]
+	"blade_rain", "blizzard", "phantom_host", "comet", "fissure", "doom",
+	"hearth_ward", "ember_heart", "frost_veil", "gale_hymn", "crimson_pact"]
 const SKILLS := {
 	"slash": {"name": "斬撃", "icon": "⚔", "mana": 0, "cd": 0.0, "attack": true, "color": Color("#c9b48a"), "lvl": 1,
 		"tags": ["attack", "melee"], "desc": "前方の敵を薙ぎ払う。攻撃速度の影響を受ける。"},
@@ -200,13 +201,30 @@ const SKILLS := {
 	"blink": {"name": "瞬歩", "icon": "⇢", "mana": 8, "cd": 3.0, "color": Color("#c8b8ff"), "lvl": 5,
 		"tags": ["spell", "movement", "lightning"], "desc": "カーソル方向へ一瞬で移動し、到着点で放電する。",
 		"anim": ["Spellcast_Shoot", 3.0], "fx": [{"k": "move", "dist": 9.0, "speed": 220.0, "coef": 0.0, "land": {"r": 3.0, "coef": 0.6, "type": "light"}}]},
+	# ---- auras: toggled on and off; while on they reserve part of max life or mana (`res`: pct of the pool
+	# plus a flat amount) and give their `stats` to the player and to allies within `r` meters ----
+	"hearth_ward": {"name": "炉辺の守り火", "icon": "☖", "mana": 0, "cd": 0.0, "cast": 0.3, "color": Color("#ffc878"), "lvl": 3,
+		"tags": ["aura"], "desc": "オーラ。自分と周囲の味方は毎秒ライフの1.5%を回復し、受けるダメージ -4%。",
+		"anim": ["Spellcast_Raise", 2.4], "aura": {"r": 9.0, "pool": "mana", "pct": 0, "flat": 30, "stats": {"regen": 1.5, "dr": 4}}},
+	"ember_heart": {"name": "熾火の鼓動", "icon": "♨", "mana": 0, "cd": 0.0, "cast": 0.3, "color": Color("#ff8a4a"), "lvl": 5,
+		"tags": ["aura"], "desc": "オーラ。自分と周囲の味方のダメージ +18%。",
+		"anim": ["Spellcast_Raise", 2.4], "aura": {"r": 9.0, "pool": "mana", "pct": 30, "flat": 0, "stats": {"dmg": 18}}},
+	"frost_veil": {"name": "霜紗の帳", "icon": "◈", "mana": 0, "cd": 0.0, "cast": 0.3, "color": Color("#a8e4ff"), "lvl": 8,
+		"tags": ["aura"], "desc": "オーラ。自分と周囲の味方の受けるダメージ -10%、移動速度 +6%。",
+		"anim": ["Spellcast_Raise", 2.4], "aura": {"r": 9.0, "pool": "mana", "pct": 25, "flat": 0, "stats": {"dr": 10, "move": 6}}},
+	"gale_hymn": {"name": "風詠みの讃歌", "icon": "≈", "mana": 0, "cd": 0.0, "cast": 0.3, "color": Color("#b0f0c8"), "lvl": 11,
+		"tags": ["aura"], "desc": "オーラ。自分と周囲の味方の攻撃速度・詠唱速度 +12%。",
+		"anim": ["Spellcast_Raise", 2.4], "aura": {"r": 9.0, "pool": "mana", "pct": 25, "flat": 0, "stats": {"atk_spd": 12, "cast_spd": 12}}},
+	"crimson_pact": {"name": "紅血の誓約", "icon": "♦", "mana": 0, "cd": 0.0, "cast": 0.3, "color": Color("#ff4a5a"), "lvl": 14,
+		"tags": ["aura"], "desc": "オーラ。ライフを捧げ、自分と周囲の味方のダメージ +14%、攻撃速度 +6%。",
+		"anim": ["Cheer", 2.2], "aura": {"r": 9.0, "pool": "life", "pct": 20, "flat": 0, "stats": {"dmg": 14, "atk_spd": 6}}},
 	"leap_slam": {"name": "跳躍斬", "icon": "⤴", "mana": 8, "cd": 4.0, "color": Color("#e0b880"), "lvl": 4,
 		"tags": ["attack", "movement", "aoe"], "desc": "カーソル方向へ跳び、着地点の周囲を叩き斬る。",
 		"anim": ["Jump_Full_Short", 1.6], "fx": [{"k": "move", "dist": 8.0, "speed": 28.0, "coef": 0.0, "land": {"r": 3.5, "coef": 1.4, "type": "phys"}}]},
 }
 const TAG_NAMES := {"attack": "攻撃", "melee": "近接", "spell": "スペル", "projectile": "投射", "aoe": "範囲", "fire": "火炎",
 	"cold": "冷気", "lightning": "雷", "chain": "連鎖", "movement": "移動", "minion": "ミニオン", "chaos": "混沌", "duration": "持続",
-	"curse": "呪い", "buff": "強化"}
+	"curse": "呪い", "buff": "強化", "aura": "オーラ"}
 
 # the six skill bar slots and the skills they start with
 const SLOT_KEYS := [{"short": "LMB", "label": "左クリック"}, {"short": "RMB", "label": "右クリック"}, {"short": "Q", "label": "Q"},
@@ -285,7 +303,7 @@ const SUPPORTS := [
 	{"id": "close", "name": "肉薄", "color": Color("#f0b080"), "energy": 2, "tags": ["attack", "spell"], "desc": "4.5m以内の敵へのダメージ +35%", "add": {"close": 0.35}},
 	{"id": "vsfrozen", "name": "砕氷", "color": Color("#b8f0ff"), "energy": 2, "tags": ["attack", "spell"], "desc": "凍結・減速中の敵へのダメージ +45%", "add": {"vsfrozen": 0.45}},
 	# speed and cost
-	{"id": "efficient", "name": "効率化", "color": Color("#90b8ff"), "energy": 1, "tags": ["attack", "spell", "buff"], "desc": "マナコスト -40%／ダメージ -10%", "mul": {"mana": 0.6, "dmg": 0.9}},
+	{"id": "efficient", "name": "効率化", "color": Color("#90b8ff"), "energy": 1, "tags": ["attack", "spell", "buff", "aura"], "desc": "マナコスト・オーラのリザーブ -40%／ダメージ -10%", "mul": {"mana": 0.6, "dmg": 0.9}},
 	{"id": "heavy", "name": "渾身", "color": Color("#e09060"), "energy": 3, "tags": ["attack", "spell"], "desc": "ダメージ +50%／攻撃・詠唱速度 -20%", "mul": {"dmg": 1.5, "speed": 0.8, "mana": 1.2}},
 	{"id": "rapid", "name": "連打", "color": Color("#a0e0a0"), "energy": 2, "tags": ["attack", "spell"], "not": ["movement"], "desc": "攻撃・詠唱速度 +40%／ダメージ -20%", "mul": {"speed": 1.4, "dmg": 0.8, "mana": 1.1}},
 	{"id": "echo", "name": "残響", "color": Color("#c0d0ff"), "energy": 3, "tags": ["attack", "spell"], "not": ["minion", "movement", "buff"], "desc": "0.25秒後にもう一度発動する（2回目のダメージ -30%）", "add": {"echo": 1}, "mul": {"mana": 1.4}},
@@ -295,7 +313,7 @@ const SUPPORTS := [
 	{"id": "minion_speed", "name": "迅速の僕", "color": Color("#d0e8c0"), "energy": 1, "tags": ["minion"], "desc": "ミニオンの攻撃速度 +30%", "mul": {"speed": 1.3, "mana": 1.1}},
 	{"id": "minion_tough", "name": "鋼の僕", "color": Color("#c8c0b0"), "energy": 1, "tags": ["minion"], "desc": "ミニオンのライフ +100%／ダメージ -10%", "mul": {"mlife": 2.0, "dmg": 0.9}},
 	{"id": "curse_eff", "name": "呪詛強化", "color": Color("#d070d0"), "energy": 1, "tags": ["curse"], "desc": "呪いの効果 +50%", "mul": {"ceff": 1.5, "mana": 1.2}},
-	{"id": "buff_eff", "name": "鼓舞", "color": Color("#ffd080"), "energy": 1, "tags": ["buff"], "desc": "強化スキルの効果 +40%", "mul": {"beff": 1.4, "mana": 1.2}},
+	{"id": "buff_eff", "name": "鼓舞", "color": Color("#ffd080"), "energy": 1, "tags": ["buff", "aura"], "desc": "強化・オーラスキルの効果 +40%（オーラのリザーブ +20%）", "mul": {"beff": 1.4, "mana": 1.2}},
 	{"id": "move_far", "name": "長駆", "color": Color("#b0b0ff"), "energy": 1, "tags": ["movement"], "desc": "移動距離 +40%", "mul": {"mdist": 1.4}},
 	{"id": "move_land", "name": "着地衝撃", "color": Color("#e0c0a0"), "energy": 1, "tags": ["movement"], "desc": "移動の終点で衝撃波を起こし、周囲に物理ダメージ", "add": {"mland": 1}, "mul": {"mana": 1.2}},
 ]
@@ -328,6 +346,17 @@ static func support_fits(g: Dictionary, skill_id: String) -> bool:
 
 # what a support's `need` asks for, for its tooltip
 const NEED_NAMES := {"proj": "投射物を放つ", "area": "範囲を指定する", "nova": "周囲に放つ", "slam": "前方を叩く", "zone": "持続範囲を置く", "move": "移動する"}
+
+
+## what using a skill costs, for tooltips and the skill list: mana per use, or what an aura reserves
+static func cost_text(sk: Dictionary) -> String:
+	if sk.has("aura"):
+		var a: Dictionary = sk.aura
+		var amt := ("%d%%" % a.pct) if a.pct > 0 else ""
+		if a.flat > 0:
+			amt += ("+%d" if amt != "" else "%d") % a.flat
+		return "リザーブ：%s %s" % ["ライフ" if a.pool == "life" else "マナ", amt]
+	return "マナ %d" % sk.mana
 
 
 static func tag_text(tags: Array) -> String:
@@ -397,7 +426,7 @@ static var _talents: Array = []
 static func talents() -> Array:
 	if _talents.is_empty():
 		_talents = BASE_TALENTS.duplicate()
-		for id in SKILL_ORDER:
+		for id in SKILL_ORDER.filter(func(k): return not SKILLS[k].has("aura")):   # auras deal no damage
 			_talents.append({"k": id, "name": SKILLS[id].name, "desc": "このスキルのダメージ +15%", "max": 10, "skill": true})
 	return _talents
 

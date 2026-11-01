@@ -12,6 +12,9 @@ var asc_cores: Array = ["", "", ""]
 var buffs := {}              # stacking timed buffs from core talents: key -> {"n", "t"}
 var combo := 0               # attack skills used, for "three strikes"
 var tbuffs := {}             # timed self buffs from buff skills: skill id -> {"t", "stats"}
+var auras: Array = []        # aura skills switched on, in the order they were switched on
+var aura_fx: Node3D          # the ground marks of the active auras
+var _aura_key := ""
 var atlas: Atlas             # for the atlas passives that change stats
 var chill := 0.0             # slowed by the witch's frost
 var life := 100.0
@@ -167,6 +170,9 @@ func recalc(full := false) -> void:
 	s = st
 	life = s.max_life if full else s.max_life * old_l
 	mana = s.max_mana if full else s.max_mana * old_m
+	fix_auras()
+	life = minf(life, cap("life"))
+	mana = minf(mana, cap("mana"))
 	refresh_gear()
 
 
@@ -278,17 +284,122 @@ func tstat(k: String) -> float:
 	return v
 
 
+# ---- auras and reservation ----
+## the support modifiers of an aura on the bar (its reservation scales with their mana multiplier)
+func aura_sup(id: String) -> Dictionary:
+	var i := slots.find(id)
+	return Data.build_sup(id, active_links(i) if i >= 0 else [])
+
+
+## how much of `pool` ("life" | "mana") aura `id` holds while it is on
+func aura_reserve(id: String, pool: String) -> float:
+	var a: Dictionary = Data.SKILLS[id].aura
+	if a.pool != pool:
+		return 0.0
+	var mx: float = s.max_life if pool == "life" else s.max_mana
+	return ceilf((mx * a.pct / 100.0 + a.flat) * aura_sup(id).mana)
+
+
+## the part of a pool the auras in `list` hold
+func reserved(pool: String, list: Array = auras) -> float:
+	var n := 0.0
+	for id in list:
+		n += aura_reserve(id, pool)
+	return n
+
+
+## the most life or mana the player can have right now
+func cap(pool: String) -> float:
+	return maxf(0.0, (s.max_life if pool == "life" else s.max_mana) - reserved(pool))
+
+
+## the auras in `list` fit if they leave at least 1 life (mana may be reserved in full)
+func reserve_fits(list: Array) -> bool:
+	return reserved("life", list) <= s.max_life - 1.0 and reserved("mana", list) <= s.max_mana
+
+
+## switch aura `id` on or off; "" when done, else why it was refused
+func toggle_aura(id: String) -> String:
+	if id in auras:
+		auras.erase(id)
+		return ""
+	if not reserve_fits(auras + [id]):
+		return "full"
+	auras.append(id)
+	life = minf(life, cap("life"))
+	mana = minf(mana, cap("mana"))
+	return ""
+
+
+## drop auras that left the bar, then the latest ones while the reservation no longer fits
+## (lost gear, unlinked gems); returns the ids switched off
+func fix_auras() -> Array:
+	var off := auras.filter(func(id): return not id in slots or not Data.SKILLS[id].has("aura"))
+	auras = auras.filter(func(id): return not id in off)
+	while not auras.is_empty() and not reserve_fits(auras):
+		off.append(auras.pop_back())
+	return off
+
+
+## a stat summed over the active auras, in the same keys as tstat; `beff` gems strengthen them
+func astat(k: String) -> float:
+	var v := 0.0
+	for id in auras:
+		v += Data.SKILLS[id].aura.stats.get(k, 0.0) * aura_sup(id).beff
+	return v
+
+
+## buffs and auras together, for the player
+func bonus(k: String) -> float:
+	return tstat(k) + astat(k)
+
+
+## a dashed band at the edge of each active aura's reach and a glowing sigil at the feet, turning slowly
+func update_aura_fx(delta: float) -> void:
+	var key := ",".join(PackedStringArray(auras))
+	if key != _aura_key:
+		_aura_key = key
+		if aura_fx:
+			aura_fx.queue_free()
+		aura_fx = Node3D.new()
+		add_child(aura_fx)
+		for i in auras.size():
+			var sk: Dictionary = Data.SKILLS[auras[i]]
+			var col: Color = sk.color
+			var spin := Node3D.new()
+			spin.position.y = 0.05 + i * 0.01
+			aura_fx.add_child(spin)
+			var r: float = sk.aura.r - i * 0.35
+			var m := Fx.mat(Color(col, 0.55), 2.5, true)
+			m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+			for k in 12:
+				var a0 := TAU * k / 12.0
+				Fx.mesh(spin, Fx.arc_mesh(r - 0.12, r, a0, a0 + TAU / 20.0, 6), m)
+			var mi := Fx.mat(Color(col, 0.35), 2.0, true)
+			mi.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			mi.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+			var rr := 0.9 + i * 0.28
+			Fx.mesh(spin, Fx.arc_mesh(rr - 0.07, rr, 0.0, TAU, 32), mi)
+			for k in 3:
+				var a0 := TAU * k / 3.0 + i * 0.5
+				Fx.mesh(spin, Fx.arc_mesh(rr + 0.06, rr + 0.2, a0, a0 + 0.5, 6), mi)
+	if aura_fx:
+		for i in aura_fx.get_child_count():
+			aura_fx.get_child(i).rotation.y += delta * (0.35 if i % 2 == 0 else -0.28)
+
+
 func low_life() -> bool:
 	return effects.has("deathline") and life <= s.max_life * 0.5
 
 
 ## attacks per second right now, with the core talents' temporary boosts
 func attack_rate_now() -> float:
-	return s.aps * (1.0 + (s.atk_spd + buff("fervor") * 2 + (20 if low_life() else 0) + tstat("atk_spd")) / 100.0)
+	return s.aps * (1.0 + (s.atk_spd + buff("fervor") * 2 + (20 if low_life() else 0) + bonus("atk_spd")) / 100.0)
 
 
 func cast_speed_now() -> float:
-	return 1.0 + (s.cast_spd + buff("spell_frenzy") * 5 + tstat("cast_spd")) / 100.0
+	return 1.0 + (s.cast_spd + buff("spell_frenzy") * 5 + bonus("cast_spd")) / 100.0
 
 
 ## play an attack/cast clip that holds for `hold` seconds before locomotion resumes
