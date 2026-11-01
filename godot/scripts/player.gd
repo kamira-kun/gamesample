@@ -19,6 +19,7 @@ var torch: OmniLight3D
 var act_left := 0.0          # time the current one-shot animation still owns the body
 # inventory
 const BAG_SIZE := 30
+const MAX_POTIONS := 5
 var equip := {}              # slot -> item
 var bag: Array = []
 var cur := {}                # currency key -> count

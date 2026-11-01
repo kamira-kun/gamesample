@@ -22,6 +22,12 @@ var drops: Array = []        # currency lying on the floor
 var save_t := 0.0
 var smoke := false
 var portal: Dictionary = {}
+var atlas := Atlas.new()
+var area: Dictionary = Data.HIDEOUT   # current atlas node, or the hideout
+var run_mods: Array = []
+var mod_fx := Atlas.effects([])
+var shop := {}
+var interacts: Array = []   # hideout objects: {kind, name, pos, r}
 var boss: Enemy = null
 var flow_t := 0.0
 var time := 0.0
@@ -49,15 +55,22 @@ func _ready() -> void:
 	hud = Hud.new()
 	hud.main = self
 	add_child(hud)
-	smoke = "--smoke" in OS.get_cmdline_user_args()
+	var args := Array(OS.get_cmdline_user_args())
+	# dev runs: `--smoke` plays a scripted test, `--view=merchant|device` opens that panel; neither touches the save
+	smoke = "--smoke" in args or args.any(func(x): return x.begins_with("--view="))
 	var loaded := false if smoke else load_game()
-	spawn_floor()
+	enter_hideout()
 	if loaded:
 		hud.message("セーブデータを読み込みました", Color("#e8d8b0"))
 	else:
 		hud.message("WASDで移動、左クリックで斬撃、右クリックでファイアボール", Color("#e8d8b0"))
 	hud.message("I / Tab：インベントリ", Color("#b8a888"))
-	if smoke:
+	for x in args:
+		if x.begins_with("--view="):
+			var kind: String = x.trim_prefix("--view=")
+			if kind in ["merchant", "device"]:
+				open_interact(kind)
+	if "--smoke" in args:
 		_smoke_test()
 
 
@@ -65,6 +78,26 @@ func _ready() -> void:
 func _smoke_test() -> void:
 	var p := player
 	p.invuln = 1e9
+	# hideout: merchant and atlas
+	print("SMOKE hideout=%s interacts=%d stock=%d" % [in_hideout(), interacts.size(), shop.items.size()])
+	await get_tree().create_timer(0.5).timeout
+	p.cur.ember = 2000
+	open_interact("merchant")
+	await get_tree().create_timer(0.3).timeout
+	var pots := p.potions
+	hud.shop_ui._buy(shop.items[0])
+	hud.shop_ui._buy_potion()
+	hud.shop_ui._buy_currency("chaos", Items.currency_price(Data.currency("chaos")))
+	print("SMOKE bought bag=%d stock=%d potions+%d chaos=%d ember=%d" % [p.bag.size(), shop.items.size(), p.potions - pots, p.cur.chaos, p.cur.ember])
+	hud.shop_ui._sell(0)
+	print("SMOKE shop sold bag=%d" % p.bag.size())
+	hud.close_panels()
+	open_interact("device")
+	await get_tree().create_timer(0.4).timeout
+	enter_map("wail")
+	print("SMOKE locked map ignored=%s" % in_hideout())
+	enter_map("ash")
+	print("SMOKE entered=%s level=%d atlas_open=%s" % [area.id, floor_level, hud.atlas_ui.visible])
 	var e: Enemy = enemies.filter(func(q): return not q.boss)[0]
 	p.pos = map.move_circle(e.pos + Vector2(-4, -4), p.r, Vector2.ZERO)
 	await get_tree().create_timer(0.3).timeout
@@ -80,7 +113,10 @@ func _smoke_test() -> void:
 	print("SMOKE enemies=%d level=%d portal=%s" % [killed_before, p.level, not portal.is_empty()])
 	p.pos = portal.pos
 	await get_tree().create_timer(0.3).timeout
-	print("SMOKE floor=%d enemies=%d" % [floor_level, enemies.size()])
+	print("SMOKE completed hideout=%s cleared=%s bone_unlocked=%s wail_unlocked=%s" % [in_hideout(), atlas.cleared, atlas.is_unlocked(Data.atlas_node("bone")), atlas.is_unlocked(Data.atlas_node("wail"))])
+	atlas.mods["wail"] = ["life", "swarm"]
+	enter_map("wail")
+	print("SMOKE wail level=%d mods=%s enemies=%d rarity=%.2f" % [floor_level, run_mods, enemies.size(), mod_fx.rarity])
 	p.invuln = 0.0
 	damage_player(1e9)
 	await get_tree().create_timer(1.2).timeout
@@ -94,6 +130,9 @@ func _smoke_test() -> void:
 	_drop_currency("chaos", 2, p.pos)
 	_drop_currency("ember", 50, p.pos)
 	await get_tree().create_timer(0.6).timeout
+	for g in ground.duplicate():
+		p.pos = g.pos
+		await get_tree().create_timer(0.1).timeout
 	print("SMOKE bag=%d chaos=%d ember=%d ground=%d" % [p.bag.size(), p.cur.chaos, p.cur.ember, ground.size()])
 	hud.toggle_inventory()
 	var mi := p.bag.find(p.bag.filter(func(x): return x.rarity == 1)[0])
@@ -162,18 +201,19 @@ static func to3(p: Vector2, y := 0.0) -> Vector3:
 
 
 # =================== level ===================
-func spawn_floor() -> void:
+## clear the world and drop the player at the new map's start room
+func _reset_world(new_map: Dungeon, new_theme: Dictionary) -> void:
 	if level_root:
 		level_root.queue_free()
-	for list in [projs, eprojs, teles, hazards, texts, ground, drops]:
+	for list in [projs, eprojs, teles, hazards, texts, ground, drops, interacts]:
 		list.clear()
 	enemies.clear()
 	portal = {}
 	boss = null
 	level_root = Node3D.new()
 	add_child(level_root)
-	map = Dungeon.new(72, 72, floor_level)
-	theme = Data.THEMES[((floor_level - 1) / 3) % Data.THEMES.size()]
+	map = new_map
+	theme = new_theme
 	LevelBuilder.build(map, theme, level_root)
 	player.pos = map.tile_center(map.start.cx, map.start.cy)
 	player.dead = false
@@ -181,10 +221,162 @@ func spawn_floor() -> void:
 	player.recalc(true)
 	player.torch.light_color = theme.torch
 	cam_target = to3(player.pos)
-	_spawn_enemies()
 	hud.set_boss(null)
-	hud.message("深度 %d — %s" % [floor_level, theme.name], Color("#e8d8b0"))
+	hud.close_panels()
+
+
+func in_hideout() -> bool:
+	return area.get("hideout", false)
+
+
+func spawn_floor() -> void:
+	_reset_world(Dungeon.new(72, 72, floor_level), Data.THEMES[atlas.node_theme(area)])
+	_spawn_enemies()
+	hud.message("%s — エリアレベル %d" % [area.name, floor_level], Color("#e8d8b0"))
+	for k in run_mods:
+		hud.message("◆ " + Data.map_mod(k).name, Color("#ff9a7a"))
 	save_game()
+
+
+# =================== hideout and atlas ===================
+## a safe hall between runs: the only place with the merchant, and where maps are chosen
+func enter_hideout() -> void:
+	area = Data.HIDEOUT
+	floor_level = atlas.hideout_level()
+	run_mods = []
+	mod_fx = Atlas.effects([])
+	_reset_world(Dungeon.new(28, 26, 1, "hideout"), Data.HIDEOUT_THEME)
+	var r := map.start
+	var c := map.tile_center(r.cx, r.cy)
+	player.pos = c + Vector2(0, 3 * T)
+	cam_target = to3(player.pos)
+	_dress_hideout(r)
+	interacts.append({"kind": "device", "name": "遠征図の祭壇", "pos": c + Vector2(0, -2.5 * T), "r": 1.6})
+	interacts.append({"kind": "merchant", "name": "商人", "pos": c + Vector2(-4 * T, 0), "r": 1.0})
+	_build_device(interacts[0].pos)
+	var merchant := Actor.new()
+	merchant.pos = interacts[1].pos
+	merchant.face = 0.0
+	level_root.add_child(merchant)
+	merchant.use_rig(Assets.ADVENTURERS + "Rogue_Hooded.glb", 1.0)
+	merchant.sync_node(0.0, false)
+	merchant.play("Idle")
+	for o in interacts:
+		var t := Vector2i(floori(o.pos.x / T), floori(o.pos.y / T))
+		map.blocked[map.idx(t.x, t.y)] = 1
+	if shop.is_empty() or shop.level != floor_level:
+		shop = Items.gen_shop(floor_level)
+	hud.message("隠れ家 — 遠征図の祭壇で行き先を選ぼう", Color("#e8d8b0"))
+	save_game()
+
+
+## furniture along the hideout walls (blocking their tiles) and braziers in the corners
+func _dress_hideout(r: Dictionary) -> void:
+	var decor := [["table_long_decorated_A", r.x + 3, r.y, 0.0], ["shelf_large", r.x + r.w - 4, r.y, 0.0],
+		["chest_gold", r.x + r.w - 1, r.y + 6, -PI / 2], ["barrel_large_decorated", r.x + r.w - 1, r.y + r.h - 1, 0.0],
+		["crates_stacked", r.x, r.y + r.h - 1, 0.5], ["keg_decorated", r.x, r.y + 2, PI / 2], ["table_small_decorated_A", r.x + 2, r.cy, 0.0]]
+	for d in decor:
+		var node := Assets.piece(d[0])
+		node.position = to3(map.tile_center(d[1], d[2]))
+		node.rotation.y = d[3]
+		level_root.add_child(node)
+		map.blocked[map.idx(d[1], d[2])] = 1
+	for corner in [Vector2i(r.x + 1, r.y + 1), Vector2i(r.x + r.w - 2, r.y + 1), Vector2i(r.x + 1, r.y + r.h - 2), Vector2i(r.x + r.w - 2, r.y + r.h - 2)]:
+		var at := map.tile_center(corner.x, corner.y)
+		var torch := Assets.piece("torch_lit")
+		torch.position = to3(at)
+		torch.scale = Vector3.ONE * 1.6
+		level_root.add_child(torch)
+		var light := OmniLight3D.new()
+		light.light_color = Color("#ffb070")
+		light.light_energy = 1.8
+		light.omni_range = 9.0
+		light.position = to3(at, 2.2)
+		level_root.add_child(light)
+		map.blocked[map.idx(corner.x, corner.y)] = 1
+
+
+## the atlas device: a stone plinth with a floating, slowly turning ring
+func _build_device(at: Vector2) -> void:
+	var root := Node3D.new()
+	root.position = to3(at)
+	level_root.add_child(root)
+	var plinth := CylinderMesh.new()
+	plinth.top_radius = 1.1
+	plinth.bottom_radius = 1.4
+	plinth.height = 0.6
+	Fx.mesh(root, plinth, Fx.mat(Color("#4a4038")), Vector3(0, 0.3, 0))
+	var ring_mesh := TorusMesh.new()
+	ring_mesh.inner_radius = 0.75
+	ring_mesh.outer_radius = 0.9
+	var ring := Fx.mesh(root, ring_mesh, Fx.mat(Color("#ffc870"), 4.0, true), Vector3(0, 2.0, 0))
+	ring.rotation.x = PI / 2
+	var orb := Fx.mesh(root, Fx.sphere(0.3), Fx.mat(Color("#ffe0a0"), 6.0, true), Vector3(0, 2.0, 0))
+	var light := OmniLight3D.new()
+	light.light_color = Color("#ffc070")
+	light.light_energy = 2.5
+	light.omni_range = 8.0
+	light.position.y = 2.0
+	root.add_child(light)
+	var tw := ring.create_tween().set_loops()
+	tw.tween_property(ring, "rotation:y", TAU, 6.0).as_relative()
+	var bob := orb.create_tween().set_loops()
+	bob.tween_property(orb, "position:y", 2.3, 1.2).set_trans(Tween.TRANS_SINE)
+	bob.tween_property(orb, "position:y", 1.9, 1.2).set_trans(Tween.TRANS_SINE)
+
+
+## click (or press B) near the merchant or the atlas device; returns true when one opened
+func _update_interact() -> bool:
+	for o in interacts:
+		var near: bool = player.pos.distance_to(o.pos) < 4.0 and pressed.has(KEY_B)
+		var clicked: bool = lmb and mouse_ground.distance_to(o.pos) < o.r + 0.6 and player.pos.distance_to(o.pos) < 14.0
+		if not near and not clicked:
+			continue
+		lmb = false
+		open_interact(o.kind)
+		return true
+	return false
+
+
+func open_interact(kind: String) -> void:
+	if kind == "merchant":
+		hud.shop_ui.open_close()
+	else:
+		hud.atlas_ui.open_close()
+
+
+func enter_map(id: String) -> void:
+	var n := Data.atlas_node(id)
+	if n.is_empty() or not atlas.is_unlocked(n):
+		return
+	area = n
+	floor_level = atlas.node_level(n)
+	run_mods = atlas.node_mods(n).duplicate()
+	mod_fx = Atlas.effects(run_mods)
+	spawn_floor()
+
+
+func complete_map() -> void:
+	var n := area
+	var was_cleared := atlas.is_cleared(n)
+	if not was_cleared:
+		atlas.cleared.append(n.id)
+	var newly: Array = n.links.filter(func(id): return not atlas.is_cleared(Data.atlas_node(id))).map(func(id): return Data.atlas_node(id).name)
+	if n.get("endless", false):
+		atlas.abyss += 1
+	atlas.mods.erase(n.id)
+	shop = {}   # the merchant restocks after every run
+	enter_hideout()
+	hud.message("%s を踏破した！" % n.name, Color("#ffd36a"))
+	if not newly.is_empty():
+		hud.message("新たな地点が開放：%s" % "、".join(newly), Color("#e8d8b0"))
+	if n.get("endless", false):
+		hud.message("残り火の深淵が Lv %d に深まった" % atlas.node_level(n), Color("#b48cff"))
+
+
+func abandon_map() -> void:
+	enter_hideout()
+	hud.message("隠れ家に帰還した", Color("#e8d8b0"))
 
 
 func _spawn_enemies() -> void:
@@ -203,10 +395,10 @@ func _spawn_enemies() -> void:
 			for i in 4:
 				_make_enemy("ghoul", map.random_floor_in(room), pack_id)
 			continue
-		var packs := clampi(roundi(room.w * room.h / 25.0), 2, 5)
+		var packs := clampi(roundi(room.w * room.h / 25.0 * mod_fx.swarm), 2, 7)
 		for k in packs:
 			pack_id += 1
-			_spawn_pack(map.random_floor_in(room), pack_id, randi_range(4, 8) + f / 2, pool)
+			_spawn_pack(map.random_floor_in(room), pack_id, roundi((randi_range(4, 8) + f / 2) * mod_fx.swarm), pool)
 
 
 static func _weighted(list: Array) -> Dictionary:
@@ -223,7 +415,7 @@ static func _weighted(list: Array) -> Dictionary:
 
 func _spawn_pack(c: Vector2, pack_id: int, n: int, pool: Array) -> void:
 	var main_kind: String = _weighted(pool).k
-	if randf() < 0.13 + floor_level * 0.01:
+	if randf() < (0.13 + floor_level * 0.01) * mod_fx.elite:
 		_make_enemy(main_kind, c, pack_id, Data.ELITE_AFFIXES.pick_random())
 	for i in n:
 		var kind: String = main_kind if randf() < 0.7 else _weighted(pool).k
@@ -237,6 +429,10 @@ func _make_enemy(kind: String, at: Vector2, pack_id: int, affix: Dictionary = {}
 	var e := Enemy.new()
 	level_root.add_child(e)
 	e.setup(kind, at, floor_level, pack_id, affix)
+	e.max_life *= mod_fx.life
+	e.life = e.max_life
+	e.dmg *= mod_fx.dmg
+	e.speed *= mod_fx.speed
 	e.sync_node(0.0, false)
 	enemies.append(e)
 	return e
@@ -246,10 +442,16 @@ func _make_enemy(kind: String, at: Vector2, pack_id: int, affix: Dictionary = {}
 func _process(delta: float) -> void:
 	delta = minf(delta, 0.05)
 	_update_mouse()
-	if pressed.has(KEY_I) or pressed.has(KEY_TAB):
+	if (pressed.has(KEY_I) or pressed.has(KEY_TAB)) and not hud.atlas_ui.visible:
+		if hud.shop_ui.visible:
+			hud.shop_ui.open_close()
 		hud.toggle_inventory()
-	if pressed.has(KEY_ESCAPE) and hud.inventory.visible:
-		hud.toggle_inventory()
+	if pressed.has(KEY_ESCAPE):
+		hud.close_panels()
+	if not hud.blocking() and in_hideout():
+		_update_interact()
+	if not hud.blocking() and pressed.has(KEY_T) and not in_hideout() and not player.dead:
+		abandon_map()
 	if not hud.blocking():
 		time += delta
 		_update_player(delta)
@@ -382,7 +584,10 @@ func damage_player(amount: float) -> void:
 
 func retry_floor() -> void:
 	player.xp = int(player.xp * 0.7)
-	spawn_floor()
+	if in_hideout():
+		enter_hideout()
+	else:
+		spawn_floor()
 
 
 func gain_xp(v: int) -> void:
@@ -444,7 +649,7 @@ func _kill_enemy(e: Enemy) -> void:
 	p.potion_prog += 1
 	if p.potion_prog >= 14:
 		p.potion_prog = 0
-		if p.potions < 5:
+		if p.potions < Player.MAX_POTIONS:
 			p.potions += 1
 			add_text(p.pos, "回復薬 +1", Color("#ff7070"), 16)
 	Fx.burst(level_root, to3(e.pos, 0.8), 60 if e.boss else 12, e.t.color, 8.0 if e.boss else 5.0)
@@ -459,7 +664,7 @@ func _kill_enemy(e: Enemy) -> void:
 		boss = null
 		hud.set_boss(null)
 		_open_portal(e.pos)
-		hud.message("%sを討伐した！ ポータルが開いた" % e.display_name, Color("#ff9a4a"))
+		hud.message("%sを討伐した！ ポータルで隠れ家に帰還できる" % e.display_name, Color("#ff9a4a"))
 
 
 func _explosion(at: Vector2, rad: float, color: Color) -> void:
@@ -971,22 +1176,21 @@ func _update_portal(delta: float) -> void:
 		return
 	portal.ring.rotate_object_local(Vector3.UP, delta * 2.0)
 	if not player.dead and player.pos.distance_to(portal.pos) < 1.3:
-		floor_level += 1
-		spawn_floor()
+		complete_map()
 
 
 # =================== loot ===================
 func _drop_loot(e: Enemy) -> void:
 	var ilvl := floor_level + (1 if not e.elite.is_empty() else 0) + (2 if e.boss else 0)
 	var n := 0
-	var boost := 0.0
+	var boost: float = mod_fx.rarity
 	if e.boss:
 		n = 4
-		boost = 2.5
+		boost += 2.5
 	elif not e.elite.is_empty():
 		n = randi_range(1, 2)
-		boost = 1.2
-	elif randf() < 0.13:
+		boost += 1.2
+	elif randf() < 0.13 * mod_fx.quantity:
 		n = 1
 	for i in n:
 		var force := (3 if randf() < 0.35 else 2) if e.boss and i == 0 else -1
@@ -1087,7 +1291,7 @@ func save_game() -> void:
 		return
 	var p := player
 	var data := {"floor": floor_level, "level": p.level, "xp": p.xp, "potions": p.potions,
-		"equip": p.equip, "bag": p.bag, "cur": p.cur}
+		"equip": p.equip, "bag": p.bag, "cur": p.cur, "atlas": atlas.to_dict(), "shop": shop}
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(data))
@@ -1110,6 +1314,10 @@ func load_game() -> bool:
 	p.bag = data.get("bag", []).map(func(it): return Items.normalize(it))
 	for k in data.get("cur", {}):
 		p.cur[k] = int(data.cur[k])
+	atlas.from_dict(data.get("atlas", {}))
+	var sd: Dictionary = data.get("shop", {})
+	if sd.has("items"):
+		shop = {"level": int(sd.level), "items": sd.items.map(func(it): return Items.normalize(it))}
 	p.recalc(true)
 	return true
 

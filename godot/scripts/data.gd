@@ -145,3 +145,44 @@ static func currency(k: String) -> Dictionary:
 		if c.k == k:
 			return c
 	return {}
+
+
+# =================== expedition atlas ===================
+const ATLAS_NODES := [
+	{"id": "ash", "name": "灰の入口", "theme": 0, "level": 1, "x": 0.07, "y": 0.55, "links": ["bone", "wail"], "desc": "深淵へ続く最初の階段。灯火を掲げて進め。"},
+	{"id": "bone", "name": "骨の回廊", "theme": 0, "level": 2, "x": 0.2, "y": 0.3, "links": ["ember"], "desc": "無数の骨が積み上げられた細い通路。"},
+	{"id": "wail", "name": "嘆きの納骨堂", "theme": 0, "level": 3, "x": 0.24, "y": 0.75, "links": ["ember", "obsidian"], "desc": "夜な夜な泣き声が響くという古い納骨堂。"},
+	{"id": "ember", "name": "燻る坑道", "theme": 1, "level": 4, "x": 0.38, "y": 0.42, "links": ["forge"], "desc": "地熱で焼けた岩が赤く光る廃坑。"},
+	{"id": "obsidian", "name": "黒曜の裂け目", "theme": 1, "level": 5, "x": 0.43, "y": 0.8, "links": ["forge", "frost"], "desc": "溶岩が冷えて固まった鋭い岩の谷。"},
+	{"id": "forge", "name": "溶鉄の炉心", "theme": 1, "level": 6, "x": 0.55, "y": 0.52, "links": ["cathedral"], "desc": "巨像が生まれたと伝わる灼熱の炉。"},
+	{"id": "frost", "name": "凍てつく参道", "theme": 2, "level": 7, "x": 0.62, "y": 0.82, "links": ["cathedral", "grave"], "desc": "氷に閉ざされた巡礼者の道。"},
+	{"id": "cathedral", "name": "霜の大聖堂", "theme": 2, "level": 8, "x": 0.72, "y": 0.35, "links": ["abyss"], "desc": "魔女が祈りを捧げる凍った聖堂。"},
+	{"id": "grave", "name": "氷霧の墓標", "theme": 2, "level": 9, "x": 0.8, "y": 0.72, "links": ["abyss"], "desc": "霧の中に墓標が並ぶ静寂の丘。"},
+	{"id": "abyss", "name": "残り火の深淵", "theme": -1, "level": 10, "x": 0.92, "y": 0.5, "links": [], "endless": true, "desc": "終わりなき深淵。踏破するたびに、さらに深く強大になる。"},
+]
+const THEME_COLORS := [Color("#c9b89a"), Color("#ff7a3a"), Color("#7fd4ff"), Color("#b48cff")]
+
+const MAP_MODS := [
+	{"k": "life", "name": "敵のライフ +40%", "life": 1.4},
+	{"k": "dmg", "name": "敵のダメージ +30%", "dmg": 1.3},
+	{"k": "swarm", "name": "敵の数 +40%", "swarm": 1.4},
+	{"k": "fast", "name": "敵の移動速度 +25%", "speed": 1.25},
+	{"k": "elite", "name": "エリートの出現率 2倍", "elite": 2.0},
+]
+
+const HIDEOUT := {"id": "hideout", "name": "隠れ家", "hideout": true}
+const HIDEOUT_THEME := {"name": "隠れ家", "tint": Color("#ffe6c8"), "torch": Color("#ffc88c")}
+
+
+static func atlas_node(id: String) -> Dictionary:
+	for n in ATLAS_NODES:
+		if n.id == id:
+			return n
+	return {}
+
+
+static func map_mod(k: String) -> Dictionary:
+	for m in MAP_MODS:
+		if m.k == k:
+			return m
+	return {}

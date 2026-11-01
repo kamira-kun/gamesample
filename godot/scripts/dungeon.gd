@@ -17,7 +17,7 @@ var start: Dictionary
 var boss_room: Dictionary
 
 
-func _init(width: int, height: int, lvl: int) -> void:
+func _init(width: int, height: int, lvl: int, layout := "") -> void:
 	w = width
 	h = height
 	level = lvl
@@ -27,7 +27,10 @@ func _init(width: int, height: int, lvl: int) -> void:
 	for i in noise.size():
 		noise[i] = randi() % 256
 	flow.resize(w * h)
-	_generate()
+	if layout == "hideout":
+		_make_hideout()
+	else:
+		_generate()
 
 
 func idx(x: int, y: int) -> int:
@@ -49,6 +52,21 @@ func tile_center(tx: int, ty: int) -> Vector2:
 func _carve(x: int, y: int) -> void:
 	if x > 0 and y > 0 and x < w - 1 and y < h - 1:
 		tiles[y * w + x] = 1
+
+
+## a single hand-laid hall with four pillars
+func _make_hideout() -> void:
+	var r := {"x": 6, "y": 6, "w": 15, "h": 13}
+	r.cx = r.x + r.w / 2
+	r.cy = r.y + r.h / 2
+	for yy in range(r.y, r.y + r.h):
+		for xx in range(r.x, r.x + r.w):
+			_carve(xx, yy)
+	for pp in [Vector2i(r.x + 2, r.y + 2), Vector2i(r.x + r.w - 3, r.y + 2), Vector2i(r.x + 2, r.y + r.h - 3), Vector2i(r.x + r.w - 3, r.y + r.h - 3)]:
+		tiles[idx(pp.x, pp.y)] = 0
+	rooms.append(r)
+	start = r
+	boss_room = r
 
 
 func _generate() -> void:

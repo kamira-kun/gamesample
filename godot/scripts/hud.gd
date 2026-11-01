@@ -20,6 +20,8 @@ var boss_bar := Bar.new()
 var death := ColorRect.new()
 var hurt := ColorRect.new()
 var inventory := InventoryUI.new()
+var shop_ui := ShopUI.new()
+var atlas_ui := AtlasUI.new()
 var tip := PanelContainer.new()
 var tip_box := VBoxContainer.new()
 
@@ -104,6 +106,10 @@ func _ready() -> void:
 
 	inventory.hud = self
 	root.add_child(inventory)
+	shop_ui.hud = self
+	root.add_child(shop_ui)
+	atlas_ui.hud = self
+	root.add_child(atlas_ui)
 	var tsb := StyleBoxFlat.new()
 	tsb.bg_color = Color(0.03, 0.024, 0.016, 0.97)
 	tsb.border_color = Color("#7a6040")
@@ -130,12 +136,20 @@ func _ready() -> void:
 	dl.add_theme_color_override("font_color", Color("#c03030"))
 	dbox.add_child(dl)
 	var retry := Button.new()
-	retry.text = "この深度に再挑戦する"
+	retry.text = "もう一度挑戦する"
 	retry.custom_minimum_size = Vector2(300, 48)
 	retry.pressed.connect(func():
 		death.visible = false
 		main.retry_floor())
 	dbox.add_child(retry)
+	var home := Button.new()
+	home.text = "隠れ家に戻る"
+	home.custom_minimum_size = Vector2(300, 48)
+	home.pressed.connect(func():
+		death.visible = false
+		main.player.xp = int(main.player.xp * 0.7)
+		main.enter_hideout())
+	dbox.add_child(home)
 
 
 func _shadow(l: Label) -> void:
@@ -144,8 +158,24 @@ func _shadow(l: Label) -> void:
 	l.add_theme_constant_override("shadow_offset_y", 2)
 
 
+static func panel_box() -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.063, 0.047, 0.035, 0.97)
+	sb.border_color = Color("#7a6040")
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(8)
+	sb.set_content_margin_all(16)
+	return sb
+
+
 func blocking() -> bool:
-	return death.visible or inventory.visible
+	return death.visible or inventory.visible or shop_ui.visible or atlas_ui.visible
+
+
+func close_panels() -> void:
+	for pnl in [inventory, shop_ui, atlas_ui]:
+		if pnl.visible:
+			pnl.open_close()
 
 
 func toggle_inventory() -> void:
@@ -154,6 +184,7 @@ func toggle_inventory() -> void:
 
 func refresh_inventory() -> void:
 	inventory.refresh()
+	shop_ui.refresh()
 
 
 ## lines: [text, color, size]
@@ -191,7 +222,8 @@ func refresh() -> void:
 	mana_orb.value = p.mana / p.s.max_mana
 	mana_orb.text = "%d / %d" % [floori(p.mana), p.s.max_mana]
 	xp_bar.value = float(p.xp) / Data.xp_need(p.level)
-	info.text = "深度 %d　Lv %d　◆ %d" % [main.floor_level, p.level, p.cur.ember]
+	var where: String = main.area.name if main.in_hideout() else "%s エリアLv %d" % [main.area.name, main.floor_level]
+	info.text = "%s　Lv %d　◆ %d" % [where, p.level, p.cur.ember]
 	if tip.visible:
 		_place_tip()
 	potion.text = "回復薬 %d  [F]" % p.potions
@@ -352,6 +384,11 @@ class Overlay extends Control:
 			var w := Data.ui_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x + 12
 			draw_rect(Rect2(sp.x - w / 2, sp.y - 18, w, 19), Color(0, 0, 0, 0.75))
 			draw_string(Data.ui_font, Vector2(sp.x - w / 2, sp.y - 4), label, HORIZONTAL_ALIGNMENT_CENTER, w, 13, c.color)
+		for o in m.interacts:
+			var sp := cam.unproject_position(Vector3(o.pos.x, 3.4, o.pos.y))
+			var label: String = "%s  [B]" % o.name
+			draw_string_outline(Data.ui_font, Vector2(sp.x - 120, sp.y), label, HORIZONTAL_ALIGNMENT_CENTER, 240, 16, 4, Color.BLACK)
+			draw_string(Data.ui_font, Vector2(sp.x - 120, sp.y), label, HORIZONTAL_ALIGNMENT_CENTER, 240, 16, Color("#ffd890"))
 		for tx in m.texts:
 			var p3: Vector3 = tx.pos + Vector3(0, tx.z, 0)
 			if cam.is_position_behind(p3):

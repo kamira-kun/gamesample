@@ -17,13 +17,7 @@ const EQUIP_LAYOUT := ["", "helm", "amulet", "weapon", "armor", "gloves", "ring"
 
 
 func _ready() -> void:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.063, 0.047, 0.035, 0.97)
-	sb.border_color = Color("#7a6040")
-	sb.set_border_width_all(1)
-	sb.set_corner_radius_all(8)
-	sb.set_content_margin_all(16)
-	add_theme_stylebox_override("panel", sb)
+	add_theme_stylebox_override("panel", Hud.panel_box())
 	set_anchors_preset(Control.PRESET_CENTER)
 	grow_horizontal = Control.GROW_DIRECTION_BOTH
 	grow_vertical = Control.GROW_DIRECTION_BOTH
@@ -124,7 +118,8 @@ func refresh() -> void:
 		sl.custom_minimum_size = Vector2(60, 60)
 		sl.item = p.equip.get(slot, {})
 		sl.empty_text = Data.SLOT_INFO[slot].name
-		sl.ui = self
+		sl.hud = hud
+		sl.glow = craft_key != ""
 		sl.clicked.connect(_on_equipped_click.bind(slot))
 		sl.right_clicked.connect(_cancel_craft)
 		equip_grid.add_child(sl)
@@ -134,7 +129,9 @@ func refresh() -> void:
 		var sl := ItemSlot.new()
 		sl.custom_minimum_size = Vector2(52, 52)
 		sl.item = p.bag[i] if i < p.bag.size() else {}
-		sl.ui = self
+		sl.hud = hud
+		sl.compare = true
+		sl.glow = craft_key != ""
 		sl.clicked.connect(_on_bag_click.bind(i))
 		sl.right_clicked.connect(_on_bag_right.bind(i))
 		bag_grid.add_child(sl)
@@ -247,46 +244,3 @@ func _on_equipped_click(slot: String) -> void:
 	hud.hide_tip()
 	refresh()
 
-
-## one square: an item (colored by rarity) or an empty slot
-class ItemSlot extends Control:
-	signal clicked
-	signal right_clicked
-	var item: Dictionary = {}
-	var empty_text := ""
-	var ui: InventoryUI
-
-	func _ready() -> void:
-		mouse_entered.connect(func():
-			if not item.is_empty():
-				var lines := Items.lines(item)
-				var p: Player = ui.hud.main.player
-				var cur: Dictionary = p.equip.get(item.slot, {})
-				if not cur.is_empty() and cur != item and item in p.bag:
-					lines.append(["— 装備中 —", Color("#7a7266"), 12])
-					lines.append_array(Items.lines(cur))
-				ui.hud.show_tip(lines))
-		mouse_exited.connect(func(): ui.hud.hide_tip())
-
-	func _gui_input(e: InputEvent) -> void:
-		if e is InputEventMouseButton and e.pressed:
-			if e.button_index == MOUSE_BUTTON_LEFT:
-				clicked.emit()
-			elif e.button_index == MOUSE_BUTTON_RIGHT:
-				right_clicked.emit()
-			accept_event()
-
-	func _draw() -> void:
-		var rect := Rect2(Vector2.ZERO, size)
-		if item.is_empty():
-			draw_rect(rect, Color("#0c0a08"))
-			draw_rect(rect, Color("#3a3024"), false, 1.0)
-			draw_string(Data.ui_font, Vector2(0, size.y / 2 + 5), empty_text, HORIZONTAL_ALIGNMENT_CENTER, size.x, 11, Color("#554a3a"))
-			return
-		var c: Color = Data.RARITY[item.rarity].color
-		draw_rect(rect, c.darkened(0.82))
-		draw_rect(rect, c.darkened(0.3), false, 2.0 if item.rarity == 3 else 1.0)
-		draw_string_outline(Data.ui_font, Vector2(0, size.y / 2 + 9), Data.SLOT_INFO[item.slot].glyph, HORIZONTAL_ALIGNMENT_CENTER, size.x, 24, 3, Color.BLACK)
-		draw_string(Data.ui_font, Vector2(0, size.y / 2 + 9), Data.SLOT_INFO[item.slot].glyph, HORIZONTAL_ALIGNMENT_CENTER, size.x, 24, c)
-		if ui.craft_key != "":
-			draw_rect(rect, Color(1, 0.85, 0.4, 0.12))

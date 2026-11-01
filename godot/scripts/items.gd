@@ -120,6 +120,32 @@ static func sell_price(it: Dictionary) -> int:
 	return roundi((3 + it.ilvl * 2) * (1 + it.rarity * 2))
 
 
+# =================== merchant ===================
+static func buy_price(it: Dictionary) -> int:
+	return sell_price(it) * 5
+
+
+static func potion_price(level: int) -> int:
+	return 15 + level * 8
+
+
+static func reroll_price(level: int) -> int:
+	return 25 + level * 15
+
+
+static func currency_price(c: Dictionary) -> int:
+	return c.value * 4
+
+
+## the merchant's stock: eight magic-or-better items a level above the hideout
+static func gen_shop(level: int) -> Dictionary:
+	var stock := []
+	for i in 8:
+		var r := randf()
+		stock.append(generate(level + 1, 1.0, 3 if r < 0.05 else (2 if r < 0.35 else 1)))
+	return {"level": level, "items": stock}
+
+
 ## tooltip lines: [text, color, size]
 static func lines(it: Dictionary) -> Array:
 	var out := []
