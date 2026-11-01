@@ -3,21 +3,106 @@ extends Node
 
 var ui_font: SystemFont
 
-const SKILL_ORDER := ["slash", "fireball", "nova", "chain", "meteor", "dash"]
+# every skill, in the order the skill panel lists them; `lvl` is the character level that teaches it
+const SKILL_ORDER := ["slash", "whirl", "fireball", "ice_spear", "nova", "chain", "storm", "meteor", "dash", "skeleton"]
 const SKILLS := {
-	"slash": {"name": "斬撃", "icon": "⚔", "mana": 0, "cd": 0.0, "attack": true, "color": Color("#c9b48a"), "key": "LMB",
-		"desc": "前方の敵を薙ぎ払う。攻撃速度の影響を受ける。"},
-	"fireball": {"name": "ファイアボール", "icon": "✹", "mana": 6, "cd": 0.0, "cast": 0.42, "color": Color("#ff7a2a"), "key": "RMB",
-		"desc": "着弾時に爆発する火球を放つ。"},
-	"nova": {"name": "フロストノヴァ", "icon": "❄", "mana": 16, "cd": 5.0, "cast": 0.3, "color": Color("#7fd4ff"), "key": "Q",
-		"desc": "周囲に冷気を放ち、敵を凍結させる。"},
-	"chain": {"name": "チェインライトニング", "icon": "ϟ", "mana": 12, "cd": 1.0, "cast": 0.35, "color": Color("#c9a8ff"), "key": "E",
-		"desc": "カーソル付近の敵に雷を放ち、次々と連鎖する。"},
-	"meteor": {"name": "メテオ", "icon": "☄", "mana": 30, "cd": 9.0, "cast": 0.5, "color": Color("#ff4d2a"), "key": "R",
-		"desc": "カーソル位置に隕石を落とし、地面を燃やす。"},
-	"dash": {"name": "シャドウダッシュ", "icon": "➤", "mana": 8, "cd": 2.5, "color": Color("#9a8cff"), "key": "SPC",
-		"desc": "カーソル方向へ駆け抜け、通過した敵を切り裂く。移動中は無敵。"},
+	"slash": {"name": "斬撃", "icon": "⚔", "mana": 0, "cd": 0.0, "attack": true, "color": Color("#c9b48a"), "lvl": 1,
+		"tags": ["attack", "melee"], "desc": "前方の敵を薙ぎ払う。攻撃速度の影響を受ける。"},
+	"whirl": {"name": "旋風斬", "icon": "✲", "mana": 4, "cd": 0.0, "attack": true, "color": Color("#e0c070"), "lvl": 4,
+		"tags": ["attack", "melee", "aoe"], "desc": "その場で回転し、周囲の敵すべてを斬りつける。攻撃速度の影響を受ける。"},
+	"fireball": {"name": "ファイアボール", "icon": "✹", "mana": 6, "cd": 0.0, "cast": 0.42, "color": Color("#ff7a2a"), "lvl": 1,
+		"tags": ["spell", "projectile", "aoe", "fire"], "desc": "着弾時に爆発する火球を放つ。"},
+	"ice_spear": {"name": "アイススピア", "icon": "➶", "mana": 8, "cd": 0.0, "cast": 0.35, "color": Color("#9fe8ff"), "lvl": 3,
+		"tags": ["spell", "projectile", "cold"], "desc": "敵を貫通する氷の槍を放ち、短時間凍結させる。"},
+	"nova": {"name": "フロストノヴァ", "icon": "❄", "mana": 16, "cd": 5.0, "cast": 0.3, "color": Color("#7fd4ff"), "lvl": 1,
+		"tags": ["spell", "aoe", "cold"], "desc": "周囲に冷気を放ち、敵を凍結させる。"},
+	"chain": {"name": "チェインライトニング", "icon": "ϟ", "mana": 12, "cd": 1.0, "cast": 0.35, "color": Color("#c9a8ff"), "lvl": 1,
+		"tags": ["spell", "chain", "lightning"], "desc": "カーソル付近の敵に雷を放ち、次々と連鎖する。"},
+	"storm": {"name": "サンダーストーム", "icon": "☈", "mana": 24, "cd": 7.0, "cast": 0.4, "color": Color("#b0a0ff"), "lvl": 6,
+		"tags": ["spell", "aoe", "lightning"], "desc": "カーソル位置に雷雲を呼び、範囲内の敵に落雷を降らせ続ける。"},
+	"meteor": {"name": "メテオ", "icon": "☄", "mana": 30, "cd": 9.0, "cast": 0.5, "color": Color("#ff4d2a"), "lvl": 1,
+		"tags": ["spell", "aoe", "fire"], "desc": "カーソル位置に隕石を落とし、地面を燃やす。"},
+	"dash": {"name": "シャドウダッシュ", "icon": "➤", "mana": 8, "cd": 2.5, "color": Color("#9a8cff"), "lvl": 1,
+		"tags": ["attack", "movement"], "desc": "カーソル方向へ駆け抜け、通過した敵を切り裂く。移動中は無敵。"},
+	"skeleton": {"name": "骸骨召喚", "icon": "☠", "mana": 20, "cd": 0.8, "cast": 0.5, "color": Color("#e8e0c8"), "lvl": 2,
+		"tags": ["spell", "minion"], "desc": "戦う骸骨の戦士を2体呼び出す（最大3体）。骸骨は近くの敵に斬りかかる。"},
 }
+const TAG_NAMES := {"attack": "攻撃", "melee": "近接", "spell": "スペル", "projectile": "投射", "aoe": "範囲", "fire": "火炎",
+	"cold": "冷気", "lightning": "雷", "chain": "連鎖", "movement": "移動", "minion": "ミニオン"}
+
+# the six skill bar slots and the skills they start with
+const SLOT_KEYS := [{"short": "LMB", "label": "左クリック"}, {"short": "RMB", "label": "右クリック"}, {"short": "Q", "label": "Q"},
+	{"short": "E", "label": "E"}, {"short": "R", "label": "R"}, {"short": "SPC", "label": "Space"}]
+const DEFAULT_SLOTS := ["slash", "fireball", "nova", "chain", "meteor", "dash"]
+
+# support gems are linked to a skill slot and change how that skill behaves while it resolves.
+# `tags`: the skill needs one of them; `not`: it must have none. `mul`/`add`/`max` adjust the support modifiers.
+const SUPPORTS := [
+	{"id": "power", "name": "威力増幅", "color": Color("#ff9a6a"), "tags": ["attack", "spell"], "desc": "ダメージ +30%（ミニオンにも有効）／マナコスト +30%",
+		"mul": {"dmg": 1.3, "mana": 1.3}},
+	{"id": "haste", "name": "加速", "color": Color("#8fd18f"), "tags": ["attack", "spell"], "desc": "攻撃・詠唱速度 +25%（トーテム・ミニオンにも有効）",
+		"mul": {"speed": 1.25, "mana": 1.1}},
+	{"id": "multi", "name": "多重投射", "color": Color("#9fd8ff"), "tags": ["projectile"], "desc": "投射物 +2／ダメージ -20%",
+		"add": {"proj": 2}, "mul": {"dmg": 0.8, "mana": 1.2}},
+	{"id": "aoe", "name": "範囲拡大", "color": Color("#ffd36a"), "tags": ["aoe"], "desc": "効果範囲 +35%",
+		"mul": {"aoe": 1.35, "mana": 1.15}},
+	{"id": "chain_s", "name": "連鎖増幅", "color": Color("#c9a8ff"), "tags": ["chain"], "desc": "連鎖回数 +3",
+		"add": {"chain": 3}, "mul": {"mana": 1.2}},
+	{"id": "leech", "name": "生命吸収", "color": Color("#ff6a6a"), "tags": ["attack", "spell"], "desc": "与えたダメージの3%をライフとして回復",
+		"add": {"leech": 0.03}},
+	{"id": "frostbite", "name": "凍結付与", "color": Color("#bff4ff"), "tags": ["attack", "spell"], "desc": "命中した敵を0.4秒凍結させる",
+		"max": {"freeze": 0.4}, "mul": {"mana": 1.1}},
+	{"id": "totem", "name": "トーテム化", "color": Color("#d8a060"), "tags": ["spell"], "not": ["minion", "movement"],
+		"desc": "スキルの代わりにカーソル位置へトーテムを設置。トーテムが10秒間スキルを自動で放つ（最大2本）／ダメージ -15%",
+		"add": {"totem": 1}, "mul": {"dmg": 0.85}},
+	{"id": "minion_power", "name": "ミニオン強化", "color": Color("#e8e0c8"), "tags": ["minion"], "desc": "ミニオンのライフ +50%、ダメージ +30%",
+		"mul": {"mlife": 1.5, "dmg": 1.3}},
+	{"id": "swarm", "name": "軍勢", "color": Color("#b8b0a0"), "tags": ["minion"], "desc": "ミニオンの最大数 +2",
+		"add": {"mcount": 2}, "mul": {"mana": 1.2}},
+]
+const DEFAULT_GEMS := ["power", "haste"]
+const LINK_MAX := 3
+const GEM_COLOR := Color("#7fe0a0")
+
+
+static func link_sockets(level: int) -> int:
+	return 3 if level >= 10 else (2 if level >= 5 else 1)
+
+
+static func support(id: String) -> Dictionary:
+	for g in SUPPORTS:
+		if g.id == id:
+			return g
+	return {}
+
+
+static func support_fits(g: Dictionary, skill_id: String) -> bool:
+	var tags: Array = SKILLS[skill_id].tags
+	return g.tags.any(func(t): return t in tags) and not g.get("not", []).any(func(t): return t in tags)
+
+
+static func tag_text(tags: Array) -> String:
+	return "・".join(tags.map(func(t): return TAG_NAMES[t]))
+
+
+## the support modifiers a slot's linked gems give its skill (gems that don't fit are skipped)
+static func build_sup(skill_id: String, ids: Array) -> Dictionary:
+	var s := {"dmg": 1.0, "mana": 1.0, "speed": 1.0, "proj": 0, "aoe": 1.0, "chain": 0, "leech": 0.0, "freeze": 0.0,
+		"totem": 0, "mlife": 1.0, "mcount": 0, "ids": [], "skill": skill_id}
+	if skill_id == "":
+		return s
+	for id in ids:
+		var g := support(id)
+		if g.is_empty() or not support_fits(g, skill_id):
+			continue
+		for k in g.get("mul", {}):
+			s[k] *= g.mul[k]
+		for k in g.get("add", {}):
+			s[k] += g.add[k]
+		for k in g.get("max", {}):
+			s[k] = maxf(s[k], g.max[k])
+		s.ids.append(id)
+	return s
 
 # radii and ranges are in meters (one dungeon tile = 2 m)
 const ENEMY_TYPES := {
@@ -27,7 +112,34 @@ const ENEMY_TYPES := {
 	"brute": {"name": "ブルート", "r": 0.9, "life": 60, "dmg": 16, "speed": 3.3, "color": Color("#8a5a9a"), "atk_range": 1.2, "atk_cd": 2.4, "windup": 0.75, "aoe": 3.2, "xp": 16, "h": 2.8},
 	"shaman": {"name": "呪術師", "r": 0.5, "life": 16, "dmg": 11, "speed": 3.9, "color": Color("#4fb0c0"), "caster": true, "range": 15.0, "atk_cd": 3.2, "windup": 0.9, "xp": 10, "h": 1.9},
 	"boss": {"name": "深淵の番人", "r": 1.5, "life": 650, "dmg": 20, "speed": 3.7, "color": Color("#b03030"), "boss": true, "atk_range": 1.6, "atk_cd": 1.6, "windup": 0.4, "xp": 220, "h": 4.1},
+	"colossus": {"name": "灼熱の巨像", "r": 1.8, "life": 820, "dmg": 24, "speed": 3.2, "color": Color("#7a3a22"), "boss": true, "atk_range": 2.2, "atk_cd": 1.8, "windup": 0.5, "xp": 260, "h": 5.0},
+	"witch": {"name": "凍嵐の魔女", "r": 1.0, "life": 600, "dmg": 18, "speed": 5.2, "color": Color("#3a6a9a"), "boss": true, "atk_range": 1.6, "atk_cd": 1.5, "windup": 0.4, "xp": 260, "h": 2.9},
 }
+
+# the boss of a map follows its theme
+const BOSS_ROTATION := [
+	{"type": "boss", "guards": ["ghoul", "ghoul", "ghoul", "ghoul"]},
+	{"type": "colossus", "guards": ["imp", "imp", "imp", "brute"]},
+	{"type": "witch", "guards": ["archer", "archer", "shaman", "shaman"]},
+]
+
+# talents: one point per level; skill talents raise that skill's damage
+const BASE_TALENTS := [
+	{"k": "might", "name": "剛力", "desc": "ダメージ +8%", "max": 20},
+	{"k": "vitality", "name": "生命力", "desc": "最大ライフ +20", "max": 20},
+	{"k": "spirit", "name": "精神", "desc": "最大マナ +12、マナ回復 +0.5/秒", "max": 20},
+	{"k": "swift", "name": "俊敏", "desc": "移動速度・攻撃速度 +3%", "max": 10},
+	{"k": "precision", "name": "精密", "desc": "クリティカル率 +1.5%、クリティカルダメージ +8%", "max": 15},
+]
+static var _talents: Array = []
+
+
+static func talents() -> Array:
+	if _talents.is_empty():
+		_talents = BASE_TALENTS.duplicate()
+		for id in SKILL_ORDER:
+			_talents.append({"k": id, "name": SKILLS[id].name, "desc": "このスキルのダメージ +15%", "max": 10, "skill": true})
+	return _talents
 
 const ELITE_AFFIXES := [
 	{"k": "swift", "name": "俊足"}, {"k": "armored", "name": "鉄壁"},
@@ -144,4 +256,80 @@ static func currency(k: String) -> Dictionary:
 	for c in CURRENCIES:
 		if c.k == k:
 			return c
+	return {}
+
+
+# =================== expedition atlas ===================
+const ATLAS_NODES := [
+	{"id": "ash", "name": "灰の入口", "theme": 0, "level": 1, "x": 0.07, "y": 0.55, "links": ["bone", "wail"], "desc": "深淵へ続く最初の階段。灯火を掲げて進め。"},
+	{"id": "bone", "name": "骨の回廊", "theme": 0, "level": 2, "x": 0.2, "y": 0.3, "links": ["ember"], "desc": "無数の骨が積み上げられた細い通路。"},
+	{"id": "wail", "name": "嘆きの納骨堂", "theme": 0, "level": 3, "x": 0.24, "y": 0.75, "links": ["ember", "obsidian"], "desc": "夜な夜な泣き声が響くという古い納骨堂。"},
+	{"id": "ember", "name": "燻る坑道", "theme": 1, "level": 4, "x": 0.38, "y": 0.42, "links": ["forge"], "desc": "地熱で焼けた岩が赤く光る廃坑。"},
+	{"id": "obsidian", "name": "黒曜の裂け目", "theme": 1, "level": 5, "x": 0.43, "y": 0.8, "links": ["forge", "frost"], "desc": "溶岩が冷えて固まった鋭い岩の谷。"},
+	{"id": "forge", "name": "溶鉄の炉心", "theme": 1, "level": 6, "x": 0.55, "y": 0.52, "links": ["cathedral"], "desc": "巨像が生まれたと伝わる灼熱の炉。"},
+	{"id": "frost", "name": "凍てつく参道", "theme": 2, "level": 7, "x": 0.62, "y": 0.82, "links": ["cathedral", "grave"], "desc": "氷に閉ざされた巡礼者の道。"},
+	{"id": "cathedral", "name": "霜の大聖堂", "theme": 2, "level": 8, "x": 0.72, "y": 0.35, "links": ["abyss"], "desc": "魔女が祈りを捧げる凍った聖堂。"},
+	{"id": "grave", "name": "氷霧の墓標", "theme": 2, "level": 9, "x": 0.8, "y": 0.72, "links": ["abyss"], "desc": "霧の中に墓標が並ぶ静寂の丘。"},
+	{"id": "abyss", "name": "残り火の深淵", "theme": -1, "level": 10, "x": 0.92, "y": 0.5, "links": [], "endless": true, "desc": "終わりなき深淵。踏破するたびに、さらに深く強大になる。"},
+]
+const THEME_COLORS := [Color("#c9b89a"), Color("#ff7a3a"), Color("#7fd4ff"), Color("#b48cff")]
+
+const MAP_MODS := [
+	{"k": "life", "name": "敵のライフ +40%", "life": 1.4},
+	{"k": "dmg", "name": "敵のダメージ +30%", "dmg": 1.3},
+	{"k": "swarm", "name": "敵の数 +40%", "swarm": 1.4},
+	{"k": "fast", "name": "敵の移動速度 +25%", "speed": 1.25},
+	{"k": "elite", "name": "エリートの出現率 2倍", "elite": 2.0},
+]
+
+# atlas passives: one point per first clear and per Ember Abyss clear; each node needs the one above it
+const ATLAS_PASSIVES := [
+	{"branch": "財宝", "color": Color("#ffcf3a"), "nodes": [
+		{"id": "gold", "name": "黄金の嗅覚", "max": 3, "per": 10, "fmt": "カレンシー獲得量 +{v}%"},
+		{"id": "find", "name": "目利き", "max": 3, "per": 8, "fmt": "アイテムレア度 +{v}%"},
+		{"id": "plenty", "name": "豊穣", "max": 3, "per": 6, "fmt": "アイテム数量 +{v}%"},
+		{"id": "relic", "name": "秘宝の導き", "max": 2, "per": 10, "fmt": "ボスのレジェンド確定ドロップ率 +{v}%"},
+	]},
+	{"branch": "征服", "color": Color("#ff7a5a"), "nodes": [
+		{"id": "horde", "name": "群れの呼び声", "max": 3, "per": 8, "fmt": "マップの敵の数 +{v}%"},
+		{"id": "hunt", "name": "精鋭狩り", "max": 3, "per": 15, "fmt": "エリートの出現率 +{v}%"},
+		{"id": "train", "name": "修練", "max": 3, "per": 8, "fmt": "獲得経験値 +{v}%"},
+		{"id": "prowess", "name": "強者の証", "max": 2, "per": 10, "fmt": "マップ効果1つにつきアイテムレア度 +{v}%"},
+	]},
+	{"branch": "探索", "color": Color("#7fd4ff"), "nodes": [
+		{"id": "flask", "name": "携行袋", "max": 2, "per": 1, "fmt": "回復薬の最大所持数 +{v}"},
+		{"id": "ward", "name": "灯火の加護", "max": 3, "per": 2, "fmt": "ライフ回復 +{v}/秒"},
+		{"id": "haggle", "name": "商人の縁", "max": 3, "per": 8, "fmt": "ショップの購入価格 -{v}%"},
+		{"id": "fox", "name": "狐の嗅覚", "max": 2, "per": 25, "fmt": "ペットの回収範囲 +{v}%"},
+	]},
+]
+
+
+## an atlas passive node plus its branch and its place in that branch
+static func passive(id: String) -> Dictionary:
+	for b in ATLAS_PASSIVES:
+		for i in b.nodes.size():
+			if b.nodes[i].id == id:
+				var n: Dictionary = b.nodes[i].duplicate()
+				n.branch = b
+				n.tier = i
+				return n
+	return {}
+
+
+const HIDEOUT := {"id": "hideout", "name": "隠れ家", "hideout": true}
+const HIDEOUT_THEME := {"name": "隠れ家", "tint": Color("#ffe6c8"), "torch": Color("#ffc88c")}
+
+
+static func atlas_node(id: String) -> Dictionary:
+	for n in ATLAS_NODES:
+		if n.id == id:
+			return n
+	return {}
+
+
+static func map_mod(k: String) -> Dictionary:
+	for m in MAP_MODS:
+		if m.k == k:
+			return m
 	return {}

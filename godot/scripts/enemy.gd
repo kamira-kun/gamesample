@@ -23,10 +23,13 @@ var act_t := 2.0
 var elite: Dictionary = {}
 var boss := false
 var pack := 0
-var dead := false
 var display_name := ""
 var aura: MeshInstance3D
 var winding := false
+var tgt: Actor = null       # who it is fighting: the player, a minion or a totem
+var tgt_t := 0.0
+var charge := {}            # colossus: the charge in progress
+var enraged := false        # bosses below half life
 
 # KayKit rigs per monster type (imps keep their primitive look)
 const RIGS := {
@@ -35,6 +38,8 @@ const RIGS := {
 	"shaman": {"path": "res://assets/kaykit/skeletons/Characters/gltf/Skeleton_Mage.glb", "scale": 0.85, "weapon": "res://assets/kaykit/skeletons/Assets/gltf/Skeleton_Staff.gltf", "run": "Walking_B", "attack": "Spellcast_Long", "atk_speed": 1.0},
 	"brute": {"path": "res://assets/kaykit/skeletons/Characters/gltf/Skeleton_Warrior.glb", "scale": 1.3, "weapon": "res://assets/kaykit/skeletons/Assets/gltf/Skeleton_Axe.gltf", "run": "Walking_D_Skeletons", "attack": "1H_Melee_Attack_Jump_Chop", "atk_speed": 1.0},
 	"boss": {"path": "res://assets/kaykit/adventurers/Characters/gltf/Barbarian.glb", "scale": 1.9, "keep": ["2H_Axe", "Barbarian_Round_Shield"], "run": "Walking_C", "attack": "2H_Melee_Attack_Chop", "atk_speed": 1.0},
+	"colossus": {"path": "res://assets/kaykit/skeletons/Characters/gltf/Skeleton_Warrior.glb", "scale": 2.4, "weapon": "res://assets/kaykit/skeletons/Assets/gltf/Skeleton_Axe.gltf", "run": "Walking_D_Skeletons", "attack": "1H_Melee_Attack_Jump_Chop", "atk_speed": 1.0, "glow": Color("#ff7a30")},
+	"witch": {"path": "res://assets/kaykit/adventurers/Characters/gltf/Mage.glb", "scale": 1.5, "keep": ["2H_Staff"], "run": "Running_B", "attack": "Spellcast_Shoot", "atk_speed": 1.2, "glow": Color("#8fdcff")},
 }
 
 
@@ -83,7 +88,7 @@ func _build() -> void:
 		anim.seek(randf() * 2.0, true)   # don't let a whole pack idle in sync
 		if boss:
 			var glow := OmniLight3D.new()
-			glow.light_color = Color("#ff4030")
+			glow.light_color = rc.get("glow", Color("#ff4030"))
 			glow.light_energy = 1.5
 			glow.omni_range = 7.0
 			glow.position = Vector3(0, 3.0, 0)
@@ -97,7 +102,10 @@ func _build() -> void:
 		for sx in [-1, 1]:
 			Fx.mesh(model, Fx.sphere(0.045), Fx.mat(Color("#ffda4a"), 5.0, true), Vector3(0.09 * sx, 0.8, -r * 0.95))
 	if not elite.is_empty() or boss:
-		aura = Fx.mesh(self, Fx.disc(), Fx.mat(Color(1.0, 0.25, 0.2, 0.35) if boss else Color(0.3, 0.55, 1.0, 0.35), 2.0, true), Vector3(0, 0.03, 0))
+		var ac: Color = Color(1.0, 0.25, 0.2) if boss else Color(0.3, 0.55, 1.0)
+		if boss and RIGS[type].has("glow"):
+			ac = RIGS[type].glow
+		aura = Fx.mesh(self, Fx.disc(), Fx.mat(Color(ac, 0.35), 2.0, true), Vector3(0, 0.03, 0))
 		aura.scale = Vector3(r * 1.8, 1, r * 1.8)
 
 
