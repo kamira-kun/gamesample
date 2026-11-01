@@ -43,8 +43,10 @@ var tgt_t := 0.0
 var charge := {}            # colossus: the charge in progress
 var enraged := false        # bosses below half life
 
-# KayKit rigs per monster type (imps keep their primitive look)
+# animated rigs per monster type (KayKit, plus a Quaternius demon for imps)
 const RIGS := {
+	"imp": {"path": Assets.QUATERNIUS + "Demon.glb", "scale": 0.45, "run": "CharacterArmature|Run", "run_speed": 1.2, "attack": "CharacterArmature|Punch", "atk_speed": 1.6,
+		"idle": "CharacterArmature|Idle", "idle_combat": "CharacterArmature|Idle", "death": "CharacterArmature|Death"},
 	"ghoul": {"path": "res://assets/kaykit/skeletons/Characters/gltf/Skeleton_Minion.glb", "scale": 0.85, "weapon": "res://assets/kaykit/skeletons/Assets/gltf/Skeleton_Blade.gltf", "run": "Walking_D_Skeletons", "run_speed": 1.3, "attack": "1H_Melee_Attack_Chop"},
 	"archer": {"path": "res://assets/kaykit/skeletons/Characters/gltf/Skeleton_Rogue.glb", "scale": 0.85, "weapon": "res://assets/kaykit/skeletons/Assets/gltf/Skeleton_Crossbow.gltf", "run": "Running_A", "attack": "1H_Ranged_Shoot"},
 	"shaman": {"path": "res://assets/kaykit/skeletons/Characters/gltf/Skeleton_Mage.glb", "scale": 0.85, "weapon": "res://assets/kaykit/skeletons/Assets/gltf/Skeleton_Staff.gltf", "run": "Walking_B", "attack": "Spellcast_Long", "atk_speed": 1.0},
@@ -96,7 +98,7 @@ func _build() -> void:
 	if RIGS.has(type):
 		var rc: Dictionary = RIGS[type]
 		use_rig(rc.path, rc.scale, rc.get("keep", []), rc.get("weapon", ""))
-		play("Idle")
+		play(rc.get("idle", "Idle"))
 		anim.seek(randf() * 2.0, true)   # don't let a whole pack idle in sync
 		if boss:
 			var glow := OmniLight3D.new()
@@ -105,14 +107,6 @@ func _build() -> void:
 			glow.omni_range = 7.0
 			glow.position = Vector3(0, 3.0, 0)
 			model.add_child(glow)
-	else:
-		# imps have no KayKit counterpart yet: a small horned devil with glowing eyes
-		var c: Color = t.color
-		part(Fx.capsule(0.3, 0.8), c, Vector3(0, 0.45, 0))
-		part(Fx.cone(0.08, 0.3), Color("#2a1410"), Vector3(-0.15, 0.95, 0))
-		part(Fx.cone(0.08, 0.3), Color("#2a1410"), Vector3(0.15, 0.95, 0))
-		for sx in [-1, 1]:
-			Fx.mesh(model, Fx.sphere(0.045), Fx.mat(Color("#ffda4a"), 5.0, true), Vector3(0.09 * sx, 0.8, -r * 0.95))
 	if not elite.is_empty() or boss:
 		var ac: Color = Color(1.0, 0.25, 0.2) if boss else Color(0.3, 0.55, 1.0)
 		if boss and RIGS[type].has("glow"):
@@ -143,7 +137,7 @@ func animate(delta: float, moving: bool, near := true) -> void:
 		if moving:
 			play(rc.run, rc.get("run_speed", 1.0))
 		else:
-			play("Idle_Combat" if aggro else "Idle")
+			play(rc.get("idle_combat", "Idle_Combat") if aggro else rc.get("idle", "Idle"))
 
 
 ## fall over, then disappear
@@ -152,7 +146,7 @@ func die() -> void:
 		aura.queue_free()
 	if anim:
 		anim.speed_scale = 1.0
-		play("Death_A", 1.3, true, 0.05)
+		play(RIGS[type].get("death", "Death_A"), 1.3, true, 0.05)
 		get_tree().create_timer(2.0).timeout.connect(queue_free)
 	else:
 		queue_free()
