@@ -3,6 +3,10 @@ extends Actor
 
 var level := 1
 var xp := 0
+var talent_pts := 0
+var talents := {}            # talent key -> rank
+var atlas: Atlas             # for the atlas passives that change stats
+var chill := 0.0             # slowed by the witch's frost
 var life := 100.0
 var mana := 60.0
 var s := {}                 # derived stats
@@ -18,7 +22,7 @@ var torch: OmniLight3D
 var act_left := 0.0          # time the current one-shot animation still owns the body
 # inventory
 const BAG_SIZE := 30
-const MAX_POTIONS := 5
+const BASE_POTIONS := 5
 var equip := {}              # slot -> item
 var bag: Array = []
 var cur := {}                # currency key -> count
@@ -27,10 +31,15 @@ var effects := {}            # legendary effects granted by gear
 var slots: Array = Data.DEFAULT_SLOTS.duplicate()
 var links: Array = [[], [], [], [], [], []]
 var gems: Array = Data.DEFAULT_GEMS.duplicate()
+# loot filter: per rarity "pick" | "sell" (sold on pickup) | "hide" (sold the moment it drops);
+# unchecked equipment slots are hidden too, except legendaries
+var filter := default_filter()
 
 
 func _init() -> void:
 	super()
+	for t in Data.talents():
+		talents[t.k] = 0
 	for c in Data.CURRENCIES:
 		cur[c.k] = 0
 	var sword := Items.generate(1, 0.0, 0, "weapon")
@@ -50,7 +59,25 @@ func _ready() -> void:
 	recalc(true)
 
 
-## derived stats from level and gear
+static func default_filter() -> Dictionary:
+	var sl := {}
+	for k in Data.SLOTS:
+		sl[k] = true
+	return {"rarity": ["pick", "pick", "pick", "pick"], "slots": sl}
+
+
+## "pick" | "sell" | "hide" for an item under the loot filter
+func item_action(it: Dictionary) -> String:
+	if it.rarity < 3 and not filter.slots.get(it.slot, true):
+		return "hide"
+	return filter.rarity[it.rarity]
+
+
+func max_potions() -> int:
+	return BASE_POTIONS + (roundi(atlas.val("flask")) if atlas else 0)
+
+
+## derived stats from level, talents and gear
 func recalc(full := false) -> void:
 	var L := level
 	var old_l: float = life / s.max_life if s else 1.0
@@ -76,8 +103,16 @@ func recalc(full := false) -> void:
 			effects[it.effect] = true
 	st.dmg_min += st.flat_dmg
 	st.dmg_max += st.flat_dmg
-	st.max_life += st.life
-	st.max_mana += st.mana
+	var tl := talents
+	st.max_life += st.life + tl.vitality * 20
+	st.max_mana += st.mana + tl.spirit * 12
+	st.mana_regen += tl.spirit * 0.5
+	st.life_regen += atlas.val("ward") if atlas else 0.0
+	st.inc_dmg += tl.might * 8
+	st.move_spd += tl.swift * 3
+	st.atk_spd += tl.swift * 3
+	st.crit += tl.precision * 1.5
+	st.crit_multi += tl.precision * 8
 	st.move_speed = 8.5 * (1.0 + st.move_spd / 100.0)
 	st.attack_rate = st.aps * (1.0 + st.atk_spd / 100.0)
 	st.dr = minf(0.75, st.armor / (st.armor + 60.0 + L * 10.0))

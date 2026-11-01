@@ -23,6 +23,12 @@ var inventory := InventoryUI.new()
 var shop_ui := ShopUI.new()
 var atlas_ui := AtlasUI.new()
 var skill_ui := SkillUI.new()
+var talent_ui := TalentUI.new()
+var status_ui := StatusUI.new()
+var filter_ui := FilterUI.new()
+var passive_ui := PassiveUI.new()
+var pause_ui := PauseUI.new()
+var talent_hint := Label.new()
 var tip := PanelContainer.new()
 var tip_box := VBoxContainer.new()
 
@@ -49,6 +55,12 @@ func _ready() -> void:
 	info.position = Vector2(16, 10)
 	_shadow(info)
 	root.add_child(info)
+	talent_hint.position = Vector2(16, 36)
+	talent_hint.text = "タレントポイントがあります [T]"
+	talent_hint.add_theme_color_override("font_color", Color("#ffe27a"))
+	talent_hint.add_theme_font_size_override("font_size", 14)
+	_shadow(talent_hint)
+	root.add_child(talent_hint)
 
 	messages.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	messages.position = Vector2(-400, 80)
@@ -113,6 +125,9 @@ func _ready() -> void:
 	root.add_child(atlas_ui)
 	skill_ui.hud = self
 	root.add_child(skill_ui)
+	for pnl in [talent_ui, status_ui, filter_ui, passive_ui, pause_ui]:
+		pnl.hud = self
+		root.add_child(pnl)
 	var tsb := StyleBoxFlat.new()
 	tsb.bg_color = Color(0.03, 0.024, 0.016, 0.97)
 	tsb.border_color = Color("#7a6040")
@@ -171,14 +186,35 @@ static func panel_box() -> StyleBoxFlat:
 	return sb
 
 
+func panels() -> Array:
+	return [inventory, shop_ui, atlas_ui, skill_ui, talent_ui, status_ui, filter_ui, passive_ui, pause_ui]
+
+
+func any_open() -> bool:
+	return panels().any(func(pnl): return pnl.visible)
+
+
 func blocking() -> bool:
-	return death.visible or inventory.visible or shop_ui.visible or atlas_ui.visible or skill_ui.visible
+	return death.visible or any_open()
 
 
 func close_panels() -> void:
-	for pnl in [inventory, shop_ui, atlas_ui, skill_ui]:
+	for pnl in panels():
 		if pnl.visible:
 			pnl.open_close()
+
+
+## open one panel (closing the others, except the atlas it can sit on top of), or close it
+func toggle(pnl: Control) -> void:
+	if death.visible:
+		return
+	if pnl.visible:
+		pnl.open_close()
+		return
+	for o in panels():
+		if o != pnl and o != atlas_ui and o.visible:
+			o.open_close()
+	pnl.open_close()
 
 
 func toggle_inventory() -> void:
@@ -229,7 +265,8 @@ func refresh() -> void:
 	info.text = "%s　Lv %d　◆ %d" % [where, p.level, p.cur.ember]
 	if tip.visible:
 		_place_tip()
-	potion.text = "回復薬 %d  [F]" % p.potions
+	potion.text = "回復薬 %d/%d  [F]" % [p.potions, p.max_potions()]
+	talent_hint.visible = p.talent_pts > 0
 	if boss:
 		boss_bar.value = maxf(0.0, boss.life / boss.max_life)
 	for sl in slots:

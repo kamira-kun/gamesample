@@ -11,6 +11,7 @@ var map: Dungeon
 var floor_level := 1
 var theme: Dictionary
 var player: Player
+var pet: Pet
 var enemies: Array[Enemy] = []
 var projs: Array = []        # player projectiles
 var eprojs: Array = []       # enemy projectiles
@@ -56,20 +57,24 @@ func _ready() -> void:
 	cam.far = 300.0
 	add_child(cam)
 	player = Player.new()
+	player.atlas = atlas
 	add_child(player)
+	pet = Pet.new()
+	add_child(pet)
 	hud = Hud.new()
 	hud.main = self
 	add_child(hud)
 	var args := Array(OS.get_cmdline_user_args())
-	# dev runs: `--smoke` plays a scripted test, `--view=merchant|device` opens that panel; neither touches the save
+	# dev runs: `--smoke` plays a scripted test, `--view=<panel>` opens a panel or `--view=colossus|witch` a boss fight; neither touches the save
 	smoke = "--smoke" in args or args.any(func(x): return x.begins_with("--view="))
 	var loaded := false if smoke else load_game()
+	passives_changed()
 	enter_hideout()
 	if loaded:
 		hud.message("セーブデータを読み込みました", Color("#e8d8b0"))
 	else:
 		hud.message("WASDで移動、左クリックで斬撃、右クリックでファイアボール", Color("#e8d8b0"))
-	hud.message("I / Tab：インベントリ", Color("#b8a888"))
+	hud.message("I：インベントリ　K：スキル　T：タレント　C：ステータス　L：フィルタ　P：遠征パッシブ", Color("#b8a888"))
 	for x in args:
 		if x.begins_with("--view="):
 			var kind: String = x.trim_prefix("--view=")
@@ -80,6 +85,14 @@ func _ready() -> void:
 				player.gems.append_array(["multi", "totem"])
 				player.links[1] = ["totem", "multi"]
 				hud.skill_ui.open_slot(1)
+			elif kind in ["talents", "status", "filter", "passives"]:
+				player.talent_pts = 3
+				atlas.cleared = ["ash", "bone"]
+				hud.toggle({"talents": hud.talent_ui, "status": hud.status_ui, "filter": hud.filter_ui, "passives": hud.passive_ui}[kind])
+			elif kind in ["colossus", "witch"]:   # a boss next to the player
+				enter_map("ash")
+				var b := _make_enemy(kind, player.pos + Vector2(5, -5), 999)
+				b.sync_node(0.0, false)
 	if "--smoke" in args:
 		_smoke_test()
 
@@ -125,6 +138,7 @@ func _smoke_test() -> void:
 		_try_cast(0)
 		await get_tree().create_timer(0.4).timeout
 	print("SMOKE skills minions=%d storms=%d hazards=%d" % [minions.size(), storms.size(), hazards.size()])
+	p.invuln = 1e9   # the dash cast above replaced it
 	# a fireball totem with extra projectiles, and the skill panel swapping slots
 	p.slots[1] = "fireball"
 	p.links[1] = ["totem", "multi", "power"]
@@ -141,6 +155,37 @@ func _smoke_test() -> void:
 	hud.close_panels()
 	p.slots = Data.DEFAULT_SLOTS.duplicate()
 	p.links = [[], [], [], [], [], []]
+	# talents, the loot filter and the pet
+	p.talent_pts = 2
+	var dmg0: int = p.s.inc_dmg
+	hud.toggle(hud.talent_ui)
+	hud.talent_ui._spend("might")
+	hud.talent_ui._spend("fireball")
+	print("SMOKE talents pts=%d inc_dmg+%d fireball=%d" % [p.talent_pts, p.s.inc_dmg - dmg0, p.talents.fireball])
+	hud.toggle(hud.filter_ui)
+	hud.filter_ui._set_rarity(0, "hide")
+	hud.filter_ui._set_rarity(1, "sell")
+	hud.filter_ui._set_rarity(3, "sell")
+	var em0: int = p.cur.ember
+	var g0 := ground.size()
+	drop_item(Items.generate(3, 0.0, 0), p.pos)
+	print("SMOKE filter hidden ground+%d ember+%d legend_pending=%s" % [ground.size() - g0, p.cur.ember - em0, p.filter.rarity[3]])
+	var bag0 := p.bag.size()
+	pickup_item(Items.generate(3, 0.0, 1), p.pos)
+	print("SMOKE filter autosell bag+%d" % (p.bag.size() - bag0))
+	hud.close_panels()
+	p.filter = Player.default_filter()
+	var fetch := map.move_circle(p.pos, 0.2, Vector2(6, 0))
+	_drop_currency("chaos", 1, fetch)
+	var chaos0: int = p.cur.chaos
+	await get_tree().create_timer(2.0).timeout
+	print("SMOKE pet fetched=%s pet_dist=%.1f" % [p.cur.chaos > chaos0, pet.pos.distance_to(p.pos)])
+	hud.toggle(hud.status_ui)
+	await get_tree().create_timer(0.2).timeout
+	print("SMOKE status open=%s rows=%d" % [hud.status_ui.visible, hud.status_ui.stats.get_child_count()])
+	hud.toggle(hud.pause_ui)
+	print("SMOKE pause open=%s status_closed=%s" % [hud.pause_ui.visible, not hud.status_ui.visible])
+	hud.close_panels()
 	await get_tree().create_timer(1.0).timeout
 	var killed_before := enemies.size()
 	hit_enemy(boss, {"dmg": 999999, "crit": false, "type": "phys"})
@@ -148,9 +193,50 @@ func _smoke_test() -> void:
 	p.pos = portal.pos
 	await get_tree().create_timer(0.3).timeout
 	print("SMOKE completed hideout=%s cleared=%s bone_unlocked=%s wail_unlocked=%s" % [in_hideout(), atlas.cleared, atlas.is_unlocked(Data.atlas_node("bone")), atlas.is_unlocked(Data.atlas_node("wail"))])
+	hud.toggle(hud.passive_ui)
+	hud.passive_ui._rank_up("find")   # locked until 黄金の嗅覚 has a rank
+	hud.passive_ui._rank_up("gold")
+	hud.passive_ui._rank_up("flask")  # no points left
+	print("SMOKE passives free=%d gold=%d find=%d flask=%d gold_fx=%.2f" % [atlas.points_free(), atlas.rank("gold"), atlas.rank("find"), atlas.rank("flask"), atlas.map_effects([]).gold])
+	hud.close_panels()
 	atlas.mods["wail"] = ["life", "swarm"]
 	enter_map("wail")
 	print("SMOKE wail level=%d mods=%s enemies=%d rarity=%.2f" % [floor_level, run_mods, enemies.size(), mod_fx.rarity])
+	# the colossus and the witch go through their moves
+	for kind in ["colossus", "witch"]:
+		var spot := p.pos
+		for k in 32:
+			var at := p.pos + Vector2.from_angle(k * TAU / 32.0) * (9.0 + k / 8)
+			if not map.circle_hits(at, 2.2) and map.los(p.pos, at):
+				spot = at
+				break
+		var b := _make_enemy(kind, spot, 999)
+		b.aggro = true
+		var chill := 0.0
+		var shots := 0
+		for i in 8:
+			b.act_t = 0.0
+			b.atk_cd = 9.0
+			for k in 10:
+				await get_tree().create_timer(0.1).timeout
+				chill = maxf(chill, p.chill)
+				shots = maxi(shots, eprojs.size())
+		if kind == "colossus":
+			await get_tree().create_timer(1.0).timeout
+			var hz0 := hazards.size()
+			b.windup = 0.0
+			b.act_t = 9.0
+			b.charge = {"dir": (p.pos - b.pos).normalized(), "left": 8.0, "hit": false, "trail": 0.0}
+			await get_tree().create_timer(0.6).timeout
+			print("SMOKE charge done=%s trail+%d" % [b.charge.is_empty(), hazards.size() - hz0])
+		b.life = b.max_life * 0.4
+		for k in 30:
+			if b.enraged:
+				break
+			await get_tree().create_timer(0.1).timeout
+		print("SMOKE %s alive=%s enraged=%s max_shots=%d max_chill=%.1f" % [kind, not b.dead, b.enraged, shots, chill])
+		hit_enemy(b, {"dmg": 999999, "crit": false, "type": "phys"})
+		await get_tree().create_timer(0.3).timeout
 	p.invuln = 0.0
 	damage_player(1e9)
 	await get_tree().create_timer(1.2).timeout
@@ -255,7 +341,9 @@ func _reset_world(new_map: Dungeon, new_theme: Dictionary) -> void:
 	player.dead = false
 	player.dash = {}
 	player.recalc(true)
+	player.chill = 0.0
 	player.torch.light_color = theme.torch
+	_place_pet()
 	cam_target = to3(player.pos)
 	hud.set_boss(null)
 	hud.close_panels()
@@ -280,12 +368,13 @@ func enter_hideout() -> void:
 	area = Data.HIDEOUT
 	floor_level = atlas.hideout_level()
 	run_mods = []
-	mod_fx = Atlas.effects([])
+	mod_fx = atlas.map_effects([])
 	_reset_world(Dungeon.new(28, 26, 1, "hideout"), Data.HIDEOUT_THEME)
 	var r := map.start
 	var c := map.tile_center(r.cx, r.cy)
 	player.pos = c + Vector2(0, 3 * T)
 	cam_target = to3(player.pos)
+	_place_pet()
 	_dress_hideout(r)
 	interacts.append({"kind": "device", "name": "遠征図の祭壇", "pos": c + Vector2(0, -2.5 * T), "r": 1.6})
 	interacts.append({"kind": "merchant", "name": "商人", "pos": c + Vector2(-4 * T, 0), "r": 1.0})
@@ -388,7 +477,7 @@ func enter_map(id: String) -> void:
 	area = n
 	floor_level = atlas.node_level(n)
 	run_mods = atlas.node_mods(n).duplicate()
-	mod_fx = Atlas.effects(run_mods)
+	mod_fx = atlas.map_effects(run_mods)
 	spawn_floor()
 
 
@@ -425,16 +514,35 @@ func _spawn_enemies() -> void:
 			continue
 		pack_id += 1
 		if room == map.boss_room:
-			boss = _make_enemy("boss", map.tile_center(room.cx, room.cy), pack_id)
+			var bt: Dictionary = Data.BOSS_ROTATION[atlas.node_theme(area)]
+			boss = _make_enemy(bt.type, map.tile_center(room.cx, room.cy), pack_id)
 			boss.max_life *= 1.0 + 0.12 * (f - 1)
 			boss.life = boss.max_life
-			for i in 4:
-				_make_enemy("ghoul", map.random_floor_in(room), pack_id)
+			for g in bt.guards:
+				_make_enemy(g, map.random_floor_in(room), pack_id)
 			continue
 		var packs := clampi(roundi(room.w * room.h / 25.0 * mod_fx.swarm), 2, 7)
 		for k in packs:
 			pack_id += 1
 			_spawn_pack(map.random_floor_in(room), pack_id, roundi((randi_range(4, 8) + f / 2) * mod_fx.swarm), pool)
+	# ambush packs scattered through the corridors, away from the entrance and the boss
+	var br: Dictionary = map.boss_room
+	var placed := 0
+	for tries in 300:
+		if placed >= 6 + f / 2:
+			break
+		var tx := randi_range(1, map.w - 2)
+		var ty := randi_range(1, map.h - 2)
+		if map.is_wall(tx, ty):
+			continue
+		var c := map.tile_center(tx, ty)
+		if c.distance_to(player.pos) < 28.0:
+			continue
+		if tx >= br.x - 2 and tx < br.x + br.w + 2 and ty >= br.y - 2 and ty < br.y + br.h + 2:
+			continue
+		pack_id += 1
+		_spawn_pack(c, pack_id, randi_range(3, 5), [{"k": "imp", "w": 2.0}, {"k": "ghoul", "w": 2.0}, {"k": "archer", "w": 1.0}])
+		placed += 1
 
 
 static func _weighted(list: Array) -> Dictionary:
@@ -478,21 +586,21 @@ func _make_enemy(kind: String, at: Vector2, pack_id: int, affix: Dictionary = {}
 func _process(delta: float) -> void:
 	delta = minf(delta, 0.05)
 	_update_mouse()
-	if (pressed.has(KEY_I) or pressed.has(KEY_TAB)) and not hud.atlas_ui.visible:
-		if hud.shop_ui.visible:
-			hud.shop_ui.open_close()
-		hud.toggle_inventory()
-	if pressed.has(KEY_K) and not hud.atlas_ui.visible and not hud.shop_ui.visible:
-		hud.skill_ui.open_close()
+	for kp in [[KEY_I, hud.inventory], [KEY_TAB, hud.inventory], [KEY_K, hud.skill_ui], [KEY_T, hud.talent_ui],
+			[KEY_C, hud.status_ui], [KEY_L, hud.filter_ui], [KEY_P, hud.passive_ui]]:
+		if pressed.has(kp[0]):
+			hud.toggle(kp[1])
 	if pressed.has(KEY_ESCAPE):
-		hud.close_panels()
+		if hud.any_open():
+			hud.close_panels()
+		elif not player.dead:
+			hud.pause_ui.open_close()
 	if not hud.blocking() and in_hideout():
 		_update_interact()
-	if not hud.blocking() and pressed.has(KEY_T) and not in_hideout() and not player.dead:
-		abandon_map()
 	if not hud.blocking():
 		time += delta
 		_update_player(delta)
+		_update_pet(delta)
 		_update_minions(delta)
 		_update_totems(delta)
 		flow_t -= delta
@@ -559,6 +667,8 @@ func _update_player(delta: float) -> void:
 	p.action_t -= delta
 	p.swing_t -= delta
 	p.invuln -= delta
+	p.chill -= delta
+	p.frosted = p.chill > 0.0
 	p.aim = (mouse_ground - p.pos).angle()
 	if not p.dash.is_empty():
 		_update_dash(delta)
@@ -578,7 +688,7 @@ func _update_player(delta: float) -> void:
 		fwd.y = 0
 		right.y = 0
 		var d3 := (right.normalized() * mv.x - fwd.normalized() * mv.y).normalized()
-		var sp: float = s.move_speed * (0.5 if p.action_t > 0.0 else 1.0)
+		var sp: float = s.move_speed * (0.5 if p.action_t > 0.0 else 1.0) * (0.6 if p.chill > 0.0 else 1.0)
 		p.pos = map.move_circle(p.pos, p.r, Vector2(d3.x, d3.z) * sp * delta)
 	var held := [lmb, rmb, Input.is_physical_key_pressed(KEY_Q), Input.is_physical_key_pressed(KEY_E),
 		Input.is_physical_key_pressed(KEY_R), pressed.has(KEY_SPACE)]
@@ -636,17 +746,19 @@ func gain_xp(v: int) -> void:
 	while p.xp >= Data.xp_need(p.level):
 		p.xp -= Data.xp_need(p.level)
 		p.level += 1
+		p.talent_pts += 1
 		p.recalc(true)
 		add_text(p.pos, "LEVEL UP!", Color("#ffe27a"), 28)
 		Fx.ring(level_root, to3(p.pos), 5.0, Color("#ffe27a"), 0.6, false)
 		Fx.burst(level_root, to3(p.pos, 1.0), 40, Color("#ffe27a"), 6.0)
-		hud.message("レベル %d に到達！" % p.level, Color("#ffe27a"))
+		hud.message("レベル %d に到達！ タレントポイント +1（T）" % p.level, Color("#ffe27a"))
 		if Data.link_sockets(p.level) > Data.link_sockets(p.level - 1):
 			hud.message("リンクソケットが %d 個に増えた！（K）" % Data.link_sockets(p.level), Data.GEM_COLOR)
 		for id in Data.SKILL_ORDER:
 			if Data.SKILLS[id].lvl == p.level:
 				hud.message("新スキル「%s」を習得！（Kで付け替え）" % Data.SKILLS[id].name, Data.SKILLS[id].color)
 		hud.skill_ui.refresh()
+		hud.talent_ui.refresh()
 
 
 # =================== combat ===================
@@ -654,7 +766,7 @@ func roll_damage(coef: float, type: String, spell := false) -> Dictionary:
 	var s := player.s
 	var d: float = randf_range(s.dmg_min, s.dmg_max) * coef
 	var elem: float = {"fire": s.fire_dmg, "cold": s.cold_dmg, "light": s.light_dmg}.get(type, 0)
-	d *= (1.0 + (s.inc_dmg + (s.spell_dmg if spell else 0) + elem) / 100.0) * sup.dmg
+	d *= (1.0 + (s.inc_dmg + (s.spell_dmg if spell else 0) + elem) / 100.0) * sup.dmg * (1.0 + 0.15 * player.talents.get(sup.skill, 0))
 	var crit: bool = randf() * 100.0 < s.crit
 	if crit:
 		d *= s.crit_multi / 100.0
@@ -692,13 +804,13 @@ func enemies_in_radius(c: Vector2, rad: float) -> Array[Enemy]:
 func _kill_enemy(e: Enemy) -> void:
 	e.dead = true
 	var p := player
-	gain_xp(roundi(e.xp))
+	gain_xp(roundi(e.xp * mod_fx.xp))
 	p.life = minf(p.s.max_life, p.life + p.s.life_on_kill + (p.s.max_life * 0.03 if p.effects.has("kill_heal") else 0.0))
 	_drop_loot(e)
 	p.potion_prog += 1
 	if p.potion_prog >= 14:
 		p.potion_prog = 0
-		if p.potions < Player.MAX_POTIONS:
+		if p.potions < p.max_potions():
 			p.potions += 1
 			add_text(p.pos, "回復薬 +1", Color("#ff7070"), 16)
 	Fx.burst(level_root, to3(e.pos, 0.8), 60 if e.boss else 12, e.t.color, 8.0 if e.boss else 5.0)
@@ -738,11 +850,28 @@ func add_tele(at: Vector2, rad: float, dur: float, hostile: bool, on_done: Calla
 	teles.append({"node": root, "inner": inner, "r": rad, "t": 0.0, "max": dur, "done": on_done})
 
 
+## a telegraphed lane (the colossus charge) that fills from the start toward the far end
+func add_line_tele(at: Vector2, angle: float, length: float, width: float, dur: float) -> void:
+	var c := Color(1.0, 0.2, 0.15)
+	var root := Node3D.new()
+	root.position = to3(at, 0.04)
+	root.rotation.y = atan2(-cos(angle), -sin(angle))   # local -Z points along `angle`
+	level_root.add_child(root)
+	Fx.mesh(root, Fx.box(Vector3(width, 0.01, length)), Fx.mat(Color(c, 0.18), 1.0, true), Vector3(0, 0, -length / 2.0))
+	var inner := Fx.mesh(root, Fx.box(Vector3(width, 0.01, length)), Fx.mat(Color(c, 0.35), 1.5, true), Vector3(0, 0.01, 0))
+	inner.scale = Vector3(1, 1, 0.01)
+	teles.append({"node": root, "inner": inner, "len": length, "t": 0.0, "max": dur, "done": func(): pass})
+
+
 func _update_teles(delta: float) -> void:
 	for tl in teles:
 		tl.t += delta
 		var k := minf(1.0, tl.t / tl.max)
-		tl.inner.scale = Vector3(tl.r * k + 0.01, 1, tl.r * k + 0.01)
+		if tl.has("len"):
+			tl.inner.scale = Vector3(1, 1, k + 0.01)
+			tl.inner.position.z = -tl.len * k / 2.0
+		else:
+			tl.inner.scale = Vector3(tl.r * k + 0.01, 1, tl.r * k + 0.01)
 		if tl.t >= tl.max:
 			tl.node.queue_free()
 			tl.done.call()
@@ -1072,7 +1201,8 @@ func _cast_skeleton(c: Dictionary) -> void:
 		Fx.burst(level_root, to3(at, 0.5), 14, Color("#e8e0c8"), 4.0)
 
 
-func _add_hazard(at: Vector2, rad: float, dur: float) -> void:
+## burning ground; with `hostile_dmg` it is the bosses' fire and hurts the player and allies instead
+func _add_hazard(at: Vector2, rad: float, dur: float, hostile_dmg := 0.0) -> void:
 	var root := Node3D.new()
 	root.position = to3(at, 0.05)
 	level_root.add_child(root)
@@ -1097,14 +1227,17 @@ func _add_hazard(at: Vector2, rad: float, dur: float) -> void:
 	light.omni_range = rad * 2.0
 	light.position.y = 1.0
 	root.add_child(light)
-	hazards.append({"node": root, "pos": at, "r": rad, "t": 0.0, "max": dur, "tick": 0.0, "sup": sup})
+	hazards.append({"node": root, "pos": at, "r": rad, "t": 0.0, "max": dur, "tick": 0.0, "sup": sup, "hostile": hostile_dmg})
 
 
 func _update_hazards(delta: float) -> void:
 	for hz in hazards:
 		hz.t += delta
 		hz.tick -= delta
-		if hz.tick <= 0.0:
+		if hz.tick <= 0.0 and hz.hostile > 0.0:
+			hz.tick = 0.3
+			_damage_area(hz.pos, hz.r, hz.hostile)
+		elif hz.tick <= 0.0:
 			hz.tick = 0.5
 			_with_sup(hz.sup, func():
 				for e in enemies_in_radius(hz.pos, hz.r):
@@ -1415,9 +1548,10 @@ func _start_attack(e: Enemy, tg: Actor) -> void:
 				damage_ally(tg, e.dmg)
 
 
-func _enemy_shot(from: Vector2, angle: float, speed: float, dmg: float, color: Color) -> void:
+## `chill` seconds of slow on the player when it hits
+func _enemy_shot(from: Vector2, angle: float, speed: float, dmg: float, color: Color, chill := 0.0) -> void:
 	var node := Fx.mesh(level_root, Fx.sphere(0.2), Fx.mat(color, 5.0, true), to3(from, 1.0))
-	eprojs.append({"node": node, "pos": from, "vel": Vector2.from_angle(angle) * speed, "r": 0.25, "dmg": dmg, "t": 0.0, "max": 3.0})
+	eprojs.append({"node": node, "pos": from, "vel": Vector2.from_angle(angle) * speed, "r": 0.25, "dmg": dmg, "t": 0.0, "max": 3.0, "chill": chill})
 
 
 func _update_eprojs(delta: float) -> void:
@@ -1430,6 +1564,7 @@ func _update_eprojs(delta: float) -> void:
 		if not gone and not p.dead and p.invuln <= 0.0 and pr.pos.distance_to(p.pos) < pr.r + p.r:
 			gone = true
 			damage_player(pr.dmg)
+			p.chill = maxf(p.chill, pr.chill)
 		if not gone:
 			for a in _allies():
 				if pr.pos.distance_to(a.pos) < pr.r + a.r:
@@ -1447,38 +1582,27 @@ func _update_boss(e: Enemy, delta: float, d: float) -> void:
 	if hud.boss != e:
 		hud.set_boss(e)
 		hud.message("%s が目覚めた！" % e.display_name, Color("#ff6040"))
+	if not e.charge.is_empty():
+		_update_charge(e, delta)
+		return
 	var enraged := e.life < e.max_life * 0.5
+	if enraged and not e.enraged:
+		e.enraged = true
+		hud.message("%s が激昂した！" % e.display_name, Color("#ff6040"))
+		Fx.burst(level_root, to3(e.pos, 1.5), 50, e.t.color.lightened(0.4), 8.0)
+		shake = maxf(shake, 8.0)
 	e.act_t -= delta
 	if e.act_t <= 0.0:
-		e.act_t = 2.2 if enraged else 3.0
-		var roll := randf()
-		if d < 9.0 and roll < 0.45:
-			e.windup = 1.0
-			e.pending = func(): pass
-			add_tele(e.pos, 7.0, 1.0, true, func():
-				if e.dead:
-					return
-				_explosion(e.pos, 7.0, Color("#ff4632"))
-				_damage_area(e.pos, 7.0, e.dmg * 1.7))
-		elif roll < 0.8:
-			e.windup = 0.7
-			e.pending = func():
-				var n := 26 if enraged else 18
-				var off := randf() * TAU
-				for i in n:
-					_enemy_shot(e.pos, off + float(i) / n * TAU, 10.0, e.dmg * 0.8, Color("#ff5040"))
-			Fx.burst(level_root, to3(e.pos, 1.5), 20, Color("#ff4030"), 6.0)
-		else:
-			e.windup = 0.6
-			e.pending = func():
-				for i in (6 if enraged else 4):
-					var at := e.pos + Vector2.from_angle(randf() * TAU) * 2.8
-					if not map.circle_hits(at, 0.45):
-						var m := _make_enemy("imp", at, e.pack)
-						m.aggro = true
-						Fx.burst(level_root, to3(at, 0.5), 10, Color("#c4523a"), 4.0)
+		call("_boss_" + e.type, e, d, enraged)
 		return
-	if d > e.r + p.r + 1.2:
+	if e.type == "witch":
+		# keeps her distance and pelts the player from range
+		var sp: float = e.speed * (0.5 if e.slow > 0.0 else 1.0)
+		if d < 8.8:
+			e.pos = map.move_circle(e.pos, e.r, (e.pos - p.pos).normalized() * sp * delta)
+		elif d > 15.2 or not e.sees:
+			_chase(e, delta)
+	elif d > e.r + p.r + 1.2:
 		_chase(e, delta)
 	elif e.atk_cd <= 0.0:
 		e.atk_cd = 1.6
@@ -1487,6 +1611,146 @@ func _update_boss(e: Enemy, delta: float, d: float) -> void:
 			if p.pos.distance_to(e.pos) < e.r + p.r + 1.6:
 				damage_player(e.dmg)
 	e.face = (p.pos - e.pos).angle()
+
+
+## the deep warden: ground slam, a ring of fire bolts, or summoned imps
+func _boss_boss(e: Enemy, d: float, enraged: bool) -> void:
+	e.act_t = 2.2 if enraged else 3.0
+	var roll := randf()
+	if d < 9.0 and roll < 0.45:
+		e.windup = 1.0
+		e.pending = func(): pass
+		add_tele(e.pos, 7.0, 1.0, true, func():
+			if e.dead:
+				return
+			_explosion(e.pos, 7.0, Color("#ff4632"))
+			_damage_area(e.pos, 7.0, e.dmg * 1.7))
+	elif roll < 0.8:
+		e.windup = 0.7
+		e.pending = func():
+			var n := 26 if enraged else 18
+			var off := randf() * TAU
+			for i in n:
+				_enemy_shot(e.pos, off + float(i) / n * TAU, 10.0, e.dmg * 0.8, Color("#ff5040"))
+		Fx.burst(level_root, to3(e.pos, 1.5), 20, Color("#ff4030"), 6.0)
+	else:
+		e.windup = 0.6
+		e.pending = func(): _summon_around(e, "imp", 6 if enraged else 4, 2.8)
+
+
+## the burning colossus: a charge that leaves fire behind, meteor rain, or an eruption
+func _boss_colossus(e: Enemy, d: float, enraged: bool) -> void:
+	var p := player
+	e.act_t = 2.0 if enraged else 2.8
+	var roll := randf()
+	if roll < 0.35 and d > 4.8:
+		var a := (p.pos - e.pos).angle()
+		var length := minf(22.4, d + 5.6)
+		e.windup = 0.8
+		e.pending = func(): e.charge = {"dir": Vector2.from_angle(a), "left": length, "hit": false, "trail": 0.0}
+		add_line_tele(e.pos, a, length, e.r * 2.0, 0.8)
+	elif roll < 0.7:
+		for i in (8 if enraged else 5):
+			var at := p.pos + (Vector2(randf_range(-9.2, 9.2), randf_range(-9.2, 9.2)) if i > 0 else Vector2.ZERO)
+			var dmg := e.dmg
+			add_tele(at, 3.0, 1.0 + i * 0.15, true, func():
+				_explosion(at, 3.0, Color("#ff6e28"))
+				_damage_area(at, 3.0, dmg * 1.1)
+				_add_hazard(at, 2.4, 2.5, dmg * 0.3))
+		e.windup = 0.5
+		e.pending = func(): pass
+		Fx.burst(level_root, to3(e.pos, 3.0), 30, Color("#ff7030"), 8.0)
+	else:
+		e.windup = 0.9
+		e.pending = func(): pass
+		add_tele(e.pos, 6.6, 0.9, true, func():
+			if e.dead:
+				return
+			_explosion(e.pos, 6.6, Color("#ff5a1e"))
+			_damage_area(e.pos, 6.6, e.dmg * 1.5)
+			var n := 16 if enraged else 10
+			var off := randf() * TAU
+			for i in n:
+				_enemy_shot(e.pos, off + float(i) / n * TAU, 12.0, e.dmg * 0.6, Color("#ff7828")))
+
+
+func _update_charge(e: Enemy, delta: float) -> void:
+	var p := player
+	var c := e.charge
+	var step := minf(c.left, 30.4 * delta)
+	c.left -= step
+	while step > 0.0:
+		var s := minf(0.32, step)
+		step -= s
+		var before := e.pos
+		e.pos = map.move_circle(e.pos, e.r, c.dir * s)
+		if e.pos.distance_to(before) < 0.02:
+			c.left = 0.0   # ran into a wall
+			break
+		c.trail += s
+		if c.trail > 1.8:
+			c.trail = 0.0
+			_add_hazard(e.pos, 1.7, 2.2, e.dmg * 0.3)
+	e.face = c.dir.angle()
+	if not c.hit and e.pos.distance_to(p.pos) < e.r + p.r + 0.25:
+		c.hit = true
+		damage_player(e.dmg * 1.4)
+	if c.left <= 0.0:
+		e.charge = {}
+		_explosion(e.pos, 3.6, Color("#ff6e28"))
+		if not c.hit and e.pos.distance_to(p.pos) < 3.6 + p.r:
+			damage_player(e.dmg * 0.8)
+
+
+## the frost witch: blinks around, throws fans of chilling shards, freezes the ground, calls archers
+func _boss_witch(e: Enemy, d: float, enraged: bool) -> void:
+	var p := player
+	e.act_t = 1.7 if enraged else 2.4
+	var roll := randf()
+	if roll < 0.25:
+		for i in 25:
+			var at := p.pos + Vector2.from_angle(randf() * TAU) * randf_range(9.2, 13.2)
+			if map.circle_hits(at, e.r) or not map.los(at, p.pos):
+				continue
+			Fx.burst(level_root, to3(e.pos, 1.2), 30, Color("#9fe8ff"), 6.0)
+			e.pos = at
+			Fx.burst(level_root, to3(at, 1.2), 30, Color("#9fe8ff"), 6.0)
+			break
+		e.act_t = 0.6
+	elif roll < 0.6:
+		e.windup = 0.5
+		e.pending = func():
+			var n := 11 if enraged else 7
+			var base := (p.pos - e.pos).angle()
+			for i in n:
+				_enemy_shot(e.pos, base + (i - (n - 1) / 2.0) * 0.13, 15.6, e.dmg * 0.7, Color("#96e6ff"), 2.0)
+		Fx.burst(level_root, to3(e.pos, 1.5), 15, Color("#bff4ff"), 4.0)
+	elif roll < 0.88:
+		for i in (5 if enraged else 3):
+			var at := p.pos + (Vector2(randf_range(-6.8, 6.8), randf_range(-6.8, 6.8)) if i > 0 else Vector2.ZERO)
+			var dmg := e.dmg
+			add_tele(at, 3.6, 1.1, true, func():
+				_explosion(at, 3.6, Color("#8cdcff"))
+				if at.distance_to(p.pos) < 3.6 + p.r:
+					damage_player(dmg)
+					p.chill = 2.5)
+		e.windup = 0.4
+		e.pending = func(): pass
+	else:
+		e.windup = 0.6
+		e.pending = func(): _summon_around(e, "archer", 5 if enraged else 3, 3.2)
+
+
+func _summon_around(e: Enemy, kind: String, n: int, radius: float) -> void:
+	if e.dead:
+		return
+	for i in n:
+		var at := e.pos + Vector2.from_angle(randf() * TAU) * radius
+		if map.circle_hits(at, Data.ENEMY_TYPES[kind].r):
+			continue
+		var m := _make_enemy(kind, at, e.pack)
+		m.aggro = true
+		Fx.burst(level_root, to3(at, 0.5), 10, Data.ENEMY_TYPES[kind].color, 4.0)
 
 
 func _separate_enemies() -> void:
@@ -1541,6 +1805,7 @@ func _update_portal(delta: float) -> void:
 		return
 	portal.ring.rotate_object_local(Vector3.UP, delta * 2.0)
 	if not player.dead and player.pos.distance_to(portal.pos) < 1.3:
+		_collect_nearby(28.0)
 		complete_map()
 
 
@@ -1558,11 +1823,11 @@ func _drop_loot(e: Enemy) -> void:
 	elif randf() < 0.13 * mod_fx.quantity:
 		n = 1
 	for i in n:
-		var force := (3 if randf() < 0.35 else 2) if e.boss and i == 0 else -1
+		var force := (3 if randf() < 0.35 + mod_fx.legend else 2) if e.boss and i == 0 else -1
 		drop_item(Items.generate(ilvl, boost, force), e.pos)
 	if randf() < (1.0 if e.boss or not e.elite.is_empty() else 0.25):
 		for i in (6 if e.boss else 3 if not e.elite.is_empty() else 1):
-			_drop_currency("ember", roundi(randf_range(2, 6) * floor_level * (2 if not e.elite.is_empty() else 1)), e.pos)
+			_drop_currency("ember", roundi(randf_range(2, 6) * floor_level * (2 if not e.elite.is_empty() else 1) * mod_fx.gold), e.pos)
 	var cn := randi_range(3, 5) if e.boss else (randi_range(1, 2) if not e.elite.is_empty() and randf() < 0.5 else (1 if randf() < 0.035 else 0))
 	for i in cn:
 		_drop_currency(_weighted(Data.CURRENCIES.filter(func(c): return c.w > 0.0)).k, 1, e.pos)
@@ -1598,6 +1863,9 @@ func _scatter(at: Vector2) -> Vector2:
 
 
 func drop_item(it: Dictionary, at: Vector2) -> void:
+	if player.item_action(it) == "hide":
+		_sell_hidden(it, at)
+		return
 	var pos := _scatter(at)
 	var col: Color = Data.RARITY[it.rarity].color
 	var root := Node3D.new()
@@ -1644,16 +1912,12 @@ func _update_loot(delta: float) -> void:
 		g.gem.rotate_y(delta * 1.5)
 		if g.pos.distance_to(p.pos) > 1.3:
 			continue
-		if p.bag.size() >= Player.BAG_SIZE:
+		if not pickup_item(g.item, g.pos):
 			if time - g.get("full_t", -9.0) > 2.0:
 				g.full_t = time
 				hud.message("インベントリが一杯です（I）", Color("#ff8080"))
 			continue
-		p.bag.append(g.item)
-		g.taken = true
-		g.node.queue_free()
-		hud.message("%s を拾った" % g.item.name, Data.RARITY[g.item.rarity].color)
-		hud.refresh_inventory()
+		_take(g)
 	ground = ground.filter(func(g): return not g.get("taken", false))
 	for d in drops:
 		d.node.rotate_y(delta * 3.0)
@@ -1662,16 +1926,176 @@ func _update_loot(delta: float) -> void:
 			d.pos = d.pos.move_toward(p.pos, delta * 14.0)
 			d.node.position = to3(d.pos, 0.3)
 		if dist < 0.8:
-			d.taken = true
-			d.node.queue_free()
-			if d.k == "gem":
-				unlock_gem(d.gem)
-				continue
-			p.cur[d.k] += d.n
-			if d.k != "ember":
-				var c := Data.currency(d.k)
-				hud.message("%s を拾った" % c.name, c.color)
+			_take(d)
 	drops = drops.filter(func(d): return not d.get("taken", false))
+
+
+## take an item into the bag, or sell it on the spot if the filter says so; false when the bag is full
+func pickup_item(it: Dictionary, at: Vector2, by_pet := false, quiet := false) -> bool:
+	var p := player
+	if p.item_action(it) == "sell":
+		var g := Items.sell_price(it)
+		p.cur.ember += g
+		add_text(at, "自動売却 +%d" % g, Color("#ffcf3a"), 13)
+		return true
+	if p.bag.size() >= Player.BAG_SIZE:
+		return false
+	p.bag.append(it)
+	if not quiet or it.rarity >= 2:
+		hud.message(("%sが %s を拾ってきた" % [Pet.NAME, it.name]) if by_pet else ("%s を拾った" % it.name), Data.RARITY[it.rarity].color)
+	hud.refresh_inventory()
+	return true
+
+
+## remove a ground item or currency drop from the world; currency and gems are credited here
+func _take(g: Dictionary) -> void:
+	g.taken = true
+	g.node.queue_free()
+	if g.has("item"):
+		return
+	if g.k == "gem":
+		unlock_gem(g.gem)
+		return
+	player.cur[g.k] += g.n
+	if g.k != "ember":
+		var c := Data.currency(g.k)
+		hud.message("%s を拾った" % c.name, c.color)
+
+
+## items the filter hides never reach the ground: they are sold as they drop
+func _sell_hidden(it: Dictionary, at: Vector2) -> void:
+	var g := Items.sell_price(it)
+	player.cur.ember += g
+	add_text(at, "+%d" % g, Color("#b8a060"), 12)
+
+
+## after the filter changes, sell whatever on the floor is now hidden
+func sell_hidden_ground() -> void:
+	for g in ground:
+		if player.item_action(g.item) == "hide":
+			_sell_hidden(g.item, g.pos)
+			_take(g)
+	ground = ground.filter(func(g): return not g.get("taken", false))
+
+
+## stepping into the portal also gathers the loot left around the map
+func _collect_nearby(radius: float) -> void:
+	var p := player
+	var n := 0
+	var cur := 0
+	for d in drops:
+		if d.pos.distance_to(p.pos) < radius:
+			_take(d)
+			cur += 1
+	var left := 0
+	for g in ground:
+		if g.pos.distance_to(p.pos) > radius:
+			continue
+		if pickup_item(g.item, g.pos, false, true):
+			_take(g)
+			n += 1
+		else:
+			left += 1
+	drops = drops.filter(func(d): return not d.get("taken", false))
+	ground = ground.filter(func(g): return not g.get("taken", false))
+	if n > 0 or cur > 0:
+		hud.message("ポータル周辺のアイテム %d 点とカレンシー %d 個を回収した" % [n, cur], Color("#ffd36a"))
+	if left > 0:
+		hud.message("インベントリが一杯で %d 点を拾えなかった" % left, Color("#ff8080"))
+
+
+# =================== pet ===================
+func _place_pet() -> void:
+	pet.pos = player.pos + Vector2(-1.2, 0.4)
+	if map.circle_hits(pet.pos, pet.r):
+		pet.pos = player.pos
+	pet.target = {}
+	pet.home = Vector2.INF
+	pet.sync_node(0.0, false)
+
+
+## the fox wanders around the player and fetches currency and items it can see
+func _update_pet(delta: float) -> void:
+	var p := player
+	if p.dead:
+		pet.moving = false
+		pet.animate(delta)
+		return
+	var dp := pet.pos.distance_to(p.pos)
+	if dp > 26.0:
+		Fx.burst(level_root, to3(pet.pos, 0.5), 12, Color("#ffd36a"), 4.0)
+		pet.pos = p.pos
+		pet.target = {}
+		Fx.burst(level_root, to3(pet.pos, 0.5), 12, Color("#ffd36a"), 4.0)
+	if pet.target.get("taken", false):
+		pet.target = {}
+	pet.scan_t -= delta
+	if pet.target.is_empty() and pet.scan_t <= 0.0:
+		pet.scan_t = 0.3
+		var bag_full := p.bag.size() >= Player.BAG_SIZE
+		var reach := 15.2 * (1.0 + atlas.val("fox") / 100.0)
+		var best := {}
+		var bd := INF
+		var cands := drops.duplicate()
+		for g in ground:
+			if not bag_full or p.item_action(g.item) == "sell":
+				cands.append(g)
+		for g in cands:
+			if g.get("pet_skip", false) or g.pos.distance_to(p.pos) > reach:
+				continue
+			var d: float = g.pos.distance_squared_to(pet.pos) * (1.0 if g.has("item") else 0.6)
+			if d < bd and map.los(pet.pos, g.pos):
+				bd = d
+				best = g
+		pet.target = best
+		pet.stuck_t = 0.0
+	var to: Vector2
+	var sp: float
+	if not pet.target.is_empty():
+		to = pet.target.pos
+		sp = 13.2
+	else:
+		pet.wander_t -= delta
+		if pet.wander_t <= 0.0 or pet.home.x == INF:
+			pet.wander_t = randf_range(1.2, 2.6)
+			pet.home = Vector2.from_angle(randf() * TAU) * randf_range(1.6, 4.4)
+		to = p.pos + pet.home
+		sp = 13.2 if dp > 8.0 else 5.6
+	var diff := to - pet.pos
+	var d := diff.length()
+	pet.moving = d > 0.16
+	if pet.moving:
+		var s := minf(d, sp * delta)
+		var before := pet.pos
+		pet.pos = map.move_circle(pet.pos, pet.r, diff / d * s)
+		pet.face = diff.angle()
+		pet.stuck_t = pet.stuck_t + delta if pet.pos.distance_to(before) < s * 0.3 else 0.0
+		if pet.stuck_t > 1.0:
+			if not pet.target.is_empty():
+				pet.target.pet_skip = true
+			pet.target = {}
+			pet.home = Vector2.INF
+			pet.stuck_t = 0.0
+	pet.animate(delta)
+	var g := pet.target
+	if not g.is_empty() and g.pos.distance_to(pet.pos) < 0.7:
+		pet.target = {}
+		if g.has("item"):
+			if not pickup_item(g.item, pet.pos, true):
+				return
+			_take(g)
+			ground = ground.filter(func(q): return not q.get("taken", false))
+		else:
+			_take(g)
+			drops = drops.filter(func(q): return not q.get("taken", false))
+		Fx.burst(level_root, to3(pet.pos, 0.6), 8, Color("#ffe8a0"), 3.0)
+
+
+# =================== progression ===================
+## re-apply what the atlas passives change outside a run
+func passives_changed() -> void:
+	Items.discount = 1.0 - atlas.val("haggle") / 100.0
+	player.recalc()
 
 
 # =================== save ===================
@@ -1684,7 +2108,7 @@ func save_game() -> void:
 	var p := player
 	var data := {"floor": floor_level, "level": p.level, "xp": p.xp, "potions": p.potions,
 		"equip": p.equip, "bag": p.bag, "cur": p.cur, "atlas": atlas.to_dict(), "shop": shop,
-		"slots": p.slots, "links": p.links, "gems": p.gems}
+		"slots": p.slots, "links": p.links, "gems": p.gems, "talent_pts": p.talent_pts, "talents": p.talents, "filter": p.filter}
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(data))
@@ -1714,6 +2138,18 @@ func load_game() -> bool:
 	if ln.size() == Data.SLOT_KEYS.size():
 		p.links = ln.map(func(l): return Array(l).filter(func(id): return not Data.support(id).is_empty()))
 	p.gems = Array(data.get("gems", Data.DEFAULT_GEMS)).filter(func(id): return not Data.support(id).is_empty())
+	p.talent_pts = int(data.get("talent_pts", 0))
+	var tl: Dictionary = data.get("talents", {})
+	for t in Data.talents():
+		p.talents[t.k] = clampi(int(tl.get(t.k, 0)), 0, t.max)
+	var fl: Dictionary = data.get("filter", {})
+	var fr: Array = fl.get("rarity", [])
+	if fr.size() == Data.RARITY.size() and fr.all(func(v): return v in ["pick", "sell", "hide"]):
+		p.filter.rarity = fr
+	var fs: Dictionary = fl.get("slots", {})
+	for k in fs:
+		if p.filter.slots.has(k):
+			p.filter.slots[k] = bool(fs[k])
 	atlas.from_dict(data.get("atlas", {}))
 	var sd: Dictionary = data.get("shop", {})
 	if sd.has("items"):

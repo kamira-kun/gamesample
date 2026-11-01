@@ -88,7 +88,7 @@ static func tag_text(tags: Array) -> String:
 ## the support modifiers a slot's linked gems give its skill (gems that don't fit are skipped)
 static func build_sup(skill_id: String, ids: Array) -> Dictionary:
 	var s := {"dmg": 1.0, "mana": 1.0, "speed": 1.0, "proj": 0, "aoe": 1.0, "chain": 0, "leech": 0.0, "freeze": 0.0,
-		"totem": 0, "mlife": 1.0, "mcount": 0, "ids": []}
+		"totem": 0, "mlife": 1.0, "mcount": 0, "ids": [], "skill": skill_id}
 	if skill_id == "":
 		return s
 	for id in ids:
@@ -112,7 +112,34 @@ const ENEMY_TYPES := {
 	"brute": {"name": "ブルート", "r": 0.9, "life": 60, "dmg": 16, "speed": 3.3, "color": Color("#8a5a9a"), "atk_range": 1.2, "atk_cd": 2.4, "windup": 0.75, "aoe": 3.2, "xp": 16, "h": 2.8},
 	"shaman": {"name": "呪術師", "r": 0.5, "life": 16, "dmg": 11, "speed": 3.9, "color": Color("#4fb0c0"), "caster": true, "range": 15.0, "atk_cd": 3.2, "windup": 0.9, "xp": 10, "h": 1.9},
 	"boss": {"name": "深淵の番人", "r": 1.5, "life": 650, "dmg": 20, "speed": 3.7, "color": Color("#b03030"), "boss": true, "atk_range": 1.6, "atk_cd": 1.6, "windup": 0.4, "xp": 220, "h": 4.1},
+	"colossus": {"name": "灼熱の巨像", "r": 1.8, "life": 820, "dmg": 24, "speed": 3.2, "color": Color("#7a3a22"), "boss": true, "atk_range": 2.2, "atk_cd": 1.8, "windup": 0.5, "xp": 260, "h": 5.0},
+	"witch": {"name": "凍嵐の魔女", "r": 1.0, "life": 600, "dmg": 18, "speed": 5.2, "color": Color("#3a6a9a"), "boss": true, "atk_range": 1.6, "atk_cd": 1.5, "windup": 0.4, "xp": 260, "h": 2.9},
 }
+
+# the boss of a map follows its theme
+const BOSS_ROTATION := [
+	{"type": "boss", "guards": ["ghoul", "ghoul", "ghoul", "ghoul"]},
+	{"type": "colossus", "guards": ["imp", "imp", "imp", "brute"]},
+	{"type": "witch", "guards": ["archer", "archer", "shaman", "shaman"]},
+]
+
+# talents: one point per level; skill talents raise that skill's damage
+const BASE_TALENTS := [
+	{"k": "might", "name": "剛力", "desc": "ダメージ +8%", "max": 20},
+	{"k": "vitality", "name": "生命力", "desc": "最大ライフ +20", "max": 20},
+	{"k": "spirit", "name": "精神", "desc": "最大マナ +12、マナ回復 +0.5/秒", "max": 20},
+	{"k": "swift", "name": "俊敏", "desc": "移動速度・攻撃速度 +3%", "max": 10},
+	{"k": "precision", "name": "精密", "desc": "クリティカル率 +1.5%、クリティカルダメージ +8%", "max": 15},
+]
+static var _talents: Array = []
+
+
+static func talents() -> Array:
+	if _talents.is_empty():
+		_talents = BASE_TALENTS.duplicate()
+		for id in SKILL_ORDER:
+			_talents.append({"k": id, "name": SKILLS[id].name, "desc": "このスキルのダメージ +15%", "max": 10, "skill": true})
+	return _talents
 
 const ELITE_AFFIXES := [
 	{"k": "swift", "name": "俊足"}, {"k": "armored", "name": "鉄壁"},
@@ -254,6 +281,41 @@ const MAP_MODS := [
 	{"k": "fast", "name": "敵の移動速度 +25%", "speed": 1.25},
 	{"k": "elite", "name": "エリートの出現率 2倍", "elite": 2.0},
 ]
+
+# atlas passives: one point per first clear and per Ember Abyss clear; each node needs the one above it
+const ATLAS_PASSIVES := [
+	{"branch": "財宝", "color": Color("#ffcf3a"), "nodes": [
+		{"id": "gold", "name": "黄金の嗅覚", "max": 3, "per": 10, "fmt": "カレンシー獲得量 +{v}%"},
+		{"id": "find", "name": "目利き", "max": 3, "per": 8, "fmt": "アイテムレア度 +{v}%"},
+		{"id": "plenty", "name": "豊穣", "max": 3, "per": 6, "fmt": "アイテム数量 +{v}%"},
+		{"id": "relic", "name": "秘宝の導き", "max": 2, "per": 10, "fmt": "ボスのレジェンド確定ドロップ率 +{v}%"},
+	]},
+	{"branch": "征服", "color": Color("#ff7a5a"), "nodes": [
+		{"id": "horde", "name": "群れの呼び声", "max": 3, "per": 8, "fmt": "マップの敵の数 +{v}%"},
+		{"id": "hunt", "name": "精鋭狩り", "max": 3, "per": 15, "fmt": "エリートの出現率 +{v}%"},
+		{"id": "train", "name": "修練", "max": 3, "per": 8, "fmt": "獲得経験値 +{v}%"},
+		{"id": "prowess", "name": "強者の証", "max": 2, "per": 10, "fmt": "マップ効果1つにつきアイテムレア度 +{v}%"},
+	]},
+	{"branch": "探索", "color": Color("#7fd4ff"), "nodes": [
+		{"id": "flask", "name": "携行袋", "max": 2, "per": 1, "fmt": "回復薬の最大所持数 +{v}"},
+		{"id": "ward", "name": "灯火の加護", "max": 3, "per": 2, "fmt": "ライフ回復 +{v}/秒"},
+		{"id": "haggle", "name": "商人の縁", "max": 3, "per": 8, "fmt": "ショップの購入価格 -{v}%"},
+		{"id": "fox", "name": "狐の嗅覚", "max": 2, "per": 25, "fmt": "ペットの回収範囲 +{v}%"},
+	]},
+]
+
+
+## an atlas passive node plus its branch and its place in that branch
+static func passive(id: String) -> Dictionary:
+	for b in ATLAS_PASSIVES:
+		for i in b.nodes.size():
+			if b.nodes[i].id == id:
+				var n: Dictionary = b.nodes[i].duplicate()
+				n.branch = b
+				n.tier = i
+				return n
+	return {}
+
 
 const HIDEOUT := {"id": "hideout", "name": "隠れ家", "hideout": true}
 const HIDEOUT_THEME := {"name": "隠れ家", "tint": Color("#ffe6c8"), "torch": Color("#ffc88c")}

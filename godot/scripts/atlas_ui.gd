@@ -7,6 +7,7 @@ var hud: Hud
 var board := Board.new()
 var info := Label.new()
 var detail := VBoxContainer.new()
+var passive_btn := Button.new()
 
 
 func _ready() -> void:
@@ -32,6 +33,8 @@ func _ready() -> void:
 	info.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	info.add_theme_color_override("font_color", Color("#c8b898"))
 	head.add_child(info)
+	passive_btn.pressed.connect(func(): hud.toggle(hud.passive_ui))
+	head.add_child(passive_btn)
 	var close := Button.new()
 	close.text = "  閉じる（Esc）  "
 	close.pressed.connect(open_close)
@@ -72,6 +75,8 @@ func refresh() -> void:
 	var at: Atlas = m.atlas
 	var p: Player = m.player
 	info.text = "Lv %d　◆ %d　✧ %d　踏破 %d/%d    " % [p.level, p.cur.ember, p.cur.compass, at.cleared.size(), Data.ATLAS_NODES.size()]
+	var pts := at.points_free()
+	passive_btn.text = "  遠征パッシブ [P]%s  " % ("（%d）" % pts if pts > 0 else "")
 	for c in detail.get_children():
 		c.free()
 	var n := Data.atlas_node(at.sel)
@@ -79,7 +84,7 @@ func refresh() -> void:
 		n = Data.ATLAS_NODES[0]
 	var unlocked := at.is_unlocked(n)
 	var mods: Array = at.node_mods(n) if unlocked else []
-	var fx := Atlas.effects(mods)
+	var fx := at.map_effects(mods)
 	_line(n.name, Data.THEME_COLORS[3 if n.get("endless", false) else n.theme], 24)
 	var status := "踏破済み" if at.is_cleared(n) else ("未踏" if unlocked else "未開放")
 	_line("エリアレベル %d　・　%s" % [at.node_level(n), status], Color("#a89878"), 14)
@@ -87,7 +92,7 @@ func refresh() -> void:
 	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	desc.custom_minimum_size = Vector2(320, 0)
 	_line("地形：%s" % Data.THEMES[at.node_theme(n)].name, Color("#c8b898"), 14)
-	_line("ボス：%s" % Data.ENEMY_TYPES.boss.name, Color("#ff7a5a"), 14)
+	_line("ボス：%s" % Data.ENEMY_TYPES[Data.BOSS_ROTATION[at.node_theme(n)].type].name, Color("#ff7a5a"), 14)
 	_line("マップ効果", Color("#f0d8a0"), 16)
 	if mods.is_empty():
 		_line("なし", Color("#776a58"), 14)

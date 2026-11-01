@@ -12,7 +12,6 @@ var potion_btn := Button.new()
 var reroll_btn := Button.new()
 var bag_count := Label.new()
 
-const GEM_PRICE := 300
 
 
 func _ready() -> void:
@@ -127,8 +126,8 @@ func refresh() -> void:
 		cell.add_child(price)
 		stock_grid.add_child(cell)
 	var pp := Items.potion_price(lvl)
-	potion_btn.text = "回復薬を買う（◆ %d）　所持 %d/%d" % [pp, p.potions, Player.MAX_POTIONS]
-	potion_btn.disabled = p.cur.ember < pp or p.potions >= Player.MAX_POTIONS
+	potion_btn.text = "回復薬を買う（◆ %d）　所持 %d/%d" % [pp, p.potions, p.max_potions()]
+	potion_btn.disabled = p.cur.ember < pp or p.potions >= p.max_potions()
 	var rp := Items.reroll_price(lvl)
 	reroll_btn.text = "品揃えを入れ替える（◆ %d）" % rp
 	reroll_btn.disabled = p.cur.ember < rp
@@ -154,11 +153,11 @@ func refresh() -> void:
 		gem_grid.add_child(_sub("すべて入手済み"))
 	for g in missing:
 		var b := Button.new()
-		b.text = "◇ %s  ◆%d" % [g.name, GEM_PRICE]
+		b.text = "◇ %s  ◆%d" % [g.name, Items.gem_price()]
 		b.add_theme_color_override("font_color", g.color)
 		b.add_theme_font_size_override("font_size", 13)
 		b.custom_minimum_size = Vector2(170, 28)
-		b.disabled = p.cur.ember < GEM_PRICE
+		b.disabled = p.cur.ember < Items.gem_price()
 		b.mouse_entered.connect(func(): hud.show_tip(SkillUI.gem_tip(g)))
 		b.mouse_exited.connect(func(): hud.hide_tip())
 		b.pressed.connect(_buy_gem.bind(g.id))
@@ -212,7 +211,7 @@ func _sell(i: int) -> void:
 func _buy_potion() -> void:
 	var p: Player = hud.main.player
 	var cost := Items.potion_price(hud.main.shop.level)
-	if p.cur.ember < cost or p.potions >= Player.MAX_POTIONS:
+	if p.cur.ember < cost or p.potions >= p.max_potions():
 		return
 	p.cur.ember -= cost
 	p.potions += 1
@@ -241,9 +240,9 @@ func _buy_currency(k: String, cost: int) -> void:
 
 func _buy_gem(id: String) -> void:
 	var p: Player = hud.main.player
-	if p.cur.ember < GEM_PRICE or id in p.gems:
+	if p.cur.ember < Items.gem_price() or id in p.gems:
 		return
-	p.cur.ember -= GEM_PRICE
+	p.cur.ember -= Items.gem_price()
 	hud.main.unlock_gem(id)
 	hud.hide_tip()
 	refresh()

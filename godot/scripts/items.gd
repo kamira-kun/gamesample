@@ -121,12 +121,15 @@ static func sell_price(it: Dictionary) -> int:
 
 
 # =================== merchant ===================
+static var discount := 1.0     # from the "merchant's favor" atlas passive
+
+
 static func buy_price(it: Dictionary) -> int:
-	return sell_price(it) * 5
+	return roundi(sell_price(it) * 5 * discount)
 
 
 static func potion_price(level: int) -> int:
-	return 15 + level * 8
+	return roundi((15 + level * 8) * discount)
 
 
 static func reroll_price(level: int) -> int:
@@ -134,7 +137,11 @@ static func reroll_price(level: int) -> int:
 
 
 static func currency_price(c: Dictionary) -> int:
-	return c.value * 4
+	return roundi(c.value * 4 * discount)
+
+
+static func gem_price() -> int:
+	return roundi(300 * discount)
 
 
 ## the merchant's stock: eight magic-or-better items a level above the hideout
