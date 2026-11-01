@@ -84,6 +84,9 @@ func _ready() -> void:
 		hud.char_ui.open(notes)
 	elif loaded:
 		hud.message("%s（%s）を読み込みました" % [Profiles.current().name, Profiles.league_name(league())], Color("#e8d8b0"))
+		var got := Profiles.take_stash_cur(league(), player.cur)
+		if got > 0:
+			hud.message("スタッシュに戻っていた通貨 %d 個を受け取った" % got, Color("#e8d8b0"))
 	else:
 		hud.message("WASDで移動、左クリックで斬撃、右クリックでファイアボール", Color("#e8d8b0"))
 	hud.message("I：インベントリ　K：スキル　T：タレント　U：アセンダンシー　C：ステータス　L：フィルタ　P：遠征パッシブ", Color("#b8a888"))
@@ -231,6 +234,53 @@ func _smoke_auras() -> void:
 	p.recalc(true)
 
 
+## the currency exchange, on an in-memory profile file (docs/economy-design.md section 9)
+func _smoke_market() -> void:
+	var sid: String = Data.SEASONS[0].id
+	var d := Profiles.fresh()
+	Profiles.data = d
+	var std := Profiles.STANDARD
+	var w := {}
+	for i in 300:
+		Market.tick(sid, w)
+		Market.tick(std, w)
+	var inside := true
+	for lg in [sid, std]:
+		for k in Market.keys():
+			var pr := Market.price(lg, k)
+			inside = inside and pr >= Market.floor_price(k) - 1e-6 and pr <= Market.ceil_price(k) + 1e-6
+	print("SMOKE market drift ticks=%d in_range=%s hist=%d" % [Market.state(sid).tick, inside, Market.history(sid, "whet", 60).size()])
+	var ev := Market.events(sid)
+	print("SMOKE market events n=%d same=%s std=%d" % [ev.size(), ev == Market.events(sid), Market.events(std).size()])
+	w = {"chaos": 100, "ember": 1000}
+	var err := Market.market_trade(std, "whet", "buy", 20, w)
+	var got: int = w.get("whet", 0)
+	var err2 := Market.market_trade(std, "whet", "sell", got, w)
+	print("SMOKE market roundtrip ok=%s chaos=%d lost=%s whet=%d" % [err == "" and err2 == "", w.chaos, w.chaos < 100, w.get("whet", 0)])
+	w = {"chaos": 0, "ember": 1000, "divine": 10}
+	var lim := Market.price(std, "divine") * 1.05
+	var est := Market.limit_estimate(std, "divine", "sell", lim, 10)
+	err = Market.place_limit(std, "divine", "sell", lim, 10, w)
+	var held: int = w.divine
+	for i in 30:
+		Market.state(std).prices.divine = lim / 1.05   # hold the price so the test does not hang on luck
+		Market.tick(std, w)
+	var notes := Market.take_notes(std)
+	print("SMOKE market limit ok=%s held=%d chaos=%d notes=%d orders=%d est_ticks=%d" % [err == "", held, w.chaos, notes.size(),
+		Market.orders(std).size(), est.ticks])
+	w = {"chaos": 50, "ember": 1000, "whet": 5}
+	Market.place_limit(sid, "whet", "sell", Market.price(sid, "whet") * 3.0, 5, w)
+	Market.place_limit(sid, "whet", "buy", Market.price(sid, "whet") * 0.3, 10, w)
+	var mig := Profiles.migrate(d, Data.SEASONS[0].end)
+	var sc := Profiles.stash_cur(std)
+	print("SMOKE market season end notes=%d market_gone=%s std_whet=%d std_chaos=%d" % [mig.size(), not d.market.has(sid),
+		sc.get("whet", 0), sc.get("chaos", 0)])
+	var into := {}
+	Profiles.take_stash_cur(std, into)
+	print("SMOKE market stash taken whet=%d left=%d" % [into.get("whet", 0), Profiles.stash_cur(std).size()])
+	Profiles.data = Profiles.fresh()
+
+
 ## automated run used during development: `godot -- --smoke`
 func _smoke_test() -> void:
 	var p := player
@@ -252,6 +302,7 @@ func _smoke_test() -> void:
 	print("SMOKE shop sold bag=%d" % p.bag.size())
 	hud.close_panels()
 	_smoke_seasons()
+	_smoke_market()
 	open_interact("device")
 	await get_tree().create_timer(0.4).timeout
 	enter_map("wail")
@@ -697,8 +748,11 @@ func complete_map() -> void:
 		atlas.abyss += 1
 	atlas.mods.erase(n.id)
 	shop = {}   # the merchant restocks after every run
+	Market.tick(league(), player.cur)   # one market tick per map completed
 	enter_hideout()
 	hud.message("%s を踏破した！" % n.name, Color("#ffd36a"))
+	for line in Market.take_notes(league()):
+		hud.message(line, Color("#c070ff"))
 	if not newly.is_empty():
 		hud.message("新たな地点が開放：%s" % "、".join(newly), Color("#e8d8b0"))
 	if n.get("endless", false):
