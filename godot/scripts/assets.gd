@@ -6,6 +6,7 @@ const DUNGEON := "res://assets/kaykit/dungeon/Assets/gltf/"
 const ADVENTURERS := "res://assets/kaykit/adventurers/Characters/gltf/"
 const SKELETONS := "res://assets/kaykit/skeletons/Characters/gltf/"
 const SKELETON_GEAR := "res://assets/kaykit/skeletons/Assets/gltf/"
+const ADVENTURER_GEAR := "res://assets/kaykit/adventurers/Assets/gltf/"
 # clips that should repeat (glTF imports them as one-shots)
 const LOOPS := ["Idle", "Idle_B", "Idle_Combat", "Running_A", "Running_B", "Running_C", "Walking_A", "Walking_B",
 	"Walking_C", "Walking_D_Skeletons", "Spellcasting", "2H_Melee_Idle", "Unarmed_Idle"]

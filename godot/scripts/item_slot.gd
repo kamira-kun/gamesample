@@ -1,6 +1,6 @@
 class_name ItemSlot
 extends Control
-## One square of an item grid: an item colored by rarity, or an empty slot.
+## One square of an item grid: an item's icon on a rarity-colored tile, or an empty slot.
 ## Hovering shows the item's tooltip (plus `extra` lines, and the equipped item when `compare`).
 
 signal clicked
@@ -47,7 +47,8 @@ func _draw() -> void:
 	var c: Color = Data.RARITY[item.rarity].color
 	draw_rect(rect, c.darkened(0.82))
 	draw_rect(rect, c.darkened(0.3), false, 2.0 if item.rarity == 3 else 1.0)
-	draw_string_outline(Data.ui_font, Vector2(0, size.y / 2 + 9), Data.SLOT_INFO[item.slot].glyph, HORIZONTAL_ALIGNMENT_CENTER, size.x, 24, 3, Color.BLACK)
-	draw_string(Data.ui_font, Vector2(0, size.y / 2 + 9), Data.SLOT_INFO[item.slot].glyph, HORIZONTAL_ALIGNMENT_CENTER, size.x, 24, c)
+	if not ItemIcon.draw(self, item.base, rect, c):
+		draw_string_outline(Data.ui_font, Vector2(0, size.y / 2 + 9), Data.SLOT_INFO[item.slot].glyph, HORIZONTAL_ALIGNMENT_CENTER, size.x, 24, 3, Color.BLACK)
+		draw_string(Data.ui_font, Vector2(0, size.y / 2 + 9), Data.SLOT_INFO[item.slot].glyph, HORIZONTAL_ALIGNMENT_CENTER, size.x, 24, c)
 	if glow:
 		draw_rect(rect, Color(1, 0.85, 0.4, 0.12))

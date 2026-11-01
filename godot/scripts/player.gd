@@ -38,6 +38,13 @@ var effects := {}            # legendary effects granted by gear
 var slots: Array = Data.DEFAULT_SLOTS.duplicate()
 var links: Array = [[], [], [], [], [], []]
 var gems: Array = Data.DEFAULT_GEMS.duplicate()
+# the weapon in hand per weapon base: a mesh already on the Knight rig or a KayKit glTF; two-handers drop the shield
+const WEAPON_MODELS := {
+	"片手剣": {"rig": "1H_Sword"}, "戦斧": {"gltf": "axe_1handed"}, "大槌": {"gltf": "axe_2handed", "two": true},
+	"ルーンの杖": {"gltf": "staff", "two": true}, "短剣": {"gltf": "dagger"},
+}
+var _gear_key := ""
+var _held: Node3D
 # loot filter: per rarity "pick" | "sell" (sold on pickup) | "hide" (sold the moment it drops);
 # unchecked equipment slots are hidden too, except legendaries
 var filter := default_filter()
@@ -138,6 +145,37 @@ func recalc(full := false) -> void:
 	s = st
 	life = s.max_life if full else s.max_life * old_l
 	mana = s.max_mana if full else s.max_mana * old_m
+	refresh_gear()
+
+
+## show the equipped weapon in hand, the shield with one-handers, and the helmet only when a helm is worn
+func refresh_gear() -> void:
+	if rig == null:
+		return
+	var base: String = equip.get("weapon", {}).get("base", "")
+	var key := "%s|%s" % [base, equip.has("helm")]
+	if key == _gear_key:
+		return
+	_gear_key = key
+	var m: Dictionary = WEAPON_MODELS.get(base, {})
+	rig.find_child("1H_Sword", true, false).visible = m.get("rig", "") == "1H_Sword"
+	rig.find_child("Round_Shield", true, false).visible = not m.is_empty() and not m.get("two", false)
+	rig.find_child("Knight_Helmet", true, false).visible = equip.has("helm")
+	if _held:
+		for mi in _held.find_children("*", "MeshInstance3D", true, false):
+			rig_meshes.erase(mi)
+		_held.queue_free()
+		_held = null
+	if m.has("gltf"):
+		var att := BoneAttachment3D.new()
+		att.bone_name = "handslot.r"
+		rig.find_child("Skeleton3D", true, false).add_child(att)
+		att.add_child(Assets.scene(Assets.ADVENTURER_GEAR + m.gltf + ".gltf").instantiate())
+		for mi in att.find_children("*", "MeshInstance3D", true, false):
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+			mi.material_overlay = rig_meshes[0].material_overlay if not rig_meshes.is_empty() else null
+			rig_meshes.append(mi)
+		_held = att
 
 
 # ---- support gem energy ----
