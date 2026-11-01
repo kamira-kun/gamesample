@@ -3,28 +3,28 @@ const $ = id => document.getElementById(id);
 
 const UI = {
   open: null,
+  selSlot: 0,
+  slotEls: [],
   init() {
-    const bar = $('skillbar');
-    for (const id of SKILL_ORDER) {
-      const sk = SKILLS[id];
-      const el = document.createElement('div');
-      el.className = 'skill';
-      el.style.setProperty('--c', sk.color);
-      el.innerHTML = `<span class="icon">${sk.icon}</span><span class="cd"></span><span class="key">${sk.short}</span>${sk.mana ? `<span class="cost">${sk.mana}</span>` : ''}`;
-      el.addEventListener('mouseenter', ev => this.showTip(ev, [
-        { t: sk.name, c: sk.color, big: true }, { t: `${sk.key}　マナ ${sk.mana}` + (sk.cd ? `　CD ${sk.cd}秒` : ''), c: '#9a9080' },
-        { t: sk.desc, c: '#ddd' }, { t: `タレントランク ${G.player.talents[id]}`, c: '#8fb4ff' }]));
-      el.addEventListener('mouseleave', () => this.hideTip());
-      bar.appendChild(el);
-      sk.el = el; sk.cdEl = el.querySelector('.cd');
-    }
     addEventListener('mousemove', e => this.moveTip(e));
+    $('buyPotion').addEventListener('click', () => {
+      const p = G.player, cost = potionPrice();
+      if (p.gold < cost || p.potions >= 5) return;
+      p.gold -= cost; p.potions++;
+      this.refresh();
+    });
+    $('rerollShop').addEventListener('click', () => {
+      const p = G.player, cost = rerollPrice();
+      if (p.gold < cost) return;
+      p.gold -= cost; G.shop = genShop();
+      this.refresh();
+    });
     this.initPortrait();
     document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => this.toggle(null)));
   },
 
   toggle(name) {
-    for (const n of ['inventory', 'talents', 'status', 'pause']) $(n).classList.toggle('hidden', n !== name || this.open === name);
+    for (const n of ['inventory', 'talents', 'status', 'skills', 'shop', 'pause']) $(n).classList.toggle('hidden', n !== name || this.open === name);
     this.open = this.open === name ? null : name;
     this.hideTip();
     Input.mdown = [false, false, false];
@@ -39,12 +39,12 @@ const UI = {
     $('lifeText').textContent = `${Math.ceil(p.life)} / ${Math.round(s.maxLife)}`;
     $('manaText').textContent = `${Math.floor(p.mana)} / ${Math.round(s.maxMana)}`;
     $('xpFill').style.width = (p.xp / xpNeed(p.level) * 100) + '%';
-    for (const id of SKILL_ORDER) {
-      const sk = SKILLS[id];
-      const max = sk.cd * (1 - s.cdr / 100), left = Math.max(0, p.cds[id] || 0);
+    for (const se of this.slotEls) {
+      const sk = SKILLS[se.id];
+      const max = sk.cd * (1 - s.cdr / 100), left = Math.max(0, p.cds[se.id] || 0);
       const v = left > 0 ? (left / max).toFixed(3) : '0';
-      if (sk.lastCd !== v) { sk.lastCd = v; sk.cdEl.style.background = `conic-gradient(rgba(0,0,0,.72) ${v}turn, transparent 0)`; }
-      sk.el.classList.toggle('oom', p.mana < sk.mana);
+      if (se.last !== v) { se.last = v; se.cd.style.background = `conic-gradient(rgba(0,0,0,.72) ${v}turn, transparent 0)`; }
+      se.el.classList.toggle('oom', p.mana < sk.mana);
     }
     const info = `深度 ${G.floor}　Lv ${p.level}　<span class="gold">● ${p.gold}</span>`;
     if (this.lastInfo !== info) { this.lastInfo = info; $('topinfo').innerHTML = info; }
@@ -64,6 +64,120 @@ const UI = {
     if (this.open === 'inventory') this.renderInventory();
     if (this.open === 'talents') this.renderTalents();
     if (this.open === 'status') this.renderStatus();
+    if (this.open === 'skills') this.renderSkills();
+    if (this.open === 'shop') this.renderShop();
+  },
+
+  buildSkillbar() {
+    const bar = $('skillbar'), p = G.player;
+    bar.innerHTML = '';
+    this.slotEls = SKILL_SLOTS.map((slot, i) => {
+      const id = p.slots[i], sk = SKILLS[id];
+      const el = document.createElement('div');
+      el.className = 'skill';
+      el.style.setProperty('--c', sk.color);
+      el.innerHTML = `<span class="icon">${sk.icon}</span><span class="cd"></span><span class="key">${slot.short}</span>${sk.mana ? `<span class="cost">${sk.mana}</span>` : ''}`;
+      el.addEventListener('mouseenter', ev => this.showTip(ev, this.skillTip(id, slot.label)));
+      el.addEventListener('mouseleave', () => this.hideTip());
+      el.addEventListener('click', () => { this.selSlot = i; if (this.open !== 'skills') this.toggle('skills'); else this.refresh(); });
+      bar.appendChild(el);
+      return { el, cd: el.querySelector('.cd'), id, last: null };
+    });
+  },
+
+  skillTip(id, keyLabel) {
+    const sk = SKILLS[id];
+    return [
+      { t: sk.name, c: sk.color, big: true },
+      { t: (keyLabel ? keyLabel + '　' : '') + `マナ ${sk.mana}` + (sk.cd ? `　CD ${sk.cd}秒` : ''), c: '#9a9080' },
+      { t: sk.desc, c: '#ddd' },
+      { t: `タレントランク ${G.player.talents[id]}`, c: '#8fb4ff' },
+    ];
+  },
+
+  renderSkills() {
+    const p = G.player;
+    const row = $('slotRow');
+    row.innerHTML = '';
+    SKILL_SLOTS.forEach((slot, i) => {
+      const sk = SKILLS[p.slots[i]];
+      const el = document.createElement('div');
+      el.className = 'slotcard' + (i === this.selSlot ? ' sel' : '');
+      el.innerHTML = `<div class="k">${slot.label}</div><div class="i" style="color:${sk.color}">${sk.icon}</div><div class="n">${sk.name}</div>`;
+      el.addEventListener('click', () => { this.selSlot = i; this.refresh(); });
+      row.appendChild(el);
+    });
+    const pool = $('skillPool');
+    pool.innerHTML = '';
+    for (const id of SKILL_LIST) {
+      const sk = SKILLS[id], locked = p.level < sk.lvl, at = p.slots.indexOf(id);
+      const el = document.createElement('div');
+      el.className = 'skillcard' + (locked ? ' locked' : '') + (at >= 0 ? ' inuse' : '');
+      const tag = locked ? `Lv ${sk.lvl} で習得` : at >= 0 ? `装備中：${SKILL_SLOTS[at].label}` : '';
+      el.innerHTML = `<div class="i" style="color:${sk.color}">${sk.icon}</div>
+        <div class="n"><span style="color:${sk.color}">${sk.name}</span><span class="tag">${tag}</span></div>
+        <div class="m">マナ ${sk.mana}${sk.cd ? `　CD ${sk.cd}秒` : ''}${sk.attack ? '　攻撃' : '　スキル'}</div>
+        <div class="d">${sk.desc}</div>`;
+      if (!locked) el.addEventListener('click', () => {
+        const sel = this.selSlot, prev = p.slots[sel];
+        if (at >= 0) p.slots[at] = prev;
+        p.slots[sel] = id;
+        this.buildSkillbar();
+        this.refresh();
+      });
+      pool.appendChild(el);
+    }
+  },
+
+  renderShop() {
+    const p = G.player;
+    $('shopGold').textContent = `● ${p.gold}`;
+    const stock = $('shopStock');
+    stock.innerHTML = '';
+    for (const it of G.shop.items) {
+      const cost = buyPrice(it);
+      const wrap = document.createElement('div');
+      wrap.className = 'stockitem';
+      const el = this.itemEl(it, () => {
+        if (p.gold < cost) return showMsg('ゴールドが足りない', '#ff8080');
+        if (p.bag.length >= BAG_SIZE) return showMsg('インベントリが一杯です', '#ff8080');
+        p.gold -= cost;
+        G.shop.items.splice(G.shop.items.indexOf(it), 1);
+        p.bag.push(it);
+        showMsg(`${it.name} を購入（${cost} ゴールド）`, RARITY[it.rarity].color);
+        this.hideTip(); this.refresh();
+      });
+      el.addEventListener('mouseenter', ev => this.showTip(ev, [...this.itemTip(it, true), { sep: true }, { t: `価格 ${cost} ゴールド`, c: '#ffcf3a' }]));
+      wrap.appendChild(el);
+      const price = document.createElement('div');
+      price.className = 'price' + (p.gold < cost ? ' no' : '');
+      price.textContent = `● ${cost}`;
+      wrap.appendChild(price);
+      stock.appendChild(wrap);
+    }
+    const pp = potionPrice(), rp = rerollPrice();
+    $('buyPotion').textContent = `回復薬を買う（● ${pp}）　所持 ${p.potions}/5`;
+    $('buyPotion').disabled = p.gold < pp || p.potions >= 5;
+    $('rerollShop').textContent = `品揃えを入れ替える（● ${rp}）`;
+    $('rerollShop').disabled = p.gold < rp;
+    const bag = $('shopBag');
+    bag.innerHTML = '';
+    for (let i = 0; i < BAG_SIZE; i++) {
+      const it = p.bag[i];
+      if (!it) { const e = document.createElement('div'); e.className = 'slot empty'; bag.appendChild(e); continue; }
+      const el = this.itemEl(it, () => this.sellItem(it));
+      el.addEventListener('mouseenter', ev => this.showTip(ev, [...this.itemTip(it), { sep: true }, { t: `売却額 ${sellPrice(it)} ゴールド`, c: '#ffcf3a' }]));
+      bag.appendChild(el);
+    }
+    $('shopBagCount').textContent = `${p.bag.length} / ${BAG_SIZE}`;
+  },
+
+  sellItem(it) {
+    const p = G.player, g = sellPrice(it);
+    p.bag.splice(p.bag.indexOf(it), 1);
+    p.gold += g;
+    showMsg(`${it.name} を売却（${g} ゴールド）`, '#ffcf3a');
+    this.hideTip(); this.refresh();
   },
 
   statRows() {
@@ -95,9 +209,9 @@ const UI = {
       const it = p.equip[slot];
       return `<div><span>${SLOT_INFO[slot].name}</span><b style="color:${it ? RARITY[it.rarity].color : '#554a3a'}">${it ? it.name : '—'}</b></div>`;
     }).join('');
-    $('charSkills').innerHTML = SKILL_ORDER.map(id => {
-      const sk = SKILLS[id], r = p.talents[id];
-      return `<div><span><span style="color:${sk.color}">${sk.icon}</span> ${sk.name}</span><b>ランク ${r}（+${r * 15}%）</b></div>`;
+    $('charSkills').innerHTML = SKILL_SLOTS.map((slot, i) => {
+      const id = p.slots[i], sk = SKILLS[id], r = p.talents[id];
+      return `<div><span>${slot.short}　<span style="color:${sk.color}">${sk.icon}</span> ${sk.name}</span><b>ランク ${r}（+${r * 15}%）</b></div>`;
     }).join('');
   },
 
@@ -166,11 +280,11 @@ const UI = {
     return el;
   },
 
-  itemTip(it) {
+  itemTip(it, compare = G.player.bag.includes(it)) {
     const lines = itemLines(it);
     const p = G.player;
     const cur = p.equip[it.slot];
-    if (cur && cur !== it && p.bag.includes(it)) {
+    if (cur && cur !== it && compare) {
       lines.push({ sep: true }, { t: '— 装備中 —', c: '#7a7266' }, ...itemLines(cur).slice(0, 1), ...itemLines(cur).slice(3));
     }
     return lines;
@@ -202,12 +316,7 @@ const UI = {
         p.bag.splice(p.bag.indexOf(it), 1);
         if (old) p.bag.push(old);
         p.recalc(); this.hideTip(); this.refresh();
-      }, () => {
-        p.bag.splice(p.bag.indexOf(it), 1);
-        const g = Math.round((3 + it.ilvl * 2) * (1 + it.rarity * 2));
-        p.gold += g; showMsg(`${it.name} を売却（${g} ゴールド）`, '#ffcf3a');
-        this.hideTip(); this.refresh();
-      }));
+      }, () => this.sellItem(it)));
     }
     $('stats').innerHTML = this.statRows().map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
     $('bagCount').textContent = `${p.bag.length} / ${BAG_SIZE}`;

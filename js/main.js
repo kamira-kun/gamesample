@@ -4,7 +4,8 @@ let last = performance.now(), saveT = 0;
 function startGame(fromSave) {
   const save = fromSave ? loadSave() : null;
   if (save) applySave(save);
-  else { G.player = new Player(); G.floor = 1; }
+  else { G.player = new Player(); G.floor = 1; G.shop = null; }
+  UI.buildSkillbar();
   $('title').classList.add('hidden');
   G.state = 'play';
   spawnFloor();
@@ -19,6 +20,7 @@ function frame(now) {
     if (Input.pressed.KeyI || Input.pressed.Tab) UI.toggle('inventory');
     if (Input.pressed.KeyT) UI.toggle('talents');
     if (Input.pressed.KeyC) UI.toggle('status');
+    if (Input.pressed.KeyK) UI.toggle('skills');
     if (Input.pressed.Escape) UI.toggle(UI.open ? UI.open : 'pause');
     if (!UI.open) updateWorld(dt);
     render(UI.open ? 0 : dt);

@@ -41,6 +41,20 @@ function genItem(ilvl, boost = 0, forceRarity = null, forceSlot = null) {
   return it;
 }
 
+const sellPrice = it => Math.round((3 + it.ilvl * 2) * (1 + it.rarity * 2));
+const buyPrice = it => sellPrice(it) * 5;
+const potionPrice = () => 15 + G.floor * 8;
+const rerollPrice = () => 25 + G.floor * 15;
+
+function genShop() {
+  const items = [];
+  for (let i = 0; i < 8; i++) {
+    const r = Math.random();
+    items.push(genItem(G.floor + 1, 1, r < 0.05 ? 3 : r < 0.35 ? 2 : 1));
+  }
+  return { floor: G.floor, items };
+}
+
 function itemLines(it) {
   const lines = [];
   lines.push({ t: it.name, c: RARITY[it.rarity].color, big: true });

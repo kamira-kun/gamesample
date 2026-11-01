@@ -67,21 +67,36 @@ const RARE_A = ['災厄', '黄昏', '血染め', '嵐', '亡霊', '灰', '深淵
 const RARE_B = ['の牙', 'の囁き', 'の誓約', 'の棘', 'の鎖', 'の祈り', 'の咆哮', 'の残響', 'の印', 'の爪'];
 
 // ---- skills ----
-const SKILL_ORDER = ['slash', 'fireball', 'nova', 'chain', 'meteor', 'dash'];
 const SKILLS = {
-  slash: { key: '左クリック', short: 'LMB', name: '斬撃', icon: '⚔', mana: 0, cd: 0, attack: true, color: '#c9b48a',
+  slash: { name: '斬撃', icon: '⚔', mana: 0, cd: 0, attack: true, color: '#c9b48a', lvl: 1,
     desc: '前方の敵を薙ぎ払う。攻撃速度の影響を受ける。' },
-  fireball: { key: '右クリック', short: 'RMB', name: 'ファイアボール', icon: '✹', mana: 6, cd: 0, cast: 0.42, color: '#ff7a2a',
+  whirl: { name: '旋風斬', icon: '✲', mana: 4, cd: 0, attack: true, color: '#e0c070', lvl: 4,
+    desc: 'その場で回転し、周囲の敵すべてを斬りつける。攻撃速度の影響を受ける。' },
+  fireball: { name: 'ファイアボール', icon: '✹', mana: 6, cd: 0, cast: 0.42, color: '#ff7a2a', lvl: 1,
     desc: '着弾時に爆発する火球を放つ。' },
-  nova: { key: 'Q', short: 'Q', name: 'フロストノヴァ', icon: '❄', mana: 16, cd: 5, cast: 0.3, color: '#7fd4ff',
+  iceSpear: { name: 'アイススピア', icon: '➶', mana: 8, cd: 0, cast: 0.35, color: '#9fe8ff', lvl: 3,
+    desc: '敵を貫通する氷の槍を放ち、短時間凍結させる。' },
+  nova: { name: 'フロストノヴァ', icon: '❄', mana: 16, cd: 5, cast: 0.3, color: '#7fd4ff', lvl: 1,
     desc: '周囲に冷気を放ち、敵を凍結させる。' },
-  chain: { key: 'E', short: 'E', name: 'チェインライトニング', icon: 'ϟ', mana: 12, cd: 1.0, cast: 0.35, color: '#c9a8ff',
+  chain: { name: 'チェインライトニング', icon: 'ϟ', mana: 12, cd: 1.0, cast: 0.35, color: '#c9a8ff', lvl: 1,
     desc: 'カーソル付近の敵に雷を放ち、次々と連鎖する。' },
-  meteor: { key: 'R', short: 'R', name: 'メテオ', icon: '☄', mana: 30, cd: 9, cast: 0.5, color: '#ff4d2a',
+  storm: { name: 'サンダーストーム', icon: '☈', mana: 24, cd: 7, cast: 0.4, color: '#b0a0ff', lvl: 6,
+    desc: 'カーソル位置に雷雲を呼び、範囲内の敵に落雷を降らせ続ける。' },
+  meteor: { name: 'メテオ', icon: '☄', mana: 30, cd: 9, cast: 0.5, color: '#ff4d2a', lvl: 1,
     desc: 'カーソル位置に隕石を落とし、地面を燃やす。' },
-  dash: { key: 'Space', short: 'SPC', name: 'シャドウダッシュ', icon: '➤', mana: 8, cd: 2.5, color: '#9a8cff',
+  dash: { name: 'シャドウダッシュ', icon: '➤', mana: 8, cd: 2.5, color: '#9a8cff', lvl: 1,
     desc: 'カーソル方向へ駆け抜け、通過した敵を切り裂く。移動中は無敵。' },
 };
+const SKILL_LIST = Object.keys(SKILLS);
+const DEFAULT_SLOTS = ['slash', 'fireball', 'nova', 'chain', 'meteor', 'dash'];
+const SKILL_SLOTS = [
+  { short: 'LMB', label: '左クリック', on: () => Input.mdown[0] },
+  { short: 'RMB', label: '右クリック', on: () => Input.mdown[2] },
+  { short: 'Q', label: 'Q', on: () => Input.keys.KeyQ },
+  { short: 'E', label: 'E', on: () => Input.keys.KeyE },
+  { short: 'R', label: 'R', on: () => Input.keys.KeyR },
+  { short: 'SPC', label: 'Space', on: () => Input.keys.Space },
+];
 
 // ---- talents ----
 const TALENTS = [
@@ -90,7 +105,7 @@ const TALENTS = [
   { k: 'spirit', name: '精神', desc: '最大マナ +12、マナ回復 +0.5/秒', max: 20 },
   { k: 'swift', name: '俊敏', desc: '移動速度・攻撃速度 +3%', max: 10 },
   { k: 'precision', name: '精密', desc: 'クリティカル率 +1.5%、クリティカルダメージ +8%', max: 15 },
-  ...SKILL_ORDER.map(k => ({ k, name: SKILLS[k].name, desc: 'このスキルのダメージ +15%', max: 10, skill: true })),
+  ...SKILL_LIST.map(k => ({ k, name: SKILLS[k].name, desc: 'このスキルのダメージ +15%', max: 10, skill: true })),
 ];
 
 // ---- enemies ----

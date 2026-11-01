@@ -1,8 +1,8 @@
 'use strict';
 const G = {
   state: 'title', floor: 1, time: 0, shake: 0, cam: { x: 0, y: 0 },
-  enemies: [], projs: [], eprojs: [], particles: [], texts: [], effects: [], hazards: [], tele: [],
-  ground: [], golds: [], portal: null, boss: null, flowT: 0,
+  enemies: [], projs: [], eprojs: [], particles: [], texts: [], effects: [], hazards: [], tele: [], storms: [],
+  ground: [], golds: [], portal: null, boss: null, flowT: 0, merchant: null, shop: null,
 };
 const BAG_SIZE = 30;
 const xpNeed = l => Math.round(25 * Math.pow(l, 1.7) + 20);
@@ -13,7 +13,7 @@ class Player {
     this.x = 0; this.y = 0; this.r = 13;
     this.level = 1; this.xp = 0; this.talentPts = 0;
     this.talents = Object.fromEntries(TALENTS.map(t => [t.k, 0]));
-    this.equip = {}; this.bag = [];
+    this.equip = {}; this.bag = []; this.slots = [...DEFAULT_SLOTS];
     this.gold = 0; this.potions = 3; this.potionProg = 0;
     this.cds = {}; this.actionT = 0; this.swingT = 0; this.aim = 0;
     this.invuln = 0; this.hitFlash = 0; this.walkT = 0; this.dash = null; this.dead = false;
@@ -67,6 +67,7 @@ class Player {
       G.effects.push({ kind: 'ring', x: this.x, y: this.y, r0: 10, r1: 120, t: 0, max: 0.6, color: '255,226,122' });
       burst(this.x, this.y, 40, '#ffe27a', 260, true);
       showMsg(`レベル ${this.level} に到達！ タレントポイント +1（Tキー）`, '#ffe27a');
+      for (const id of SKILL_LIST) if (SKILLS[id].lvl === this.level) showMsg(`新スキル「${SKILLS[id].name}」を習得！（Kで付け替え）`, SKILLS[id].color);
       UI.refresh();
     }
   }
@@ -94,12 +95,13 @@ function updatePlayer(dt) {
     moveCircle(p, mx / l * sp * dt, my / l * sp * dt);
     p.walkT += dt;
   }
-  if (Input.mdown[0]) tryCast('slash');
-  if (Input.mdown[2]) tryCast('fireball');
-  if (Input.keys.KeyQ) tryCast('nova');
-  if (Input.keys.KeyE) tryCast('chain');
-  if (Input.keys.KeyR) tryCast('meteor');
-  if (Input.pressed.Space) tryCast('dash');
+  const mer = G.merchant;
+  if (mer && dist2(p.x, p.y, mer.x, mer.y) < 200 * 200 &&
+      (Input.pressed.KeyB || (Input.mdown[0] && dist2(wm.x, wm.y, mer.x, mer.y) < 30 * 30))) {
+    UI.toggle('shop');
+    return;
+  }
+  SKILL_SLOTS.forEach((slot, i) => { if (slot.on()) tryCast(p.slots[i]); });
   if (Input.pressed.KeyF) usePotion();
   G.map.reveal(p.x, p.y);
 }
@@ -252,6 +254,21 @@ const CAST = {
     if (p.s.effects.has('slashWave')) {
       G.projs.push({ kind: 'wave', x: p.x, y: p.y, vx: Math.cos(p.aim) * 650, vy: Math.sin(p.aim) * 650, r: 22, t: 0, max: 0.55, hit: new Set(), a: p.aim });
     }
+  },
+  whirl(p) {
+    const R = 105;
+    for (const e of enemiesInRadius(p.x, p.y, R)) hitEnemy(e, rollDamage(0.85, 'phys', false, 'whirl'));
+    G.effects.push({ kind: 'spin', x: p.x, y: p.y, a: p.aim, r: R, t: 0, max: 0.22 });
+    p.swingT = 0.2; p.swingDir = p.aim;
+  },
+  iceSpear(p) {
+    const a = p.aim;
+    G.projs.push({ kind: 'spear', x: p.x + Math.cos(a) * 16, y: p.y + Math.sin(a) * 16, vx: Math.cos(a) * 820, vy: Math.sin(a) * 820, r: 9, t: 0, max: 0.8, hit: new Set(), a });
+  },
+  storm(p) {
+    const wm = worldMouse();
+    const a = Math.atan2(wm.y - p.y, wm.x - p.x), d = Math.min(480, dist(p.x, p.y, wm.x, wm.y));
+    G.storms.push({ x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d, r: 170, t: 0, max: 3, tick: 0.1 });
   },
   fireball(p) {
     const angles = p.s.effects.has('fireballMulti') ? [-0.22, 0, 0.22] : [0];
@@ -505,13 +522,19 @@ function separateEnemies() {
 
 // =================== floor setup ===================
 function spawnFloor() {
-  Object.assign(G, { enemies: [], projs: [], eprojs: [], particles: [], texts: [], effects: [], hazards: [], tele: [], ground: [], golds: [], portal: null, boss: null });
+  Object.assign(G, { enemies: [], projs: [], eprojs: [], particles: [], texts: [], effects: [], hazards: [], tele: [], storms: [], ground: [], golds: [], portal: null, boss: null });
   G.map = new Dungeon(72, 72, G.floor);
   G.theme = THEMES[Math.floor((G.floor - 1) / 3) % THEMES.length];
   const p = G.player, m = G.map;
   p.x = m.start.cx * T + T / 2; p.y = m.start.cy * T + T / 2;
   p.dead = false; p.dash = null; p.recalc(true);
   G.cam.x = p.x; G.cam.y = p.y;
+
+  // a merchant waits in the entrance room; stock refreshes each new floor
+  let mp = m.randomFloorIn(m.start);
+  for (let i = 0; i < 20 && dist2(mp.x, mp.y, p.x, p.y) < 90 * 90; i++) mp = m.randomFloorIn(m.start);
+  G.merchant = { x: mp.x, y: mp.y, r: 14, merchant: true };
+  if (!G.shop || G.shop.floor !== G.floor) G.shop = genShop();
 
   const f = G.floor;
   const pool = [
@@ -583,6 +606,13 @@ function updateWorld(dt) {
         if (e.dead || pr.hit.has(e) || dist2(pr.x, pr.y, e.x, e.y) > (e.r + pr.r) ** 2) continue;
         pr.hit.add(e); hitEnemy(e, rollDamage(0.7, 'phys', false, 'slash'));
       }
+    } else if (pr.kind === 'spear') {
+      if (Math.random() < 0.7) G.particles.push({ x: pr.x, y: pr.y, vx: rand(-20, 20), vy: rand(-20, 20), t: 0, max: 0.35, size: rand(2, 4), color: pick(['#bff4ff', '#7fd4ff']), glow: true });
+      if (pr.t > pr.max || G.map.solidAt(pr.x, pr.y)) { pr.dead = true; burst(pr.x, pr.y, 10, '#bff4ff', 160, true); continue; }
+      for (const e of G.enemies) {
+        if (e.dead || pr.hit.has(e) || dist2(pr.x, pr.y, e.x, e.y) > (e.r + pr.r) ** 2) continue;
+        pr.hit.add(e); hitEnemy(e, rollDamage(1.1, 'cold', true, 'iceSpear'), 0.6);
+      }
     }
   }
   G.projs = G.projs.filter(pr => !pr.dead);
@@ -604,6 +634,19 @@ function updateWorld(dt) {
     if (h.tick <= 0) { h.tick = 0.5; for (const e of enemiesInRadius(h.x, h.y, h.r)) hitEnemy(e, rollDamage(0.35, 'fire', true, 'meteor')); }
   }
   G.hazards = G.hazards.filter(h => h.t < h.max);
+
+  for (const st of G.storms) {
+    st.t += dt; st.tick -= dt;
+    if (st.tick > 0) continue;
+    st.tick = 0.22;
+    const near = enemiesInRadius(st.x, st.y, st.r);
+    const tgt = near.length ? pick(near) : null;
+    const x = tgt ? tgt.x : st.x + rand(-st.r, st.r) * 0.8, y = tgt ? tgt.y : st.y + rand(-st.r, st.r) * 0.8;
+    G.effects.push({ kind: 'bolt', x0: x + rand(-40, 40), y0: y - 340, x1: x, y1: y, t: 0, max: 0.18 });
+    burst(x, y, 8, '#d9c2ff', 160, true);
+    if (tgt) hitEnemy(tgt, rollDamage(0.9, 'light', true, 'storm'));
+  }
+  G.storms = G.storms.filter(s => s.t < s.max);
 
   for (const pa of G.particles) {
     pa.t += dt; pa.x += pa.vx * dt; pa.y += pa.vy * dt;
@@ -653,7 +696,7 @@ function saveGame() {
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
       floor: G.floor, level: p.level, xp: p.xp, talentPts: p.talentPts, talents: p.talents,
-      equip: p.equip, bag: p.bag, gold: p.gold, potions: p.potions,
+      equip: p.equip, bag: p.bag, gold: p.gold, potions: p.potions, slots: p.slots, shop: G.shop,
     }));
   } catch (e) { /* storage unavailable */ }
 }
@@ -664,6 +707,7 @@ function applySave(d) {
   const p = new Player();
   Object.assign(p, { level: d.level, xp: d.xp, talentPts: d.talentPts, equip: d.equip, bag: d.bag, gold: d.gold, potions: d.potions });
   p.talents = { ...p.talents, ...d.talents };
-  G.player = p; G.floor = d.floor;
+  if (Array.isArray(d.slots) && d.slots.length === SKILL_SLOTS.length && d.slots.every(id => SKILLS[id])) p.slots = d.slots;
+  G.player = p; G.floor = d.floor; G.shop = d.shop || null;
   p.recalc(true);
 }

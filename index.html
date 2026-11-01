@@ -68,13 +68,37 @@
   </div>
 </div>
 
+<div id="skills" class="panel hidden">
+  <div class="phead">スキル <span class="hint">スロットを選んでから、セットしたいスキルをクリック</span><button data-close>×</button></div>
+  <div id="slotRow"></div>
+  <div id="skillPool"></div>
+</div>
+
+<div id="shop" class="panel hidden">
+  <div class="phead">商人 <span class="hint">品物クリック：購入　所持品クリック：売却</span><span id="shopGold" class="gold"></span><button data-close>×</button></div>
+  <div class="inv-body">
+    <div class="left">
+      <div class="sub">品揃え（深度が変わると入れ替わります）</div>
+      <div id="shopStock"></div>
+      <div class="shop-actions">
+        <button id="buyPotion" class="sbtn"></button>
+        <button id="rerollShop" class="sbtn"></button>
+      </div>
+    </div>
+    <div class="right">
+      <div class="sub">所持品 <span id="shopBagCount"></span></div>
+      <div id="shopBag" class="baggrid"></div>
+    </div>
+  </div>
+</div>
+
 <div id="pause" class="panel hidden">
   <div class="phead">一時停止<button data-close>×</button></div>
   <div class="controls">
-    <div><b>WASD</b> 移動</div><div><b>左クリック</b> 斬撃</div><div><b>右クリック</b> ファイアボール</div>
-    <div><b>Q</b> フロストノヴァ</div><div><b>E</b> チェインライトニング</div><div><b>R</b> メテオ</div>
-    <div><b>Space</b> シャドウダッシュ</div><div><b>F</b> 回復薬</div><div><b>I / Tab</b> インベントリ</div>
-    <div><b>T</b> タレント</div><div><b>C</b> キャラクター</div><div><b>Esc</b> 閉じる／一時停止</div>
+    <div><b>WASD</b> 移動</div><div><b>左/右クリック</b> スキル</div><div><b>Q E R Space</b> スキル</div>
+    <div><b>K</b> スキル付け替え</div><div><b>F</b> 回復薬</div><div><b>B</b> 商人と取引（近くで）</div>
+    <div><b>I / Tab</b> インベントリ</div><div><b>T</b> タレント</div><div><b>C</b> キャラクター</div>
+    <div><b>Esc</b> 閉じる／一時停止</div>
   </div>
   <button id="quitBtn" class="btn">セーブしてタイトルへ</button>
 </div>
@@ -89,7 +113,7 @@
   <button id="newBtn" class="btn">新しく始める</button>
   <div class="controls small">
     <div><b>WASD</b> 移動</div><div><b>左/右クリック</b> 斬撃 / ファイアボール</div>
-    <div><b>Q E R</b> スキル</div><div><b>Space</b> ダッシュ</div><div><b>F</b> 回復薬</div><div><b>I / T / C</b> 所持品 / タレント / キャラ</div>
+    <div><b>Q E R Space</b> スキル</div><div><b>K</b> スキル付け替え</div><div><b>F</b> 回復薬</div><div><b>I / T / C</b> 所持品 / タレント / キャラ</div>
   </div>
 </div>
 

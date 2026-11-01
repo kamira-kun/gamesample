@@ -75,6 +75,14 @@ function render(dt) {
     ctx.fillStyle = `rgba(${c},0.25)`;
     ctx.beginPath(); ctx.arc(t.x, t.y, t.r * k, 0, TAU); ctx.fill();
   }
+  for (const st of G.storms) {
+    const a = Math.min(1, (st.max - st.t) / 0.4, st.t / 0.2);
+    ctx.fillStyle = `rgba(120,100,255,${0.1 * a})`;
+    ctx.strokeStyle = `rgba(170,150,255,${0.45 * a})`; ctx.lineWidth = 2;
+    ctx.setLineDash([8, 8]); ctx.lineDashOffset = -G.time * 30;
+    ctx.beginPath(); ctx.arc(st.x, st.y, st.r, 0, TAU); ctx.fill(); ctx.stroke();
+    ctx.setLineDash([]);
+  }
   if (G.portal) drawPortal(ctx, G.portal);
 
   // loot on ground
@@ -99,12 +107,13 @@ function render(dt) {
   // entities sorted by y
   const ents = G.enemies.filter(e => e.x > ox - 80 && e.x < ox + W + 80 && e.y > oy - 80 && e.y < oy + H + 80);
   ents.push(p);
+  if (G.merchant) ents.push(G.merchant);
   ents.sort((a, b) => a.y - b.y);
   for (const e of ents) {
     ctx.fillStyle = 'rgba(0,0,0,0.4)';
     ctx.beginPath(); ctx.ellipse(e.x, e.y + e.r * 0.7, e.r * 1.1, e.r * 0.45, 0, 0, TAU); ctx.fill();
   }
-  for (const e of ents) e === p ? drawPlayer(ctx, p) : drawEnemy(ctx, e);
+  for (const e of ents) e === p ? drawPlayer(ctx, p) : e.merchant ? drawMerchant(ctx, e) : drawEnemy(ctx, e);
 
   // walls (drawn after entities so they occlude what stands behind them)
   for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
@@ -141,6 +150,8 @@ function render(dt) {
   for (const fx of G.effects) if (fx.kind === 'ring') lights.push([fx.x, fx.y, fx.r1 * 1.4, 0.8 * (1 - fx.t / fx.max)]);
   for (const t of G.tele) lights.push([t.x, t.y, t.r * 1.2, 0.35]);
   if (G.portal) lights.push([G.portal.x, G.portal.y, 220, 0.9]);
+  if (G.merchant) lights.push([G.merchant.x + 14, G.merchant.y - 10, 180, 0.85]);
+  for (const st of G.storms) lights.push([st.x, st.y, st.r * 1.3, 0.5]);
   for (const g of G.ground) if (g.item.rarity >= 2) lights.push([g.x, g.y, 60, 0.4]);
   for (const [lx, ly, lr, li] of lights) {
     const sx = lx - ox, sy = ly - oy;
@@ -174,7 +185,14 @@ function render(dt) {
   ctx.globalAlpha = 1;
   for (const pr of G.projs) {
     if (pr.kind === 'fireball') glowBall(ctx, pr.x, pr.y, 16, '255,160,60');
-    else {
+    else if (pr.kind === 'spear') {
+      const bx = pr.x - Math.cos(pr.a) * 30, by = pr.y - Math.sin(pr.a) * 30;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = 'rgba(120,210,255,0.5)'; ctx.lineWidth = 10;
+      ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(pr.x, pr.y); ctx.stroke();
+      ctx.strokeStyle = 'rgba(230,250,255,0.95)'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(pr.x + Math.cos(pr.a) * 6, pr.y + Math.sin(pr.a) * 6); ctx.stroke();
+    } else {
       ctx.strokeStyle = 'rgba(255,230,180,0.8)'; ctx.lineWidth = 5;
       ctx.beginPath(); ctx.arc(pr.x - Math.cos(pr.a) * 20, pr.y - Math.sin(pr.a) * 20, 26, pr.a - 0.9, pr.a + 0.9); ctx.stroke();
     }
@@ -198,6 +216,12 @@ function render(dt) {
       ctx.font = 'bold 12px sans-serif'; ctx.fillStyle = '#8fb4ff';
       ctx.fillText(e.name, e.x, e.y - e.r - 22);
     }
+  }
+  if (G.merchant) {
+    const mer = G.merchant, near = dist2(mer.x, mer.y, p.x, p.y) < 200 * 200;
+    ctx.font = 'bold 13px sans-serif'; ctx.fillStyle = '#ffd36a';
+    ctx.fillText('商人', mer.x, mer.y - 34);
+    if (near) { ctx.font = '11px sans-serif'; ctx.fillStyle = '#e8dcc4'; ctx.fillText('クリック / B で取引', mer.x, mer.y - 20 - 28); }
   }
   ctx.font = '12px sans-serif';
   for (const g of G.ground) {
@@ -240,6 +264,11 @@ function drawEffect(ctx, fx) {
     ctx.strokeStyle = `rgba(255,240,210,${1 - k})`; ctx.lineWidth = 10 * (1 - k) + 2;
     const sweep = -1.1 + k * 2.2;
     ctx.beginPath(); ctx.arc(fx.x, fx.y, fx.r * 0.8, fx.a - 1.1, fx.a + Math.min(1.1, sweep)); ctx.stroke();
+  } else if (fx.kind === 'spin') {
+    ctx.strokeStyle = `rgba(255,230,170,${1 - k})`; ctx.lineWidth = 12 * (1 - k) + 2;
+    ctx.beginPath(); ctx.arc(fx.x, fx.y, fx.r * 0.75, fx.a + k * TAU - 2.2, fx.a + k * TAU); ctx.stroke();
+    ctx.strokeStyle = `rgba(255,200,120,${0.4 * (1 - k)})`; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(fx.x, fx.y, fx.r, 0, TAU); ctx.stroke();
   } else if (fx.kind === 'ring') {
     const r = fx.r0 + (fx.r1 - fx.r0) * Math.sqrt(k);
     ctx.strokeStyle = `rgba(${fx.color},${1 - k})`; ctx.lineWidth = 6 * (1 - k) + 1;
@@ -306,6 +335,28 @@ function drawPlayer(ctx, p) {
   ctx.lineTo(x + Math.cos(wa) * 13, y - 4 + Math.sin(wa) * 13);
   ctx.stroke();
   ctx.restore();
+}
+
+function drawMerchant(ctx, m) {
+  const x = m.x, y = m.y - 3, sway = Math.sin(G.time * 2) * 1.5;
+  // pack on the back
+  ctx.fillStyle = '#5a3e22'; ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 2;
+  ctx.fillRect(x - 15, y - 16, 14, 18); ctx.strokeRect(x - 15, y - 16, 14, 18);
+  // robe
+  ctx.fillStyle = '#4a3a5a';
+  ctx.beginPath(); ctx.arc(x, y, m.r, 0, TAU); ctx.fill(); ctx.stroke();
+  // hood
+  ctx.fillStyle = '#36284a';
+  ctx.beginPath(); ctx.arc(x + 1, y - 9, 8, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#c9a98a';
+  ctx.beginPath(); ctx.arc(x + 3, y - 8, 3.5, 0, TAU); ctx.fill();
+  // lantern on a staff
+  ctx.strokeStyle = '#6a4a22'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(x + 12, y + 10); ctx.lineTo(x + 14, y - 22); ctx.stroke();
+  const g = ctx.createRadialGradient(x + 14 + sway, y - 12, 0, x + 14 + sway, y - 12, 12);
+  g.addColorStop(0, 'rgba(255,240,180,1)'); g.addColorStop(1, 'rgba(255,170,60,0)');
+  ctx.fillStyle = g; ctx.fillRect(x + 2 + sway, y - 24, 24, 24);
+  ctx.fillStyle = '#ffd36a'; ctx.fillRect(x + 11 + sway, y - 15, 6, 7);
 }
 
 function drawEnemy(ctx, e) {
