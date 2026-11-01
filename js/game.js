@@ -75,7 +75,10 @@ class Player {
   }
 }
 
-function worldMouse() { return { x: Input.mx + G.cam.x - G.vw / 2, y: Input.my + G.cam.y - G.vh / 2 }; }
+function worldMouse() {
+  const w = screenToWorld(Input.mx - G.vw / 2, Input.my - G.vh / 2);
+  return { x: G.cam.x + w.x, y: G.cam.y + w.y };
+}
 
 function updatePlayer(dt) {
   const p = G.player, s = p.s;
@@ -84,7 +87,7 @@ function updatePlayer(dt) {
   p.mana = Math.min(s.maxMana, p.mana + s.manaRegen * dt);
   for (const k in p.cds) if (p.cds[k] > 0) p.cds[k] -= dt;
   p.actionT -= dt; p.swingT -= dt; p.invuln -= dt; p.hitFlash -= dt; p.chill = (p.chill || 0) - dt;
-  if (p.chill > 0 && Math.random() < 0.3) G.particles.push({ x: p.x + rand(-12, 12), y: p.y + rand(-12, 12), vx: 0, vy: -20, t: 0, max: 0.5, size: 3, color: '#bff4ff', glow: true });
+  if (p.chill > 0 && Math.random() < 0.3) G.particles.push({ x: p.x + rand(-12, 12), y: p.y + rand(-12, 12), vx: 0, vy: 0, vz: 20, t: 0, max: 0.5, size: 3, color: '#bff4ff', glow: true });
   const wm = worldMouse();
   p.aim = Math.atan2(wm.y - p.y, wm.x - p.x);
 
@@ -95,12 +98,14 @@ function updatePlayer(dt) {
   if (Input.keys.KeyA) mx--; if (Input.keys.KeyD) mx++;
   if (mx || my) {
     const l = Math.hypot(mx, my), sp = s.moveSpeed * (p.actionT > 0 ? 0.5 : 1) * (p.chill > 0 ? 0.6 : 1);
-    moveCircle(p, mx / l * sp * dt, my / l * sp * dt);
+    // keys move along the screen axes: convert that direction into world space
+    const w = screenToWorld(mx, my), wl = Math.hypot(w.x, w.y);
+    moveCircle(p, w.x / wl * sp * dt, w.y / wl * sp * dt);
     p.walkT += dt;
   }
   const mer = G.merchant;
   if (mer && dist2(p.x, p.y, mer.x, mer.y) < 200 * 200 &&
-      (Input.pressed.KeyB || (Input.mdown[0] && dist2(wm.x, wm.y, mer.x, mer.y) < 30 * 30))) {
+      (Input.pressed.KeyB || (Input.mdown[0] && (() => { const s = worldToScreen(mer.x, mer.y); return dist2(Input.mx, Input.my, s.x, s.y - 14) < 26 * 26; })()))) {
     UI.toggle('shop');
     return;
   }
@@ -280,7 +285,7 @@ function dropItem(it, x, y) {
 }
 
 function addTele(x, y, r, dur, hostile, onDone) { G.tele.push({ x, y, r, t: 0, max: dur, hostile, onDone }); }
-function addText(x, y, str, color, size = 15) { G.texts.push({ x, y, str: String(str), color, size, t: 0, vy: -55 }); }
+function addText(x, y, str, color, size = 15) { G.texts.push({ x, y, str: String(str), color, size, t: 0, z: 0, vz: -55 }); }
 function burst(x, y, n, color, speed, glow) {
   for (let i = 0; i < n; i++) {
     const a = rand(0, TAU), sp = rand(speed * 0.2, speed);
@@ -906,7 +911,7 @@ function updateWorld(dt) {
 
   for (const h of G.hazards) {
     h.t += dt; h.tick -= dt;
-    if (Math.random() < 0.6) G.particles.push({ x: h.x + rand(-h.r, h.r) * 0.8, y: h.y + rand(-h.r, h.r) * 0.8, vx: 0, vy: -rand(30, 80), t: 0, max: 0.6, size: rand(3, 6), color: pick(['#ff6a20', '#ffb040']), glow: true });
+    if (Math.random() < 0.6) G.particles.push({ x: h.x + rand(-h.r, h.r) * 0.8, y: h.y + rand(-h.r, h.r) * 0.8, vx: 0, vy: 0, vz: rand(30, 80), t: 0, max: 0.6, size: rand(3, 6), color: pick(['#ff6a20', '#ffb040']), glow: true });
     if (h.tick > 0) continue;
     h.tick = 0.5;
     if (h.hostile) { if (dist(h.x, h.y, p.x, p.y) < h.r + p.r * 0.5) damagePlayer(h.dmg); }
@@ -921,21 +926,21 @@ function updateWorld(dt) {
     const near = enemiesInRadius(st.x, st.y, st.r);
     const tgt = near.length ? pick(near) : null;
     const x = tgt ? tgt.x : st.x + rand(-st.r, st.r) * 0.8, y = tgt ? tgt.y : st.y + rand(-st.r, st.r) * 0.8;
-    G.effects.push({ kind: 'bolt', x0: x + rand(-40, 40), y0: y - 340, x1: x, y1: y, t: 0, max: 0.18 });
+    G.effects.push({ kind: 'bolt', sky: true, x1: x, y1: y, t: 0, max: 0.18 });
     burst(x, y, 8, '#d9c2ff', 160, true);
     if (tgt) hitEnemy(tgt, rollDamage(0.9, 'light', true, 'storm'));
   }
   G.storms = G.storms.filter(s => s.t < s.max);
 
   for (const pa of G.particles) {
-    pa.t += dt; pa.x += pa.vx * dt; pa.y += pa.vy * dt;
+    pa.t += dt; pa.x += pa.vx * dt; pa.y += pa.vy * dt; if (pa.vz) pa.z = (pa.z || 0) + pa.vz * dt;
     if (pa.drag) { const k = Math.max(0, 1 - pa.drag * dt); pa.vx *= k; pa.vy *= k; }
   }
   G.particles = G.particles.filter(pa => pa.t < pa.max);
   if (G.particles.length > 1500) G.particles.splice(0, G.particles.length - 1500);
   for (const fx of G.effects) fx.t += dt;
   G.effects = G.effects.filter(fx => fx.t < fx.max);
-  for (const tx of G.texts) { tx.t += dt; tx.y += tx.vy * dt; tx.vy *= 0.96; }
+  for (const tx of G.texts) { tx.t += dt; tx.z += tx.vz * dt; tx.vz *= 0.96; }
   G.texts = G.texts.filter(tx => tx.t < 0.9);
 
   // pickups
