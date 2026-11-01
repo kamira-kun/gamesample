@@ -263,10 +263,14 @@ func _place_tip() -> void:
 
 func refresh() -> void:
 	var p: Player = main.player
-	life_orb.value = p.life / p.s.max_life
-	life_orb.text = "%d / %d" % [ceili(p.life), p.s.max_life]
-	mana_orb.value = p.mana / p.s.max_mana
-	mana_orb.text = "%d / %d" % [floori(p.mana), p.s.max_mana]
+	# the orbs show the whole max: auras' reservation is sealed at the top, the numbers count what is left
+	for o in [[life_orb, "life", ceili(p.life), p.s.max_life], [mana_orb, "mana", floori(p.mana), p.s.max_mana]]:
+		var orb: OrbGauge = o[0]
+		var held: float = p.reserved(o[1])
+		orb.value = (p.life if o[1] == "life" else p.mana) / o[3]
+		orb.reserve = held / o[3]
+		orb.reserve_text = "リザーブ %d" % ceili(held) if held > 0.0 else ""
+		orb.text = "%d / %d" % [o[2], roundi(p.cap(o[1]))]
 	xp_bar.value = float(p.xp) / Data.xp_need(p.level)
 	var where: String = main.area.name if main.in_hideout() else "%s エリアLv %d" % [main.area.name, main.floor_level]
 	var lg: String = main.league()
@@ -274,6 +278,8 @@ func refresh() -> void:
 	info.text = "%s%s　Lv %d　◆ %d" % [tag, where, p.level, p.cur.ember]
 	for id in p.tbuffs:
 		info.text += "　｜ %s %s %.0f秒" % [Data.SKILLS[id].icon, Data.SKILLS[id].name, ceilf(p.tbuffs[id].t)]
+	for id in p.auras:
+		info.text += "　｜ %s %s" % [Data.SKILLS[id].icon, Data.SKILLS[id].name]
 	if tip.visible:
 		_place_tip()
 	potion.text = "回復薬 %d/%d  [F]" % [p.potions, p.max_potions()]
@@ -375,6 +381,15 @@ class SkillSlot extends Control:
 		if cost > 0:
 			draw_string_outline(Data.ui_font, Vector2(0, 13), str(cost), HORIZONTAL_ALIGNMENT_RIGHT, size.x - 4, 11, 3, Color.BLACK)
 			draw_string(Data.ui_font, Vector2(0, 13), str(cost), HORIZONTAL_ALIGNMENT_RIGHT, size.x - 4, 11, Color("#8fb4ff"))
+		if sk.has("aura"):
+			# an aura that is on glows in its color and says so
+			if id in p.auras:
+				var t := Time.get_ticks_msec() / 1000.0
+				draw_rect(Rect2(Vector2.ZERO, size).grow(-1.0), Color(sk.color, 0.75 + 0.25 * sin(t * 3.0)), false, 3.0)
+				draw_rect(Rect2(Vector2.ZERO, size).grow(2.0), Color(sk.color, 0.3), false, 2.0)
+			var tag := "ON" if id in p.auras else "OFF"
+			draw_string_outline(Data.ui_font, Vector2(0, 13), tag, HORIZONTAL_ALIGNMENT_RIGHT, size.x - 4, 11, 3, Color.BLACK)
+			draw_string(Data.ui_font, Vector2(0, 13), tag, HORIZONTAL_ALIGNMENT_RIGHT, size.x - 4, 11, sk.color if id in p.auras else Color("#888070"))
 		# one pip per support gem that applies to this slot
 		var ids: Array = hud.main.slot_sup(index).ids
 		for j in ids.size():

@@ -79,8 +79,11 @@ func refresh() -> void:
 	xp.queue_redraw()
 	xp_text.text = "経験値 %d / %d" % [p.xp, Data.xp_need(p.level)]
 	clear(res)
-	res.add_child(sub("ライフ %d/%d" % [ceili(p.life), roundi(s.max_life)], 15, Color("#ff7a6a")))
-	res.add_child(sub("マナ %d/%d" % [floori(p.mana), roundi(s.max_mana)], 15, Color("#7aa8ff")))
+	for pool in ["life", "mana"]:
+		var line := "%s %d/%d" % ["ライフ" if pool == "life" else "マナ", ceili(p.life) if pool == "life" else floori(p.mana), roundi(p.cap(pool))]
+		if p.reserved(pool) > 0.0:
+			line += "（リザーブ %d）" % ceili(p.reserved(pool))
+		res.add_child(sub(line, 15, Color("#ff7a6a") if pool == "life" else Color("#7aa8ff")))
 	res.add_child(sub("灰燼の欠片 %d" % p.cur.ember, 15, Color("#ffb35a")))
 	clear(stats)
 	var rows := stat_rows(s)
@@ -104,4 +107,7 @@ func refresh() -> void:
 		var id: String = p.slots[i]
 		var sk: Dictionary = Data.SKILLS[id]
 		var r: int = p.talents.get(id, 0)
+		if sk.has("aura"):
+			_row(skills, "%s　%s %s" % [Data.SLOT_KEYS[i].short, sk.icon, sk.name], "発動中" if id in p.auras else "停止中", sk.color)
+			continue
 		_row(skills, "%s　%s %s" % [Data.SLOT_KEYS[i].short, sk.icon, sk.name], "ランク %d（+%d%%）" % [r, r * 15], sk.color)

@@ -49,6 +49,7 @@ var lmb := false
 var rmb := false
 var pressed := {}
 var oom_t := -10.0
+var held_prev := []         # skill keys held last frame: auras toggle on a fresh press only
 var force_crit := false     # "three strikes": the attack being resolved always crits
 
 
@@ -115,6 +116,25 @@ func _ready() -> void:
 				enter_map("ash")
 				for i in 3:
 					_make_enemy("imp", player.pos + Vector2(2.5 + i * 1.2, -2.5 + i * 0.8), 999)
+			elif kind.begins_with("aura"):   # auras on the bar: `aura0` none on, `aura` three on and a fourth refused, `aura_off` one switched off again
+				enter_map("ash")
+				player.invuln = 1e9
+				player.level = 14
+				player.slots = ["slash", "ember_heart", "frost_veil", "gale_hymn", "crimson_pact", "hearth_ward"]
+				player.recalc(true)
+				get_tree().create_timer(3.0).timeout.connect(func():   # a moment in, so the messages are still up for a screenshot
+					if kind != "aura0":
+						for i in [1, 2, 3, 4, 5]:
+							player.action_t = 0.0
+							_try_cast(i)
+					if kind == "aura_off":
+						player.action_t = 0.0
+						_try_cast(1))
+	for x in args:
+		if x.begins_with("--shot="):   # dev runs: save what the window shows a few seconds in, then quit
+			get_tree().create_timer(4.5).timeout.connect(func():
+				get_viewport().get_texture().get_image().save_png(x.trim_prefix("--shot="))
+				get_tree().quit())
 	if "--smoke" in args:
 		_smoke_test()
 
@@ -143,6 +163,72 @@ func _smoke_seasons() -> void:
 	hud.stash_ui._take(0)
 	print("SMOKE stash put=%d back=%s open=%s" % [put, p.bag.size() == n, hud.stash_ui.visible])
 	hud.close_panels()
+
+
+## auras: toggling, reservation and its cap, stacking and refusal, gems that change the reservation,
+## allies inside the reach, the HUD orbs and a save round trip
+func _smoke_auras() -> void:
+	var p := player
+	var keep_slots := p.slots.duplicate()
+	var keep_links := p.links.duplicate(true)
+	var keep_level := p.level
+	p.auras.clear()
+	p.level = 14
+	p.slots = ["slash", "ember_heart", "frost_veil", "gale_hymn", "crimson_pact", "hearth_ward"]
+	p.links = [[], [], [], [], [], []]
+	p.recalc(true)
+	var toggle := func(i: int):
+		p.action_t = 0.0
+		_try_cast(i)
+	var mx: float = p.s.max_mana
+	var dmg0 := p.bonus("dmg")
+	toggle.call(1)
+	await get_tree().create_timer(0.2).timeout
+	print("SMOKE aura on=%s reserved=%d cap=%d/%d mana_capped=%s dmg+%.0f ring=%s" % [p.auras, p.reserved("mana"), p.cap("mana"), mx,
+		p.mana <= p.cap("mana"), p.bonus("dmg") - dmg0, p.aura_fx != null and p.aura_fx.get_child_count() == 1])
+	toggle.call(1)
+	print("SMOKE aura off=%s reserved=%d cap=%d" % [p.auras, p.reserved("mana"), p.cap("mana")])
+	# stack three mana auras (80% of the pool); the flat 30 of the fourth would pass the max and is refused
+	for i in [1, 2, 3, 5]:
+		toggle.call(i)
+	print("SMOKE aura stack on=%s reserved=%d/%d refused=%s" % [p.auras, p.reserved("mana"), mx, not "hearth_ward" in p.auras])
+	toggle.call(4)
+	print("SMOKE aura life on=%s reserved_life=%d cap_life=%d/%d life_capped=%s" % ["crimson_pact" in p.auras, p.reserved("life"), p.cap("life"),
+		p.s.max_life, p.life <= p.cap("life")])
+	# 効率化 shrinks the flat 30 enough to fit; unlinking it again switches off the aura that no longer fits
+	p.links[5] = ["efficient"]
+	var cut := p.aura_reserve("hearth_ward", "mana")
+	toggle.call(5)
+	print("SMOKE aura gem reserve=%d on=%s total=%d/%d" % [cut, "hearth_ward" in p.auras, p.reserved("mana"), mx])
+	p.links[5] = []
+	var off := p.fix_auras()
+	print("SMOKE aura overflow off=%s left=%d" % [off, p.auras.size()])
+	# an ally inside the reach shares the auras, one far away does not
+	var near := Ally.new()
+	near.pos = p.pos + Vector2(2, 0)
+	var far := Ally.new()
+	far.pos = p.pos + Vector2(30, 0)
+	print("SMOKE aura allies near=%s far=%s dr=%.0f" % [in_aura(near), in_aura(far), p.astat("dr")])
+	near.free()
+	far.free()
+	hud.refresh()
+	await get_tree().process_frame
+	print("SMOKE aura hud mana_reserve=%.2f text='%s' life_reserve=%.2f text='%s'" % [hud.mana_orb.reserve, hud.mana_orb.text,
+		hud.life_orb.reserve, hud.life_orb.reserve_text])
+	# save round trip: the auras that were on come back on, with the same reservation
+	var held := [p.reserved("life"), p.reserved("mana")]
+	var on := p.auras.duplicate()
+	var data = JSON.parse_string(JSON.stringify(save_data()))
+	p.auras.clear()
+	p.recalc(true)
+	apply_save(data)
+	print("SMOKE aura save restored=%s same=%s mana_capped=%s life_capped=%s" % [p.auras == on, held == [p.reserved("life"), p.reserved("mana")],
+		p.mana <= p.cap("mana"), p.life <= p.cap("life")])
+	p.auras.clear()
+	p.slots = keep_slots
+	p.links = keep_links
+	p.level = keep_level
+	p.recalc(true)
 
 
 ## automated run used during development: `godot -- --smoke`
@@ -186,7 +272,8 @@ func _smoke_test() -> void:
 		p.mana = p.s.max_mana
 		_try_cast(0)
 		await get_tree().create_timer(0.4).timeout
-	print("SMOKE skills minions=%d storms=%d hazards=%d" % [minions.size(), storms.size(), hazards.size()])
+	print("SMOKE skills minions=%d storms=%d hazards=%d auras=%s" % [minions.size(), storms.size(), hazards.size(), p.auras])
+	await _smoke_auras()
 	# effect-block skills with supports that change projectiles, repeat the cast or set traps
 	p.links[0] = ["fork", "pchain", "echo"]
 	for id in ["firebolt", "frost_axe", "fire_rain", "hex_frail", "tailwind", "spirit_wolves"]:
@@ -780,8 +867,11 @@ func _update_player(delta: float) -> void:
 		p.animate(delta, false)
 		return
 	var s := p.s
-	p.life = minf(s.max_life, p.life + (s.life_regen + s.max_life * p.tstat("regen") / 100.0) * delta)
-	p.mana = minf(s.max_mana, p.mana + s.mana_regen * delta)
+	for id in p.fix_auras():
+		hud.message("「%s」が解除された（リザーブが足りない）" % Data.SKILLS[id].name, Color("#ff9a80"))
+	p.life = minf(p.cap("life"), p.life + (s.life_regen + s.max_life * p.bonus("regen") / 100.0) * delta)
+	p.mana = minf(p.cap("mana"), p.mana + s.mana_regen * delta)
+	p.update_aura_fx(delta)
 	for k in p.cds.keys():
 		p.cds[k] -= delta
 	p.tick_buffs(delta)
@@ -809,13 +899,15 @@ func _update_player(delta: float) -> void:
 		fwd.y = 0
 		right.y = 0
 		var d3 := (right.normalized() * mv.x - fwd.normalized() * mv.y).normalized()
-		var sp: float = s.move_speed * (1.0 + p.tstat("move") / 100.0) * (0.5 if p.action_t > 0.0 else 1.0) * (0.6 if p.chill > 0.0 else 1.0)
+		var sp: float = s.move_speed * (1.0 + p.bonus("move") / 100.0) * (0.5 if p.action_t > 0.0 else 1.0) * (0.6 if p.chill > 0.0 else 1.0)
 		p.pos = map.move_circle(p.pos, p.r, Vector2(d3.x, d3.z) * sp * delta)
 	var held := [lmb, rmb, Input.is_physical_key_pressed(KEY_Q), Input.is_physical_key_pressed(KEY_E),
 		Input.is_physical_key_pressed(KEY_R), pressed.has(KEY_SPACE)]
 	for i in held.size():
-		if held[i]:
+		var aura: bool = Data.SKILLS[p.slots[i]].has("aura")
+		if held[i] and not (aura and i < held_prev.size() and held_prev[i]):
 			_try_cast(i)
+	held_prev = held
 	if pressed.has(KEY_F): _use_potion()
 	p.animate(delta, moving)
 
@@ -825,11 +917,11 @@ func _use_potion() -> void:
 	if p.potions <= 0:
 		hud.message("回復薬がない", Color("#ff8080"))
 		return
-	if p.life >= p.s.max_life:
+	if p.life >= p.cap("life"):
 		return
 	p.potions -= 1
 	var heal: float = p.s.max_life * 0.5
-	p.life = minf(p.s.max_life, p.life + heal)
+	p.life = minf(p.cap("life"), p.life + heal)
 	Fx.burst(level_root, to3(p.pos, 1.0), 20, Color("#ff5a5a"), 4.0)
 	add_text(p.pos, "+%d" % heal, Color("#66ff66"), 20)
 
@@ -838,7 +930,7 @@ func damage_player(amount: float) -> void:
 	var p := player
 	if p.dead or p.invuln > 0.0:
 		return
-	var d := maxi(1, roundi(amount * (1.0 - p.s.dr) * (0.85 if p.effects.has("iron_stance") else 1.0) * (1.0 - p.tstat("dr") / 100.0)))
+	var d := maxi(1, roundi(amount * (1.0 - p.s.dr) * (0.85 if p.effects.has("iron_stance") else 1.0) * (1.0 - p.bonus("dr") / 100.0)))
 	p.life -= d
 	p.hit_t = 0.15
 	add_text(p.pos, str(d), Color("#ff5050"), 18)
@@ -893,6 +985,9 @@ func roll_damage(coef: float, type: String, spell := false) -> Dictionary:
 	var elem: float = {"fire": s.fire_dmg, "cold": s.cold_dmg, "light": s.light_dmg}.get(type, 0)
 	var ally: bool = sup.totem > 0 or "minion" in Data.SKILLS.get(sup.skill, {}).get("tags", [])
 	var inc: float = s.inc_dmg + (s.spell_dmg if spell else s.atk_dmg) + elem + (s.ally_dmg if ally else 0) + player.tstat("dmg")
+	# auras reach the player's own skills everywhere, allies only while they stand inside them
+	if not ally or sup.get("aura", false):
+		inc += player.astat("dmg")
 	if ally and player.effects.has("lich_lord"):
 		inc += 50
 	if player.low_life():
@@ -931,7 +1026,7 @@ func hit_enemy(e: Enemy, hit: Dictionary, freeze := 0.0) -> void:
 	e.hit_t = 0.12
 	freeze = maxf(freeze, sup.freeze) * (1.5 if fx.has("frostbite") else 1.0)
 	if sup.leech > 0.0:
-		player.life = minf(player.s.max_life, player.life + hit.dmg * sup.leech)
+		player.life = minf(player.cap("life"), player.life + hit.dmg * sup.leech)
 	_asc_on_hit(e, hit)
 	_sup_on_hit(e, hit)
 	if not e.aggro:
@@ -970,9 +1065,9 @@ func _sup_on_hit(e: Enemy, hit: Dictionary) -> void:
 		e.vuln = maxf(e.vuln if e.vuln_t > 0.0 else 0.0, sup.hex)
 		e.vuln_t = maxf(e.vuln_t, 3.0)
 	if sup.mleech > 0.0:
-		p.mana = minf(p.s.max_mana, p.mana + hit.dmg * sup.mleech)
+		p.mana = minf(p.cap("mana"), p.mana + hit.dmg * sup.mleech)
 	if sup.loh > 0.0:
-		p.life = minf(p.s.max_life, p.life + sup.loh)
+		p.life = minf(p.cap("life"), p.life + sup.loh)
 	if sup.knock > 0.0 and not e.boss:
 		e.pos = map.move_circle(e.pos, e.r, (e.pos - p.pos).normalized() * sup.knock)
 	if sup.cull > 0.0 and not e.boss and e.life > 0.0 and e.life <= e.max_life * sup.cull:
@@ -1005,7 +1100,7 @@ func _asc_on_hit(e: Enemy, hit: Dictionary) -> void:
 	var fx := p.effects
 	var spell: bool = hit.get("spell", true)
 	if not spell and fx.has("blood_oath"):
-		p.life = minf(p.s.max_life, p.life + hit.dmg * 0.03)
+		p.life = minf(p.cap("life"), p.life + hit.dmg * 0.03)
 	if not spell and fx.has("fervor"):
 		p.add_buff("fervor", 15, 3.0)
 	if hit.type == "light" and fx.has("shock"):
@@ -1017,7 +1112,7 @@ func _asc_on_hit(e: Enemy, hit: Dictionary) -> void:
 			e.burn_dps = dps
 		e.burn_t = 3.0
 	if hit.crit and fx.has("crit_mana"):
-		p.mana = minf(p.s.max_mana, p.mana + 4.0)
+		p.mana = minf(p.cap("mana"), p.mana + 4.0)
 	if hit.crit and fx.has("crit_arc") and not hit.get("arc", false):
 		var o: Enemy = null
 		var bd := 9.0 * 9.0
@@ -1063,7 +1158,7 @@ func _kill_enemy(e: Enemy) -> void:
 	e.dead = true
 	var p := player
 	gain_xp(roundi(e.xp * mod_fx.xp))
-	p.life = minf(p.s.max_life, p.life + p.s.life_on_kill + (p.s.max_life * 0.03 if p.effects.has("kill_heal") else 0.0))
+	p.life = minf(p.cap("life"), p.life + p.s.life_on_kill + (p.s.max_life * 0.03 if p.effects.has("kill_heal") else 0.0))
 	_drop_loot(e)
 	if p.effects.has("soul_feed"):
 		for a in _allies():
@@ -1190,6 +1285,9 @@ func _try_cast(i: int) -> void:
 		return
 	if p.cds.get(id, 0.0) > 0.0:
 		return
+	if sk.has("aura"):
+		_toggle_aura(id)
+		return
 	var cost := slot_cost(i)
 	if p.mana < cost:
 		if time - oom_t > 1.2:
@@ -1224,6 +1322,39 @@ func _try_cast(i: int) -> void:
 			get_tree().create_timer(0.25).timeout.connect(func():
 				if not p.dead:
 					_with_sup(es, func(): _cast(id, _player_caster())))
+
+
+## switch an aura on or off; switching on is refused when the reservation would not fit
+func _toggle_aura(id: String) -> void:
+	var p := player
+	var sk: Dictionary = Data.SKILLS[id]
+	var on: bool = not id in p.auras
+	if p.toggle_aura(id) != "":
+		var pool: String = sk.aura.pool
+		hud.message("「%s」を発動できない：%sのリザーブが上限を超える（必要 %d／空き %d）" % [sk.name, "ライフ" if pool == "life" else "マナ",
+			p.aura_reserve(id, pool), p.cap(pool) - (1 if pool == "life" else 0)], Color("#ff8080"))
+		return
+	p.action_t = sk.cast / p.cast_speed_now()
+	var an: Array = sk.anim
+	p.act(an[0], an[1], p.action_t)
+	var col: Color = sk.color
+	if on:
+		Fx.ring(level_root, to3(p.pos), sk.aura.r, col, 0.7)
+		Fx.burst(level_root, to3(p.pos, 1.0), 28, col, 5.0)
+		hud.message("オーラ「%s」を発動" % sk.name, col)
+	else:
+		Fx.burst(level_root, to3(p.pos, 0.6), 14, col.darkened(0.3), 3.0)
+		hud.message("オーラ「%s」を解除" % sk.name, col.darkened(0.2))
+
+
+## allies inside the reach of any active aura share its effects
+func in_aura(a: Ally) -> bool:
+	return player.auras.any(func(id): return a.pos.distance_to(player.pos) <= Data.SKILLS[id].aura.r)
+
+
+## an ally's support modifiers, marked when it stands inside the player's auras
+func _ally_sup(a: Ally) -> Dictionary:
+	return a.sup.merged({"aura": true}) if in_aura(a) else a.sup
 
 
 ## resolve a skill: its own `_cast_<id>` when it has one, else its effect blocks
@@ -2005,10 +2136,13 @@ func _update_totems(delta: float) -> void:
 			t.cast_t = 0.3
 			continue
 		var sk: Dictionary = Data.SKILLS[t.skill]
+		var ts := _ally_sup(t)
 		t.cast_t = maxf(0.45, sk.get("cast", 0.4) * 1.5 / t.sup.speed) / (1.25 if player.effects.has("lich_lord") else 1.0)
+		if ts.has("aura"):
+			t.cast_t /= 1.0 + player.astat("cast_spd") / 100.0
 		t.face = (best.pos - t.pos).angle()
 		var c := {"pos": t.pos, "aim": t.face, "to": best.pos, "player": false}
-		_with_sup(t.sup, func(): _cast(t.skill, c))
+		_with_sup(ts, func(): _cast(t.skill, c))
 	for t in totems:
 		if t.life <= 0.0:
 			_kill_ally(t)
@@ -2026,6 +2160,9 @@ func _update_minions(delta: float) -> void:
 			continue
 		m.atk_cd -= delta
 		m.scan_t -= delta
+		var ms := _ally_sup(m)
+		if ms.has("aura"):
+			m.life = minf(m.max_life, m.life + m.max_life * p.astat("regen") / 100.0 * delta)
 		var dp := m.pos.distance_to(p.pos)
 		if dp > 28.0:
 			m.pos = p.pos
@@ -2047,12 +2184,16 @@ func _update_minions(delta: float) -> void:
 				moving = false
 				if m.atk_cd <= 0.0:
 					m.atk_cd = 0.9 / m.sup.speed / (1.25 if p.effects.has("lich_lord") else 1.0)
+					if ms.has("aura"):
+						m.atk_cd /= 1.0 + p.astat("atk_spd") / 100.0
 					m.swing_t = 0.3
-					_with_sup(m.sup, func(): hit_enemy(e, roll_damage(m.coef, "phys", true)))
+					_with_sup(ms, func(): hit_enemy(e, roll_damage(m.coef, "phys", true)))
 		elif dp < 3.2:
 			moving = false
 		if moving:
 			var dir := (goal - m.pos).normalized()
+			if ms.has("aura"):
+				sp *= 1.0 + p.astat("move") / 100.0
 			m.pos = map.move_circle(m.pos, m.r, dir * sp * delta)
 			m.face = dir.angle()
 		m.animate(delta, moving)
@@ -2088,6 +2229,8 @@ func damage_ally(a: Actor, amount: float) -> void:
 	var al := a as Ally
 	if al.dead:
 		return
+	if in_aura(al):
+		amount *= 1.0 - player.astat("dr") / 100.0
 	al.life -= amount
 	al.hit_t = 0.12
 	add_text(al.pos, str(roundi(amount)), Color("#b0b0b0"), 15)
@@ -2838,19 +2981,28 @@ func save_game() -> void:
 	var ch := Profiles.current()
 	if smoke or ch.is_empty():
 		return
+	ch.data = save_data()
+	Profiles.save_all()
+
+
+## the playing character's state, as saved in their profile
+func save_data() -> Dictionary:
 	var p := player
-	var data := {"floor": floor_level, "level": p.level, "xp": p.xp, "potions": p.potions,
+	return {"floor": floor_level, "level": p.level, "xp": p.xp, "potions": p.potions,
 		"equip": p.equip, "bag": p.bag, "cur": p.cur, "atlas": atlas.to_dict(), "shop": shop,
 		"slots": p.slots, "links": p.links, "gems": p.gems, "talent_pts": p.talent_pts, "talents": p.talents, "filter": p.filter,
-		"asc": p.asc, "asc_ranks": p.asc_ranks, "asc_cores": p.asc_cores}
-	ch.data = data
-	Profiles.save_all()
+		"asc": p.asc, "asc_ranks": p.asc_ranks, "asc_cores": p.asc_cores, "auras": p.auras}
 
 
 func load_game() -> bool:
 	var data = Profiles.current().get("data", {})
 	if typeof(data) != TYPE_DICTIONARY or data.is_empty():
 		return false
+	apply_save(data)
+	return true
+
+
+func apply_save(data: Dictionary) -> void:
 	var p := player
 	floor_level = int(data.get("floor", 1))
 	p.level = int(data.get("level", 1))
@@ -2896,8 +3048,9 @@ func load_game() -> bool:
 	var sd: Dictionary = data.get("shop", {})
 	if sd.has("items"):
 		shop = {"level": int(sd.level), "items": sd.items.map(func(it): return Items.normalize(it))}
+	# auras that were on come back on; recalc drops any that left the bar or no longer fit
+	p.auras = Array(data.get("auras", [])).filter(func(id): return Data.SKILLS.has(id) and Data.SKILLS[id].has("aura") and id in p.slots)
 	p.recalc(true)
-	return true
 
 
 func _notification(what: int) -> void:

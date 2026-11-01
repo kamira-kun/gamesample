@@ -26,6 +26,7 @@ const PAL := {
 	"minion": [Color("#081814"), Color("#5a9a88"), Color("#c0f4e4")],
 	"curse": [Color("#1e0619"), Color("#a44a9c"), Color("#f4a0e8")],
 	"buff": [Color("#221604"), Color("#c89432"), Color("#ffe490")],
+	"aura": [Color("#1a1208"), Color("#d8b060"), Color("#fff0c0")],
 	"phys": [Color("#1a130c"), Color("#9c7c50"), Color("#f4dcac")],
 }
 
@@ -34,7 +35,7 @@ static var _g := Color.WHITE   # glow: the skill's own color
 
 
 static func element(sk: Dictionary) -> String:
-	for t in ["fire", "cold", "lightning", "chaos", "minion", "curse", "buff"]:
+	for t in ["aura", "fire", "cold", "lightning", "chaos", "minion", "curse", "buff"]:
 		if t in sk.tags:
 			return t
 	return "phys"
@@ -838,5 +839,29 @@ static func _motif(ci: CanvasItem, id: String) -> void:
 			_ground(ci, 26)
 			_star(ci, Vector2(24, 25), 5.5, 2.0, 6, Color("#ffd890"))
 			_sword(ci, Vector2(24, 15), PI, 0.62)
+		# auras: a dashed halo around the motif, like the ring they leave on the ground
+		"hearth_ward", "ember_heart", "frost_veil", "gale_hymn", "crimson_pact":
+			var halo := PackedVector2Array()
+			for k in 10:
+				var a := TAU * k / 10.0
+				halo.append_array([c + Vector2.from_angle(a) * 13.0, c + Vector2.from_angle(a + 0.38) * 13.0])
+			_glow_segs(ci, halo, 0.8)
+			match id:
+				"hearth_ward":
+					_shield(ci, Vector2(16, 17), 1.05, Color("#f0d8a0"), Color("#7a5a30"))
+					_flame(ci, Vector2(16, 16.5), 0.62, 0.0, Color("#ffb050"))
+				"ember_heart":
+					_heart(ci, Vector2(16, 17), 0.9, Color("#ff9a60"), Color("#701a08"))
+					_flame(ci, Vector2(16, 10), 0.55, 0.0)
+					_sparkle(ci, Vector2(22, 9), 2.2)
+				"frost_veil":
+					_waves(ci, c, [8.5], PI + 0.3, TAU - 0.3)
+					_snowflake(ci, Vector2(16, 18), 6.0)
+				"gale_hymn":
+					_spiral(ci, c, 9.0, 1.6, 1.1)
+					_chevron(ci, 18, 16, 0.55, _g)
+				"crimson_pact":
+					_drop(ci, Vector2(16, 15), 1.0, Color("#ff3040"))
+					_star(ci, Vector2(16, 24.5), 3.6, 1.4, 4, Color("#ffd0d0"))
 		_:
 			_orb(ci, c, 7.0)

@@ -140,7 +140,13 @@ func _hover(c: Control, lines: Array) -> void:
 func skill_tip(id: String, slot := -1) -> Array:
 	var sk: Dictionary = Data.SKILLS[id]
 	var lines := [[sk.name, sk.color, 17], [Data.tag_text(sk.tags), Color("#9a9080"), 12],
-		["マナ %d" % sk.mana + ("　CD %s秒" % sk.cd if sk.cd > 0.0 else ""), Color("#9a9080"), 12], [sk.desc, Color("#dddddd"), 13]]
+		[Data.cost_text(sk) + ("　CD %s秒" % sk.cd if sk.cd > 0.0 else ""), Color("#9a9080"), 12], [sk.desc, Color("#dddddd"), 13]]
+	if sk.has("aura"):
+		var p: Player = hud.main.player
+		var pool: String = sk.aura.pool
+		lines.append(["範囲 %dm　押すたびに発動／解除" % sk.aura.r, Color("#9a9080"), 12])
+		lines.append(["いまのリザーブ量 %s %d%s" % ["ライフ" if pool == "life" else "マナ", p.aura_reserve(id, pool), "（発動中）" if id in p.auras else ""],
+			Color("#ffd890"), 12])
 	if slot >= 0:
 		var s: Dictionary = hud.main.slot_sup(slot)
 		for gid in s.ids:
@@ -236,7 +242,7 @@ func refresh() -> void:
 		var locked: bool = p.level < sk.lvl
 		var at := p.slots.find(id)
 		var tag := "Lv %d で習得" % sk.lvl if locked else ("装備中：%s" % Data.SLOT_KEYS[at].label if at >= 0 else "")
-		var b := card("%s　%s\nマナ %d%s　%s" % [sk.name, tag, sk.mana, "　CD %s秒" % sk.cd if sk.cd > 0.0 else "", Data.tag_text(sk.tags)],
+		var b := card("%s　%s\n%s%s　%s" % [sk.name, tag, Data.cost_text(sk), "　CD %s秒" % sk.cd if sk.cd > 0.0 else "", Data.tag_text(sk.tags)],
 			Color("#120e0a"), Color("#6a5a44") if at >= 0 else Color("#3a3024"), sk.color.darkened(0.55) if locked else sk.color)
 		b.custom_minimum_size = Vector2(250, 48)
 		var iv := SkillIcon.View.new()
