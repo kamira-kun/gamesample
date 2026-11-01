@@ -68,7 +68,7 @@ func _ready() -> void:
 	hud.main = self
 	add_child(hud)
 	var args := Array(OS.get_cmdline_user_args())
-	# dev runs: `--smoke` plays a scripted test, `--view=<panel>` opens a panel or `--view=colossus|witch` a boss fight; neither touches the save
+	# dev runs: `--smoke` plays a scripted test, `--view=<panel>` opens a panel, `--view=colossus|witch` a boss fight or `--view=imp` a few imps; neither touches the save
 	smoke = "--smoke" in args or args.any(func(x): return x.begins_with("--view="))
 	for x in args:
 		if x.begins_with("--date="):   # dev runs: pretend it is another day, to test a season ending
@@ -111,6 +111,10 @@ func _ready() -> void:
 				enter_map("ash")
 				var b := _make_enemy(kind, player.pos + Vector2(5, -5), 999)
 				b.sync_node(0.0, false)
+			elif kind == "imp":   # a few imps and the fox right next to the player
+				enter_map("ash")
+				for i in 3:
+					_make_enemy("imp", player.pos + Vector2(2.5 + i * 1.2, -2.5 + i * 0.8), 999)
 	if "--smoke" in args:
 		_smoke_test()
 
@@ -216,6 +220,32 @@ func _smoke_test() -> void:
 	hud.close_panels()
 	p.slots = Data.DEFAULT_SLOTS.duplicate()
 	p.links = [[], [], [], [], [], []]
+	# support gem energy: 2 + level shared by the bar, at most 6 links a skill, linking past the pool is refused
+	print("SMOKE energy max=%d base=%d used=%d link_max=%d" % [p.energy_max(), Data.energy_base(p.level), p.energy_used(), Data.LINK_MAX])
+	hud.skill_ui.open_slot(0)
+	for gid in ["leech", "frostbite", "mleech", "loh", "hexhit", "cull", "efficient"]:   # 7 one-energy gems
+		hud.skill_ui._toggle_gem(gid)
+	hud.skill_ui.open_slot(1)
+	for gid in ["power", "haste", "heavy"]:   # 3 each: the third one is past the pool
+		hud.skill_ui._toggle_gem(gid)
+	print("SMOKE energy links0=%d links1=%s used=%d/%d" % [p.links[0].size(), p.links[1], p.energy_used(), p.energy_max()])
+	hud.skill_ui._toggle_gem("power")
+	hud.skill_ui._toggle_gem("leech")
+	print("SMOKE energy unlink links1=%s used=%d" % [p.links[1], p.energy_used()])
+	hud.skill_ui._toggle_gem("leech")
+	hud.skill_ui._toggle_gem("power")
+	# the pool shrinks: links power up in bar order and those past it go dark
+	p.level = 5
+	p.recalc()
+	print("SMOKE energy shrunk max=%d active0=%d active1=%s sup1=%s" % [p.energy_max(), p.active_links(0).size(), p.active_links(1), slot_sup(1).ids])
+	p.level = 10
+	p.recalc()
+	print("SMOKE energy restored active1=%s sup1=%s" % [p.active_links(1), slot_sup(1).ids])
+	hud.close_panels()
+	p.links = [[], [], [], [], [], []]
+	# every support gem changes some skill it fits
+	var unused := Data.SUPPORTS.filter(func(g): return not Data.SKILL_ORDER.any(func(id): return g.id in Data.build_sup(id, [g.id]).ids))
+	print("SMOKE supports=%d skills=%d unused=%s" % [Data.SUPPORTS.size(), Data.SKILL_ORDER.size(), unused.map(func(g): return g.id)])
 	# talents, the loot filter and the pet
 	p.talent_pts = 2
 	var dmg0: int = p.s.inc_dmg
@@ -234,9 +264,19 @@ func _smoke_test() -> void:
 	hud.asc_ui._pick_core(1, "kill_burst")
 	hud.asc_ui._pick_core(2, "inferno")
 	print("SMOKE ascend free=%d fire+%d cores=%s cost %d->%d" % [p.asc_free(), p.s.fire_dmg - fire0, p.asc_cores, cost0, slot_cost(1)])
+	# a second lineage is refused while one is held; at Lv16 the third core tier opens
+	hud.asc_ui._choose(Data.ASCENDANCIES[1].k)
+	var aoe0: float = slot_sup(1).aoe
+	p.level = 16
+	for id in ["pyre_heat", "pyre_chant", "pyre_mantle", "pyre_mantle"]:   # pyre_heat is already at its max
+		hud.asc_ui._rank_up(id)
+	hud.asc_ui._pick_core(2, "inferno")
+	print("SMOKE ascend lv16 asc=%s ranks=%s cores=%s fire_aoe x%.2f" % [p.asc, p.asc_ranks, p.asc_cores, slot_sup(1).aoe / aoe0])
+	p.level = 10
+	var em_asc: int = p.cur.ember
 	hud.asc_ui._reset()
 	hud.asc_ui._reset()
-	print("SMOKE ascend reset asc='%s' free=%d" % [p.asc, p.asc_free()])
+	print("SMOKE ascend reset asc='%s' free=%d cores=%s ember-%d" % [p.asc, p.asc_free(), p.asc_cores, em_asc - p.cur.ember])
 	hud.close_panels()
 	hud.toggle(hud.filter_ui)
 	hud.filter_ui._set_rarity(0, "hide")
@@ -860,7 +900,7 @@ func roll_damage(coef: float, type: String, spell := false) -> Dictionary:
 	d *= (1.0 + inc / 100.0) * sup.dmg * sup.get("m_" + type, 1.0) * (1.0 + 0.15 * player.talents.get(sup.skill, 0))
 	if sup.lowlife > 0.0 and player.life <= player.s.max_life * 0.5:
 		d *= 1.0 + sup.lowlife
-	var crit: bool = force_crit or randf() * 100.0 < s.crit + sup.crit
+	var crit: bool = force_crit or (randf() * 100.0 < s.crit + sup.crit and not player.effects.has("no_crit"))
 	if crit:
 		d *= (s.crit_multi + sup.critm) / 100.0
 	return {"dmg": maxi(1, roundi(d)), "crit": crit, "type": type, "spell": spell}
