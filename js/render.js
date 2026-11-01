@@ -135,6 +135,8 @@ function render(dt) {
   // entities on screen, with shadows on the ground
   const ents = [...G.enemies, ...G.minions, ...G.totems, p];
   if (G.merchant) ents.push(G.merchant);
+  if (G.device) ents.push(G.device);
+  ents.push(...G.props);
   if (G.pet) ents.push(G.pet);
   const vis = ents.filter(e => { const s = R.S(e.x, e.y); return onScreen(s.x, s.y, 100); });
   ctx.fillStyle = 'rgba(0,0,0,0.4)';
@@ -163,6 +165,8 @@ function render(dt) {
     const e = it.e, s = R.S(e.x, e.y);
     if (e === p) drawPlayer(ctx, p, s.x, s.y);
     else if (e.merchant) drawMerchant(ctx, e, s.x, s.y);
+    else if (e.device) drawDevice(ctx, e, s.x, s.y);
+    else if (e.brazier) drawBrazier(ctx, e, s.x, s.y);
     else if (e.pet) drawPet(ctx, e, s.x, s.y);
     else if (e.minion) drawMinion(ctx, e, s.x, s.y);
     else if (e.totem) drawTotem(ctx, e, s.x, s.y);
@@ -173,7 +177,7 @@ function render(dt) {
   const L = R.lctx;
   L.setTransform(1, 0, 0, 1, 0, 0);
   L.globalCompositeOperation = 'source-over';
-  L.fillStyle = `rgba(${th.dark},0.86)`;
+  L.fillStyle = `rgba(${th.dark},${th.darkA ?? 0.86})`;
   L.fillRect(0, 0, R.light.width, R.light.height);
   L.globalCompositeOperation = 'destination-out';
   R.ground(L);
@@ -186,6 +190,8 @@ function render(dt) {
   for (const t of G.tele) lights.push([t.x, t.y, (t.r || 60) * 1.2, 0.35]);
   if (G.portal) lights.push([G.portal.x, G.portal.y, 240, 0.9]);
   if (G.merchant) lights.push([G.merchant.x, G.merchant.y, 200, 0.85]);
+  if (G.device) lights.push([G.device.x, G.device.y, 260, 0.9]);
+  for (const b of G.props) lights.push([b.x, b.y, 230 * flick, 0.9]);
   if (G.pet) lights.push([G.pet.x, G.pet.y, 120, 0.6]);
   for (const t of G.totems) lights.push([t.x, t.y, 150, 0.7]);
   for (const st of G.storms) lights.push([st.x, st.y, st.r * 1.3, 0.5]);
@@ -245,7 +251,7 @@ function render(dt) {
   // ---- overlays: hp bars, labels, damage numbers ----
   ctx.textAlign = 'center';
   for (const e of vis) {
-    if (e === p || e.merchant || e.pet) continue;
+    if (e === p || e.merchant || e.pet || e.device || e.brazier) continue;
     const s = R.S(e.x, e.y);
     if (e.ally) {
       const w = 26, y = s.y - (e.totem ? 58 : 36);
@@ -269,6 +275,12 @@ function render(dt) {
     ctx.font = 'bold 13px sans-serif'; ctx.fillStyle = '#ffd36a';
     ctx.fillText('商人', s.x, s.y - 44);
     if (near) { ctx.font = '11px sans-serif'; ctx.fillStyle = '#e8dcc4'; ctx.fillText('クリック / B で取引', s.x, s.y - 58); }
+  }
+  if (G.device) {
+    const dv = G.device, s = R.S(dv.x, dv.y), near = dist2(dv.x, dv.y, p.x, p.y) < 200 * 200;
+    ctx.font = 'bold 13px sans-serif'; ctx.fillStyle = '#ffb35a';
+    ctx.fillText('遠征図の祭壇', s.x, s.y - 54);
+    if (near) { ctx.font = '11px sans-serif'; ctx.fillStyle = '#e8dcc4'; ctx.fillText('クリック / B で行き先を選ぶ', s.x, s.y - 68); }
   }
   ctx.font = '12px sans-serif';
   for (const g of G.drops) {
@@ -479,6 +491,37 @@ function drawTotem(ctx, t, sx, sy) {
   ctx.globalAlpha = pulse; ctx.fillStyle = g; ctx.fillRect(x - 16, y - h - 22, 32, 32); ctx.globalAlpha = 1;
   ctx.fillStyle = col; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center';
   ctx.fillText(SKILLS[t.skill].icon, x, y - h - 1);
+}
+
+// stone table holding the glowing expedition map
+function drawDevice(ctx, d, sx, sy) {
+  const x = sx, y = sy, t = G.time;
+  ctx.fillStyle = '#4a3e32'; ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.ellipse(x, y - 4, 30, 30 * PITCH, 0, 0, TAU); ctx.fill(); ctx.stroke();
+  ctx.fillRect(x - 30, y - 22, 60, 18); ctx.strokeRect(x - 30, y - 22, 60, 18);
+  ctx.fillStyle = '#6a5a48';
+  ctx.beginPath(); ctx.ellipse(x, y - 22, 30, 30 * PITCH, 0, 0, TAU); ctx.fill(); ctx.stroke();
+  // the map itself: rotating rune rings
+  for (let i = 0; i < 3; i++) {
+    ctx.strokeStyle = `rgba(${i === 1 ? '180,140,255' : '255,180,90'},${0.5 + Math.sin(t * 3 + i) * 0.3})`; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(x, y - 22, 24 - i * 7, (24 - i * 7) * PITCH, 0, t * (1 + i * 0.5), t * (1 + i * 0.5) + 4.5); ctx.stroke();
+  }
+  const g = ctx.createRadialGradient(x, y - 30, 0, x, y - 30, 26);
+  g.addColorStop(0, 'rgba(255,200,130,0.7)'); g.addColorStop(1, 'rgba(255,140,40,0)');
+  ctx.fillStyle = g; ctx.fillRect(x - 26, y - 56, 52, 52);
+  if (Math.random() < 0.3) G.particles.push({ x: d.x + rand(-15, 15), y: d.y + rand(-15, 15), vx: 0, vy: 0, vz: rand(30, 60), z: 20, t: 0, max: 0.9, size: 2.5, color: '#ffc880', glow: true });
+}
+
+function drawBrazier(ctx, b, sx, sy) {
+  const x = sx, y = sy;
+  ctx.fillStyle = '#3a2e24'; ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 2;
+  ctx.fillRect(x - 4, y - 22, 8, 22);
+  ctx.beginPath(); ctx.ellipse(x, y - 24, 12, 12 * PITCH, 0, 0, TAU); ctx.fill(); ctx.stroke();
+  const fl = 0.8 + Math.sin(G.time * 11 + x) * 0.2;
+  const g = ctx.createRadialGradient(x, y - 32, 0, x, y - 32, 16 * fl);
+  g.addColorStop(0, 'rgba(255,240,180,1)'); g.addColorStop(0.5, 'rgba(255,140,40,0.8)'); g.addColorStop(1, 'rgba(255,80,20,0)');
+  ctx.fillStyle = g; ctx.fillRect(x - 16, y - 48, 32, 32);
+  if (Math.random() < 0.3) G.particles.push({ x: b.x + rand(-5, 5), y: b.y + rand(-5, 5), vx: 0, vy: 0, vz: rand(40, 80), z: 30, t: 0, max: 0.7, size: 2.5, color: '#ff9a40', glow: true });
 }
 
 function drawMerchant(ctx, m, sx, sy) {

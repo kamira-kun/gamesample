@@ -48,7 +48,8 @@ const UI = {
       if (se.last !== v) { se.last = v; se.cd.style.background = `conic-gradient(rgba(0,0,0,.72) ${v}turn, transparent 0)`; }
       se.el.classList.toggle('oom', p.mana < sk.mana);
     }
-    const info = `${G.area ? G.area.name : ''} エリアLv ${G.floor}　Lv ${p.level}　<span class="gold">◆ ${p.cur.ember}</span>`;
+    const where = G.area && G.area.hideout ? G.area.name : `${G.area ? G.area.name : ''} エリアLv ${G.floor}`;
+    const info = `${where}　Lv ${p.level}　<span class="gold">◆ ${p.cur.ember}</span>`;
     if (this.lastInfo !== info) { this.lastInfo = info; $('topinfo').innerHTML = info; }
     const pot = `回復薬 <b>${p.potions}</b> <small>[F]</small>`;
     if (this.lastPot !== pot) { this.lastPot = pot; $('potion').innerHTML = pot; }

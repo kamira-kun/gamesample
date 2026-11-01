@@ -1,9 +1,8 @@
 'use strict';
 const T = 40;       // tile size in px
-const WALL_H = 18;  // fake wall height for the 3/4 view
 
 class Dungeon {
-  constructor(w, h, floor) {
+  constructor(w, h, floor, layout = 'random') {
     this.w = w; this.h = h; this.floor = floor;
     this.tiles = new Uint8Array(w * h);       // 0 = wall, 1 = floor
     this.explored = new Uint8Array(w * h);
@@ -12,7 +11,20 @@ class Dungeon {
     this.flow = new Int16Array(w * h);
     this.queue = new Int32Array(w * h);
     this.rooms = [];
-    this.generate();
+    if (layout === 'hideout') this.makeHideout();
+    else this.generate();
+  }
+
+  // a single hand-laid hall with four pillars; fully revealed
+  makeHideout() {
+    const r = { x: 6, y: 6, w: 15, h: 13 };
+    r.cx = Math.floor(r.x + r.w / 2); r.cy = Math.floor(r.y + r.h / 2);
+    for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) this.carve(x, y);
+    for (const [px, py] of [[r.x + 2, r.y + 2], [r.x + r.w - 3, r.y + 2], [r.x + 2, r.y + r.h - 3], [r.x + r.w - 3, r.y + r.h - 3]])
+      this.tiles[this.idx(px, py)] = 0;
+    this.rooms.push(r);
+    this.start = this.bossRoom = r;
+    this.explored.fill(1);
   }
 
   idx(x, y) { return y * this.w + x; }

@@ -106,12 +106,7 @@ function updatePlayer(dt) {
     moveCircle(p, w.x / wl * sp * dt, w.y / wl * sp * dt);
     p.walkT += dt;
   }
-  const mer = G.merchant;
-  if (mer && dist2(p.x, p.y, mer.x, mer.y) < 200 * 200 &&
-      (Input.pressed.KeyB || (Input.mdown[0] && (() => { const s = worldToScreen(mer.x, mer.y); return dist2(Input.mx, Input.my, s.x, s.y - 14) < 26 * 26; })()))) {
-    UI.toggle('shop');
-    return;
-  }
+  if (updateInteract()) return;
   SKILL_SLOTS.forEach((slot, i) => { if (slot.on()) tryCast(i); });
   if (Input.pressed.KeyF) usePotion();
   G.map.reveal(p.x, p.y);
@@ -884,25 +879,65 @@ function separateEnemies() {
 }
 
 // =================== floor setup ===================
-function spawnFloor() {
-  Object.assign(G, { enemies: [], projs: [], eprojs: [], particles: [], texts: [], effects: [], hazards: [], tele: [], storms: [], minions: [], totems: [], ground: [], drops: [], portal: null, boss: null });
-  G.area = G.area || ATLAS_NODES[0];
-  G.modFx = G.modFx || modEffects([]);
-  G.map = new Dungeon(72, 72, G.floor);
-  const ti = nodeTheme(G.area), fx = G.modFx;
-  G.theme = THEMES[ti];
-  const p = G.player, m = G.map;
-  p.x = m.start.cx * T + T / 2; p.y = m.start.cy * T + T / 2;
+// clear the world and drop the player (and pet) at the map's start room
+function resetWorld(map, theme) {
+  Object.assign(G, { enemies: [], projs: [], eprojs: [], particles: [], texts: [], effects: [], hazards: [], tele: [], storms: [], minions: [], totems: [],
+    ground: [], drops: [], portal: null, boss: null, merchant: null, device: null, props: [] });
+  G.map = map; G.theme = theme;
+  const p = G.player;
+  p.x = map.start.cx * T + T / 2; p.y = map.start.cy * T + T / 2;
   p.dead = false; p.dash = null; p.recalc(true);
   G.cam.x = p.x; G.cam.y = p.y;
-
-  // a merchant waits in the entrance room; stock refreshes each new floor
-  let mp = m.randomFloorIn(m.start);
-  for (let i = 0; i < 20 && dist2(mp.x, mp.y, p.x, p.y) < 90 * 90; i++) mp = m.randomFloorIn(m.start);
-  G.merchant = { x: mp.x, y: mp.y, r: 14, merchant: true };
   G.pet = { x: p.x - 30, y: p.y + 10, r: 9, pet: true, face: 0, walkT: 0, target: null, scanT: 0, wanderT: 0, home: null, stuckT: 0, ignore: new Set() };
-  if (circleHits(m, G.pet.x, G.pet.y, G.pet.r)) { G.pet.x = p.x; G.pet.y = p.y; }
+  if (circleHits(map, G.pet.x, G.pet.y, G.pet.r)) { G.pet.x = p.x; G.pet.y = p.y; }
+  UI.setBoss(null);
+}
+
+// =================== hideout ===================
+// a safe hall between runs: the only place with the merchant, and where maps are chosen
+const HIDEOUT = { id: 'hideout', name: '隠れ家', hideout: true };
+const hideoutLevel = () => Math.max(1, ...ATLAS_NODES.filter(isCleared).map(nodeLevel));
+function enterHideout() {
+  if (UI.open) UI.toggle(UI.open);
+  Atlas.hide();
+  $('death').classList.add('hidden');
+  G.state = 'play';
+  G.area = HIDEOUT; G.floor = hideoutLevel(); G.runMods = []; G.modFx = modEffects([]);
+  resetWorld(new Dungeon(28, 26, 1, 'hideout'), HIDEOUT_THEME);
+  const r = G.map.start, cx = r.cx * T + T / 2, cy = r.cy * T + T / 2, p = G.player;
+  p.y = cy + 3 * T; G.cam.y = p.y; G.pet.y = p.y + 10;
+  G.device = { x: cx, y: cy - 2.5 * T, r: 22, device: true };
+  G.merchant = { x: cx - 4 * T, y: cy, r: 14, merchant: true };
+  G.props = [[r.x + 1, r.y + 1], [r.x + r.w - 2, r.y + 1], [r.x + 1, r.y + r.h - 2], [r.x + r.w - 2, r.y + r.h - 2]]
+    .map(([tx, ty]) => ({ x: tx * T + T / 2, y: ty * T + T / 2, r: 10, brazier: true }));
   if (!G.shop || G.shop.floor !== G.floor) G.shop = genShop();
+  showMsg('隠れ家 — 遠征図の祭壇で行き先を選ぼう', '#e8d8b0');
+  UI.refresh();
+  saveGame();
+}
+
+// click (or press B) near the merchant or the atlas device
+function updateInteract() {
+  const p = G.player;
+  for (const o of [G.merchant, G.device]) {
+    if (!o || dist2(p.x, p.y, o.x, o.y) > 200 * 200) continue;
+    const s = worldToScreen(o.x, o.y);
+    const clicked = Input.mdown[0] && dist2(Input.mx, Input.my, s.x, s.y - 16) < 30 * 30;
+    const near = dist2(p.x, p.y, o.x, o.y) < 90 * 90 && Input.pressed.KeyB;
+    if (!clicked && !near) continue;
+    Input.mdown[0] = false;
+    if (o.merchant) UI.toggle('shop'); else Atlas.show();
+    return true;
+  }
+  return false;
+}
+
+function spawnFloor() {
+  G.area = G.area && !G.area.hideout ? G.area : ATLAS_NODES[0];
+  G.modFx = G.modFx || modEffects([]);
+  const ti = nodeTheme(G.area);
+  resetWorld(new Dungeon(72, 72, G.floor), THEMES[ti]);
+  const p = G.player, m = G.map, fx = G.modFx;
 
   const f = G.floor;
   const pool = [

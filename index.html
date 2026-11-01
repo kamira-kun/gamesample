@@ -86,7 +86,7 @@
   <div class="phead">商人 <span class="hint">品物クリック：購入　所持品クリック：売却</span><span id="shopGold"></span><button data-close>×</button></div>
   <div class="inv-body">
     <div class="left">
-      <div class="sub">品揃え（深度が変わると入れ替わります）</div>
+      <div class="sub">品揃え（マップから戻るたびに入れ替わります）</div>
       <div id="shopStock"></div>
       <div class="shop-actions">
         <button id="buyPotion" class="sbtn"></button>
@@ -124,11 +124,11 @@
   <div class="phead">一時停止<button data-close>×</button></div>
   <div class="controls">
     <div><b>WASD</b> 移動</div><div><b>左/右クリック</b> スキル</div><div><b>Q E R Space</b> スキル</div>
-    <div><b>K</b> スキル付け替え</div><div><b>F</b> 回復薬</div><div><b>B</b> 商人と取引（近くで）</div>
+    <div><b>K</b> スキル付け替え</div><div><b>F</b> 回復薬</div><div><b>B</b> 商人・祭壇を使う（近くで）</div>
     <div><b>I / Tab</b> インベントリ</div><div><b>T</b> タレント</div><div><b>C</b> キャラクター</div><div><b>L</b> アイテムフィルター</div><div><b>P</b> アトラスパッシブ</div>
     <div><b>Esc</b> 閉じる／一時停止</div>
   </div>
-  <button id="abandonBtn" class="btn">遠征図に戻る（マップを放棄）</button>
+  <button id="abandonBtn" class="btn">隠れ家に戻る（マップを放棄）</button>
   <button id="quitBtn" class="btn">セーブしてタイトルへ</button>
 </div>
 
@@ -144,6 +144,7 @@
       <button class="sbtn" data-open="status">キャラ [C]</button>
       <button class="sbtn" data-open="filter">フィルター [L]</button>
       <button class="sbtn" id="atlasTitleBtn">タイトルへ</button>
+      <button class="sbtn" id="atlasCloseBtn">閉じる [Esc]</button>
     </div>
   </div>
   <div class="atlas-body">
@@ -170,7 +171,7 @@
   <div class="logo dead">力尽きた…</div>
   <p class="lore">経験値の一部を失います。</p>
   <button id="retryBtn" class="btn">このマップに再挑戦する</button>
-  <button id="deathAtlasBtn" class="btn">遠征図に戻る</button>
+  <button id="deathAtlasBtn" class="btn">隠れ家に戻る</button>
 </div>
 
 <script src="js/util.js"></script>

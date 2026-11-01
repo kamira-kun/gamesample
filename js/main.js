@@ -7,8 +7,8 @@ function startGame(fromSave) {
   else { G.player = new Player(); G.floor = 1; G.shop = null; G.atlas = newAtlas(); }
   UI.buildSkillbar();
   $('title').classList.add('hidden');
-  Atlas.show();
-  if (!save) showMsg('遠征図から行き先を選んで出撃しよう', '#e8d8b0');
+  enterHideout();
+  if (!save) showMsg('WASDで移動。祭壇をクリックして最初のマップへ', '#e8d8b0');
 }
 
 function panelKeys() {
@@ -36,7 +36,7 @@ function frame(now) {
     if (saveT > 20 && !p.dead) { saveT = 0; saveGame(); }
   } else if (G.state === 'atlas') {
     panelKeys();
-    if (Input.pressed.Escape && UI.open) UI.toggle(UI.open);
+    if (Input.pressed.Escape) { if (UI.open) UI.toggle(UI.open); else Atlas.hide(); }
     Atlas.draw();
   }
   Input.endFrame();
@@ -67,7 +67,7 @@ addEventListener('load', () => {
   });
   $('deathAtlasBtn').addEventListener('click', () => {
     G.player.xp = Math.floor(G.player.xp * 0.7);
-    abandonMap();
+    enterHideout();
   });
   $('abandonBtn').addEventListener('click', () => abandonMap());
   $('quitBtn').addEventListener('click', () => { saveGame(); location.reload(); });

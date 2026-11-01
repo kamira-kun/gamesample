@@ -195,3 +195,4 @@ const THEMES = [
   { name: '溶岩の洞窟', floor: [42, 26, 22], wallTop: '#5a3a30', wallFront: '#2e1a16', dark: '14,4,4', torch: '255,150,90' },
   { name: '凍てつく聖堂', floor: [28, 36, 46], wallTop: '#55606e', wallFront: '#2a323d', dark: '4,8,16', torch: '200,220,255' },
 ];
+const HIDEOUT_THEME = { name: '隠れ家', floor: [58, 46, 34], wallTop: '#6e5c48', wallFront: '#3e3024', dark: '12,7,4', darkA: 0.6, torch: '255,200,140' };

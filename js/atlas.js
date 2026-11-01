@@ -116,7 +116,8 @@ function completeMap() {
   const newly = n.links.map(id => NODE_BY_ID[id]).filter(o => !isCleared(o));
   if (n.endless) G.atlas.abyss++;
   delete G.atlas.mods[n.id];
-  Atlas.show();
+  G.shop = null; // the merchant restocks after every run
+  enterHideout();
   showMsg(`${n.name} を踏破した！`, '#ffd36a');
   if (newly.length) showMsg(`新たな地点が開放：${newly.map(o => o.name).join('、')}`, '#e8d8b0');
   if (n.endless) showMsg(`残り火の深淵が Lv ${nodeLevel(n)} に深まった`, '#b48cff');
@@ -125,8 +126,8 @@ function completeMap() {
 }
 
 function abandonMap() {
-  Atlas.show();
-  showMsg('拠点に帰還した', '#e8d8b0');
+  enterHideout();
+  showMsg('隠れ家に帰還した', '#e8d8b0');
 }
 
 // ---- screen ----
@@ -138,25 +139,23 @@ const Atlas = {
     this.canvas.addEventListener('mousemove', e => this.hover(e));
     document.querySelectorAll('#atlas [data-open]').forEach(b => b.addEventListener('click', () => UI.toggle(b.dataset.open)));
     $('atlasTitleBtn').addEventListener('click', () => { saveGame(); location.reload(); });
+    $('atlasCloseBtn').addEventListener('click', () => this.hide());
     addEventListener('resize', () => this.resize());
   },
+  // opened from the atlas device in the hideout; the hideout keeps running underneath (paused)
   show() {
     G.state = 'atlas';
-    Object.assign(G, { enemies: [], projs: [], eprojs: [], tele: [], hazards: [], storms: [], minions: [], totems: [], ground: [], drops: [], portal: null, boss: null, merchant: null, pet: null });
     if (UI.open) UI.toggle(UI.open);
-    UI.setBoss(null);
-    $('death').classList.add('hidden');
     $('atlas').classList.remove('hidden');
     document.body.classList.add('in-atlas');
-    const p = G.player;
-    p.dead = false; p.recalc(true);
     this.resize();
     this.renderDetail();
-    saveGame();
   },
   hide() {
     $('atlas').classList.add('hidden');
     document.body.classList.remove('in-atlas');
+    if (G.state === 'atlas') G.state = 'play';
+    Input.mdown = [false, false, false];
   },
   resize() {
     const c = this.canvas, r = c.getBoundingClientRect(), dpr = Math.min(devicePixelRatio || 1, 2);
