@@ -11,16 +11,19 @@ var target: Enemy = null
 var atk_cd := 0.4
 var scan_t := 0.0
 var swing_t := 0.0
+var coef := 0.55             # damage of each swing, as a multiple of the player's damage
 # totem
 var skill := ""
 var t := 0.0
 var max_t := 10.0
 var cast_t := 0.4
 var orb: MeshInstance3D
+var trap := false            # a trap from a support gem: springs once when an enemy comes close
 
 
-func setup_minion(at: Vector2, hp: float, s: Dictionary) -> void:
+func setup_minion(at: Vector2, hp: float, s: Dictionary, tint := Color(0.5, 1.0, 0.6)) -> void:
 	kind = "minion"
+	max_t = 0.0
 	pos = at
 	r = 0.45
 	life = hp
@@ -28,7 +31,7 @@ func setup_minion(at: Vector2, hp: float, s: Dictionary) -> void:
 	sup = s
 	use_rig(Assets.SKELETONS + "Skeleton_Warrior.glb", 0.75, [], Assets.SKELETON_GEAR + "Skeleton_Blade.gltf")
 	# a pale green ring tells them apart from hostile skeletons
-	var ring := Fx.mesh(self, Fx.disc(), Fx.mat(Color(0.5, 1.0, 0.6, 0.3), 2.0, true), Vector3(0, 0.03, 0))
+	var ring := Fx.mesh(self, Fx.disc(), Fx.mat(Color(tint, 0.3), 2.0, true), Vector3(0, 0.03, 0))
 	ring.scale = Vector3(0.7, 1, 0.7)
 	play("Spawn_Ground_Skeletons", 1.6, true, 0.0)
 

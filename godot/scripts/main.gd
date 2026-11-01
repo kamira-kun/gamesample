@@ -18,6 +18,8 @@ var eprojs: Array = []       # enemy projectiles
 var teles: Array = []        # telegraphed circles that resolve after a delay
 var hazards: Array = []      # burning ground
 var storms: Array = []       # thunder clouds
+var zones: Array = []        # ticking areas from skill effect blocks
+var proj_spawn: Array = []   # projectiles made while the list is being walked; joined after
 var minions: Array[Ally] = []
 var totems: Array[Ally] = []
 var no_sup := Data.build_sup("", [])
@@ -146,6 +148,22 @@ func _smoke_test() -> void:
 		_try_cast(0)
 		await get_tree().create_timer(0.4).timeout
 	print("SMOKE skills minions=%d storms=%d hazards=%d" % [minions.size(), storms.size(), hazards.size()])
+	# effect-block skills with supports that change projectiles, repeat the cast or set traps
+	p.links[0] = ["fork", "pchain", "echo"]
+	for id in ["firebolt", "frost_axe", "fire_rain", "hex_frail", "tailwind", "spirit_wolves"]:
+		p.slots[0] = id
+		p.action_t = 0.0
+		p.mana = p.s.max_mana
+		_try_cast(0)
+		await get_tree().create_timer(0.35).timeout
+	print("SMOKE fx zones=%d projs=%d minions=%d buffs=%s sup0=%s" % [zones.size(), projs.size(), minions.size(), p.tbuffs.keys(), slot_sup(0).ids])
+	p.slots[0] = "ice_shards"
+	p.links[0] = ["trap"]
+	p.action_t = 0.0
+	_try_cast(0)
+	print("SMOKE trap placed=%d" % totems.filter(func(t): return t.trap).size())
+	p.links[0] = []
+	p.invuln = 1e9
 	p.invuln = 1e9   # the dash cast above replaced it
 	# a fireball totem with extra projectiles, and the skill panel swapping slots
 	p.slots[1] = "fireball"
@@ -348,7 +366,7 @@ static func to3(p: Vector2, y := 0.0) -> Vector3:
 func _reset_world(new_map: Dungeon, new_theme: Dictionary) -> void:
 	if level_root:
 		level_root.queue_free()
-	for list in [projs, eprojs, teles, hazards, storms, texts, ground, drops, interacts]:
+	for list in [projs, proj_spawn, eprojs, teles, hazards, storms, zones, texts, ground, drops, interacts]:
 		list.clear()
 	enemies.clear()
 	minions.clear()
@@ -643,6 +661,7 @@ func _process(delta: float) -> void:
 		_update_teles(delta)
 		_update_hazards(delta)
 		_update_storms(delta)
+		_update_zones(delta)
 		_update_loot(delta)
 		_update_portal(delta)
 		save_t += delta
@@ -683,7 +702,7 @@ func _update_player(delta: float) -> void:
 		p.animate(delta, false)
 		return
 	var s := p.s
-	p.life = minf(s.max_life, p.life + s.life_regen * delta)
+	p.life = minf(s.max_life, p.life + (s.life_regen + s.max_life * p.tstat("regen") / 100.0) * delta)
 	p.mana = minf(s.max_mana, p.mana + s.mana_regen * delta)
 	for k in p.cds.keys():
 		p.cds[k] -= delta
@@ -712,7 +731,7 @@ func _update_player(delta: float) -> void:
 		fwd.y = 0
 		right.y = 0
 		var d3 := (right.normalized() * mv.x - fwd.normalized() * mv.y).normalized()
-		var sp: float = s.move_speed * (0.5 if p.action_t > 0.0 else 1.0) * (0.6 if p.chill > 0.0 else 1.0)
+		var sp: float = s.move_speed * (1.0 + p.tstat("move") / 100.0) * (0.5 if p.action_t > 0.0 else 1.0) * (0.6 if p.chill > 0.0 else 1.0)
 		p.pos = map.move_circle(p.pos, p.r, Vector2(d3.x, d3.z) * sp * delta)
 	var held := [lmb, rmb, Input.is_physical_key_pressed(KEY_Q), Input.is_physical_key_pressed(KEY_E),
 		Input.is_physical_key_pressed(KEY_R), pressed.has(KEY_SPACE)]
@@ -741,7 +760,7 @@ func damage_player(amount: float) -> void:
 	var p := player
 	if p.dead or p.invuln > 0.0:
 		return
-	var d := maxi(1, roundi(amount * (1.0 - p.s.dr) * (0.85 if p.effects.has("iron_stance") else 1.0)))
+	var d := maxi(1, roundi(amount * (1.0 - p.s.dr) * (0.85 if p.effects.has("iron_stance") else 1.0) * (1.0 - p.tstat("dr") / 100.0)))
 	p.life -= d
 	p.hit_t = 0.15
 	add_text(p.pos, str(d), Color("#ff5050"), 18)
@@ -792,17 +811,21 @@ func gain_xp(v: int) -> void:
 func roll_damage(coef: float, type: String, spell := false) -> Dictionary:
 	var s := player.s
 	var d: float = randf_range(s.dmg_min, s.dmg_max) * coef
+	if sup.conv != "" and (type == "phys" or sup.conv == "chaos"):
+		type = sup.conv
 	var elem: float = {"fire": s.fire_dmg, "cold": s.cold_dmg, "light": s.light_dmg}.get(type, 0)
-	var ally: bool = sup.skill == "skeleton" or sup.totem > 0
-	var inc: float = s.inc_dmg + (s.spell_dmg if spell else s.atk_dmg) + elem + (s.ally_dmg if ally else 0)
+	var ally: bool = sup.totem > 0 or "minion" in Data.SKILLS.get(sup.skill, {}).get("tags", [])
+	var inc: float = s.inc_dmg + (s.spell_dmg if spell else s.atk_dmg) + elem + (s.ally_dmg if ally else 0) + player.tstat("dmg")
 	if ally and player.effects.has("lich_lord"):
 		inc += 50
 	if player.low_life():
 		inc += 40
-	d *= (1.0 + inc / 100.0) * sup.dmg * (1.0 + 0.15 * player.talents.get(sup.skill, 0))
-	var crit: bool = force_crit or randf() * 100.0 < s.crit
+	d *= (1.0 + inc / 100.0) * sup.dmg * sup.get("m_" + type, 1.0) * (1.0 + 0.15 * player.talents.get(sup.skill, 0))
+	if sup.lowlife > 0.0 and player.life <= player.s.max_life * 0.5:
+		d *= 1.0 + sup.lowlife
+	var crit: bool = force_crit or randf() * 100.0 < s.crit + sup.crit
 	if crit:
-		d *= s.crit_multi / 100.0
+		d *= (s.crit_multi + sup.critm) / 100.0
 	return {"dmg": maxi(1, roundi(d)), "crit": crit, "type": type, "spell": spell}
 
 
@@ -817,6 +840,14 @@ func hit_enemy(e: Enemy, hit: Dictionary, freeze := 0.0) -> void:
 		mul += 0.2
 	if fx.has("frostbite") and e.frozen > 0.0:
 		mul += 0.25
+	if sup.elite > 0.0 and (e.boss or not e.elite.is_empty()):
+		mul += sup.elite
+	if sup.close > 0.0 and e.pos.distance_to(player.pos) < 4.5:
+		mul += sup.close
+	if sup.vsfrozen > 0.0 and (e.frozen > 0.0 or e.slow > 0.0):
+		mul += sup.vsfrozen
+	if e.vuln_t > 0.0:
+		mul += e.vuln
 	if mul > 1.0:
 		hit = hit.merged({"dmg": roundi(hit.dmg * mul)}, true)
 	e.life -= hit.dmg
@@ -825,6 +856,7 @@ func hit_enemy(e: Enemy, hit: Dictionary, freeze := 0.0) -> void:
 	if sup.leech > 0.0:
 		player.life = minf(player.s.max_life, player.life + hit.dmg * sup.leech)
 	_asc_on_hit(e, hit)
+	_sup_on_hit(e, hit)
 	if not e.aggro:
 		_alert_pack(e)
 	add_text(e.pos, str(hit.dmg) + ("!" if hit.crit else ""), Color("#ffe040") if hit.crit else Data.DMG_COLORS[hit.type], 26 if hit.crit else 18)
@@ -835,7 +867,59 @@ func hit_enemy(e: Enemy, hit: Dictionary, freeze := 0.0) -> void:
 			e.frozen = maxf(e.frozen, freeze)
 	if e.life <= 0.0:
 		_asc_on_kill(e, hit)
+		_sup_on_kill(e, hit)
 		_kill_enemy(e)
+
+
+## support gems of the skill being resolved, on a hit landing
+func _sup_on_hit(e: Enemy, hit: Dictionary) -> void:
+	var p := player
+	if sup.burn > 0.0 and randf() < sup.burn:
+		_apply_burn(e, hit.dmg * 0.5 / 3.0)
+	if sup.shock > 0.0 and randf() < sup.shock:
+		e.shock = maxf(e.shock, 4.0)
+	if sup.chill > 0.0:
+		e.slow = maxf(e.slow, sup.chill)
+	if sup.bleed > 0.0 and randf() < sup.bleed:
+		e.bleed_dps = maxf(e.bleed_dps if e.bleed_t > 0.0 else 0.0, hit.dmg * 0.6 / 4.0)
+		e.bleed_t = 4.0
+	if sup.poison > 0.0 and randf() < sup.poison:
+		# poison stacks: every new dose adds to what is still ticking
+		e.poison_dps = (e.poison_dps if e.poison_t > 0.0 else 0.0) + hit.dmg * 0.3 / 3.0
+		e.poison_t = 3.0
+	if sup.stun > 0.0 and not e.boss and randf() < sup.stun:
+		e.stun = maxf(e.stun, 0.4)
+	if sup.hex > 0.0:
+		e.vuln = maxf(e.vuln if e.vuln_t > 0.0 else 0.0, sup.hex)
+		e.vuln_t = maxf(e.vuln_t, 3.0)
+	if sup.mleech > 0.0:
+		p.mana = minf(p.s.max_mana, p.mana + hit.dmg * sup.mleech)
+	if sup.loh > 0.0:
+		p.life = minf(p.s.max_life, p.life + sup.loh)
+	if sup.knock > 0.0 and not e.boss:
+		e.pos = map.move_circle(e.pos, e.r, (e.pos - p.pos).normalized() * sup.knock)
+	if sup.cull > 0.0 and not e.boss and e.life > 0.0 and e.life <= e.max_life * sup.cull:
+		e.life = 0.0
+		add_text(e.pos, "処刑", Color("#ff6060"), 20)
+
+
+## support gems of the skill being resolved, on an enemy dying from a hit
+func _sup_on_kill(e: Enemy, hit: Dictionary) -> void:
+	if sup.kboom > 0 and not hit.get("kb", false):
+		var at := e.pos
+		var s := sup
+		var t: String = hit.type
+		add_tele(at, 2.8, 0.15, false, func(): _with_sup(s, func():
+			_explosion(at, 2.8, Data.DMG_COLORS[t])
+			for o in enemies_in_radius(at, 2.8):
+				hit_enemy(o, roll_damage(0.6, t, true).merged({"kb": true}, true))))
+
+
+## a burn replaces a weaker one and refreshes a stronger one
+func _apply_burn(e: Enemy, dps: float) -> void:
+	if e.burn_t <= 0.0 or dps >= e.burn_dps:
+		e.burn_dps = dps
+	e.burn_t = 3.0
 
 
 ## core talents that react to a hit landing
@@ -1000,7 +1084,7 @@ func slot_cost(i: int) -> int:
 	var id: String = player.slots[i]
 	var fx := player.effects
 	var m: float = (0.65 if fx.has("fire_cost") and "fire" in Data.SKILLS[id].tags else 1.0) * (0.7 if fx.has("bone_march") and id == "skeleton" else 1.0)
-	return roundi(Data.SKILLS[id].mana * s.mana * m * (2.5 if s.totem else 1.0))
+	return roundi(Data.SKILLS[id].mana * s.mana * m * (2.5 if s.totem else (1.5 if s.trap else 1.0)))
 
 
 ## who is casting: the player, or a totem acting for them
@@ -1025,7 +1109,7 @@ func _try_cast(i: int) -> void:
 	var id: String = p.slots[i]
 	var sk: Dictionary = Data.SKILLS[id]
 	var s := slot_sup(i)
-	if p.action_t > 0.0 and id != "dash":
+	if p.action_t > 0.0 and not "movement" in sk.tags:
 		return
 	if p.cds.get(id, 0.0) > 0.0:
 		return
@@ -1046,15 +1130,377 @@ func _try_cast(i: int) -> void:
 		p.action_t = 1.0 / p.attack_rate_now() / s.speed
 	elif sk.has("cast"):
 		p.action_t = sk.cast / p.cast_speed_now() / s.speed
-	if s.totem:
-		p.act("Spellcast_Raise", 2.0, p.action_t)
+	if s.totem or s.trap:
+		p.act("Spellcast_Raise" if s.totem else "Interact", 2.0, p.action_t)
 		_place_totem(id, s, c)
 	else:
 		if sk.get("attack", false) and p.effects.has("third_strike"):
 			p.combo = (p.combo + 1) % 3
 			force_crit = p.combo == 0
-		_with_sup(s, func(): call("_cast_" + id, c))
+		_with_sup(s, func(): _cast(id, c))
 		force_crit = false
+		if s.echo > 0:
+			# "echo": the skill goes off once more from wherever the player is then, a little weaker
+			var es := s.duplicate()
+			es.dmg *= 0.7
+			es.echo = 0
+			get_tree().create_timer(0.25).timeout.connect(func():
+				if not p.dead:
+					_with_sup(es, func(): _cast(id, _player_caster())))
+
+
+## resolve a skill: its own `_cast_<id>` when it has one, else its effect blocks
+func _cast(id: String, c: Dictionary) -> void:
+	if has_method("_cast_" + id):
+		call("_cast_" + id, c)
+	else:
+		_cast_fx(id, c)
+
+
+# =================== skills built from effect blocks ===================
+func _cast_fx(id: String, c: Dictionary) -> void:
+	var sk: Dictionary = Data.SKILLS[id]
+	if c.player:
+		var an: Array = sk.get("anim", ["Spellcast_Shoot", 2.0])
+		player.act(an[0], an[1] * sup.speed, maxf(player.action_t, 0.3))
+		if sk.get("attack", false):
+			player.swing_t = 0.2
+	var spell: bool = not sk.get("attack", false)
+	for b in sk.fx:
+		if b.has("wait"):
+			# a later beat of the same skill (a second swing) comes from where the caster is by then
+			var s := sup
+			var cc := c.duplicate()
+			get_tree().create_timer(b.wait).timeout.connect(func():
+				if cc.player:
+					if player.dead:
+						return
+					cc.pos = player.pos
+					cc.aim = player.aim
+				_with_sup(s, func(): _fx_block(id, b, cc, spell)))
+		else:
+			_fx_block(id, b, c, spell)
+
+
+func _fx_block(id: String, b: Dictionary, c: Dictionary, spell: bool) -> void:
+	var col: Color = Data.SKILLS[id].color
+	var type: String = b.get("type", "phys")
+	var coef: float = b.get("coef", 1.0)
+	var fr: float = b.get("freeze", 0.0)
+	match b.k:
+		"arc":
+			var reach: float = b.reach * sup.aoe
+			for e in enemies:
+				if e.dead:
+					continue
+				var d := e.pos.distance_to(c.pos)
+				if d > reach + e.r:
+					continue
+				if absf(angle_difference(c.aim, (e.pos - c.pos).angle())) > b.half and d > e.r + 0.6:
+					continue
+				hit_enemy(e, roll_damage(coef, type, spell), fr)
+			_swing_arc(c.pos, 1.0, reach, c.aim - b.half, c.aim + b.half, 0.18, Color(col.lightened(0.3), 0.7))
+		"slam":
+			var at := map.move_circle(c.pos, 0.3, Vector2.from_angle(c.aim) * b.dist)
+			_fx_burst(at, b.r * sup.aoe, coef, type, spell, fr, col)
+			if sup.after > 0:
+				_aftershock(at, b.r * sup.aoe, coef, type, spell, fr, col)
+		"nova":
+			_fx_burst(c.pos, b.r * sup.aoe, coef, type, spell, fr, col)
+			if sup.after > 0:
+				_aftershock(c.pos, b.r * sup.aoe, coef, type, spell, fr, col)
+		"line":
+			_fx_line(c, b.len, b.w * sup.aoe, coef, type, spell, fr, col)
+		"area":
+			var center: Vector2 = c.pos if b.get("at", "") == "self" else _aim_point(c, b.get("range", 18.0))
+			for i in b.get("n", 1) + sup.extra:
+				var at := center
+				if b.has("scatter") or i > 0:
+					at += Vector2.from_angle(randf() * TAU) * randf() * b.get("scatter", 2.5)
+				_fx_area(at, b.r * sup.aoe, b.delay, coef, type, spell, fr, col, b.get("bolt", false))
+		"proj":
+			_fx_proj(c, b, coef, type, spell, col)
+		"chain":
+			_fx_chain(c, b.n + sup.chain, coef, type, spell, col)
+		"zone":
+			_fx_zone(c, b, coef, type, spell, col)
+		"buff":
+			var stats := {}
+			for k in b.stats:
+				stats[k] = b.stats[k] * sup.beff
+			player.add_tbuff(id, b.dur * sup.dur, stats)
+			Fx.ring(level_root, to3(player.pos), 2.6, col, 0.5)
+			Fx.burst(level_root, to3(player.pos, 1.0), 24, col, 5.0)
+		"curse":
+			var at := _aim_point(c, 18.0)
+			var r: float = b.r * sup.aoe
+			for e in enemies_in_radius(at, r):
+				e.vuln = maxf(e.vuln if e.vuln_t > 0.0 else 0.0, b.vuln * sup.ceff)
+				e.vuln_t = b.dur * sup.dur
+				if b.get("slow", false):
+					e.slow = maxf(e.slow, b.dur * sup.dur)
+				if not e.aggro:
+					_alert_pack(e)
+			Fx.ring(level_root, to3(at), r, col, 0.6)
+			Fx.burst(level_root, to3(at, 0.5), 30, col, r * 1.5, 0.6, 0.0)
+		"summon":
+			_fx_summon(id, c, b, col)
+		"move":
+			var to: Vector2 = c.to - c.pos
+			var dist: float = clampf(to.length(), 3.0, b.dist) * sup.mdist
+			player.dash = {"dir": to.normalized() if to.length() > 0.01 else Vector2.from_angle(c.aim), "left": dist, "hit": {}, "sup": sup,
+				"speed": b.speed, "coef": b.coef, "type": type, "land": b.get("land", {}), "spell": spell}
+			player.invuln = maxf(player.invuln, dist / b.speed + 0.1)
+
+
+## hit everything in a circle
+func _fx_burst(at: Vector2, r: float, coef: float, type: String, spell: bool, fr: float, col: Color) -> void:
+	_explosion(at, r, col)
+	for e in enemies_in_radius(at, r):
+		hit_enemy(e, roll_damage(coef, type, spell), fr)
+
+
+## "aftershock": a smaller, weaker repeat of a burst half a second later
+func _aftershock(at: Vector2, r: float, coef: float, type: String, spell: bool, fr: float, col: Color) -> void:
+	var s := sup
+	add_tele(at, r * 0.7, 0.5, false, func(): _with_sup(s, func(): _fx_burst(at, r * 0.7, coef * 0.5, type, spell, fr, col)))
+
+
+func _fx_area(at: Vector2, r: float, delay: float, coef: float, type: String, spell: bool, fr: float, col: Color, bolt: bool) -> void:
+	var s := sup
+	add_tele(at, r, delay, false, func(): _with_sup(s, func():
+		if bolt:
+			Fx.bolt(level_root, to3(at, 8.0), to3(at, 0.1), col, 0.25)
+		_fx_burst(at, r, coef, type, spell, fr, col)
+		if s.after > 0:
+			_aftershock(at, r, coef, type, spell, fr, col)))
+
+
+## a lane from the caster toward its aim, stopped by walls
+func _fx_line(c: Dictionary, length: float, w: float, coef: float, type: String, spell: bool, fr: float, col: Color) -> void:
+	var dir := Vector2.from_angle(c.aim)
+	var reach := 0.0
+	while reach < length and not map.solid_at(c.pos + dir * (reach + 0.5)):
+		reach += 0.5
+	reach = maxf(reach, 1.0)
+	for e in enemies:
+		if e.dead:
+			continue
+		var rel: Vector2 = e.pos - c.pos
+		var along := rel.dot(dir)
+		if along < -e.r or along > reach + e.r or absf(rel.cross(dir)) > w / 2.0 + e.r:
+			continue
+		hit_enemy(e, roll_damage(coef, type, spell), fr)
+	var root := Node3D.new()
+	root.position = to3(c.pos, 0.9)
+	root.rotation.y = atan2(-cos(c.aim), -sin(c.aim))   # local -Z points along the aim
+	level_root.add_child(root)
+	var m := Fx.mat(Color(col, 0.8), 3.0, true)
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	Fx.mesh(root, Fx.box(Vector3(w, 0.12, reach)), m, Vector3(0, 0, -reach / 2.0))
+	Fx.fade_out(root, m, 0.25)
+
+
+func _fx_proj(c: Dictionary, b: Dictionary, coef: float, type: String, spell: bool, col: Color) -> void:
+	var n: int = b.get("n", 1) + sup.proj
+	var angles: Array = []
+	if b.get("ring", false):
+		for i in n:
+			angles.append(TAU * i / n)
+	else:
+		angles = _fan(n, b.get("spread", 0.15))
+	for da in angles:
+		var a: float = c.aim + da
+		_spawn_proj(c.pos + Vector2.from_angle(a) * 0.6, a, b.speed * sup.pspeed, b, coef, type, spell, col, {})
+
+
+func _spawn_proj(at: Vector2, a: float, speed: float, b: Dictionary, coef: float, type: String, spell: bool, col: Color, hit: Dictionary) -> void:
+	var size: float = b.get("size", 0.25)
+	var root := Node3D.new()
+	root.position = to3(at, 1.0)
+	root.rotation.y = -a - PI / 2.0
+	level_root.add_child(root)
+	var m := Fx.mat(col, 5.0, true)
+	match b.get("shape", "orb"):
+		"spear":
+			var sp := Fx.mesh(root, Fx.cone(0.12, 1.0), m)
+			sp.rotation.x = -PI / 2.0
+		"blade":
+			Fx.mesh(root, Fx.box(Vector3(0.55, 0.05, 0.16)), m)
+		"wave":
+			var wm := Fx.mat(Color(col, 0.8), 3.0, true)
+			wm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+			wm.cull_mode = BaseMaterial3D.CULL_DISABLED
+			var wave := Fx.mesh(root, Fx.arc_mesh(0.5, 1.1, -0.8, 0.8), wm)
+			wave.rotation.y = PI / 2.0
+		_:
+			Fx.mesh(root, Fx.sphere(size), m)
+	proj_spawn.append({"node": root, "kind": "fx", "pos": at, "vel": Vector2.from_angle(a) * speed, "r": maxf(size, 0.3), "t": 0.0, "max": b.life,
+		"hit": hit, "sup": sup, "b": b, "coef": coef, "type": type, "spell": spell, "col": col,
+		"pierce": b.get("pierce", false) or sup.pierce > 0, "home": b.get("homing", 0.0) + sup.homing,
+		"forked": not hit.is_empty(), "bounce": sup.pchain, "pulse_t": 0.0})
+
+
+func _update_fx_proj(pr: Dictionary, delta: float) -> void:
+	var b: Dictionary = pr.b
+	if pr.home > 0.0:
+		var tg := _nearest_enemy(pr.pos, 12.0)
+		if tg:
+			pr.vel = Vector2.from_angle(rotate_toward(pr.vel.angle(), (tg.pos - pr.pos).angle(), pr.home * delta)) * pr.vel.length()
+	if b.has("wander"):
+		pr.vel = pr.vel.rotated(randf_range(-1.0, 1.0) * b.wander * delta)
+	pr.node.rotation.y = -pr.vel.angle() - PI / 2.0
+	if b.get("shape", "") == "blade":
+		pr.node.rotate_y(pr.t * 20.0)
+	if b.has("pulse"):
+		pr.pulse_t -= delta
+		if pr.pulse_t <= 0.0:
+			pr.pulse_t = b.pulse.every
+			var near := enemies_in_radius(pr.pos, b.pulse.r * sup.aoe)
+			near.shuffle()
+			for e in near.slice(0, 3):
+				Fx.bolt(level_root, to3(pr.pos, 1.0), to3(e.pos, 1.0), pr.col, 0.15)
+				hit_enemy(e, roll_damage(b.pulse.coef, pr.type, pr.spell))
+	var boom: float = b.get("boom", 0.0) * sup.aoe
+	var fr: float = b.get("freeze", 0.0)
+	var end: bool = pr.t > pr.max or map.solid_at(pr.pos)
+	if not end and pr.coef > 0.0:
+		for e in enemies:
+			if e.dead or pr.hit.has(e) or e.pos.distance_to(pr.pos) > e.r + pr.r:
+				continue
+			pr.hit[e] = true
+			if boom > 0.0:
+				_fx_burst(pr.pos, boom, pr.coef, pr.type, pr.spell, fr, pr.col)
+			else:
+				hit_enemy(e, roll_damage(pr.coef, pr.type, pr.spell), fr)
+			if sup.fork > 0 and not pr.forked:
+				# "fork": two copies split off to the sides, and won't hit this enemy again
+				pr.forked = true
+				for da in [-0.5, 0.5]:
+					_spawn_proj(pr.pos, pr.vel.angle() + da, pr.vel.length(), b, pr.coef, pr.type, pr.spell, pr.col, pr.hit.duplicate())
+				end = not pr.pierce
+			elif pr.bounce > 0:
+				# "ricochet": turn toward the nearest enemy not hit yet
+				pr.bounce -= 1
+				var nx: Enemy = null
+				var bd := 100.0
+				for o in enemies:
+					var dq := o.pos.distance_squared_to(pr.pos)
+					if not o.dead and not pr.hit.has(o) and dq < bd:
+						bd = dq
+						nx = o
+				if nx:
+					pr.vel = (nx.pos - pr.pos).normalized() * pr.vel.length()
+					pr.t = minf(pr.t, pr.max * 0.5)
+				else:
+					end = not pr.pierce
+			elif not pr.pierce:
+				end = true
+			if end:
+				break
+	if end:
+		if boom > 0.0 and pr.hit.is_empty():
+			_fx_burst(pr.pos, boom, pr.coef, pr.type, pr.spell, fr, pr.col)
+		pr.t = pr.max + 1.0
+		pr.node.queue_free()
+
+
+func _fx_chain(c: Dictionary, n: int, coef: float, type: String, spell: bool, col: Color) -> void:
+	var target: Variant = _chain_target(c)
+	var hit := {}
+	var src := to3(c.pos, 1.2)
+	while target != null and n > 0:
+		n -= 1
+		var e: Enemy = target
+		hit[e] = true
+		var dst := to3(e.pos, 1.0)
+		Fx.bolt(level_root, src, dst, col)
+		hit_enemy(e, roll_damage(coef, type, spell))
+		src = dst
+		target = null
+		var bd := 9.0 * 9.0
+		for o in enemies:
+			var d := o.pos.distance_squared_to(e.pos)
+			if not o.dead and not hit.has(o) and d < bd and map.los(e.pos, o.pos):
+				bd = d
+				target = o
+
+
+func _fx_zone(c: Dictionary, b: Dictionary, coef: float, type: String, spell: bool, col: Color) -> void:
+	var where: String = b.get("at", "")
+	var follow: bool = where == "follow" and c.player
+	var at: Vector2 = c.pos if where in ["self", "follow"] else _aim_point(c, b.get("range", 18.0))
+	var r: float = b.r * sup.aoe
+	for i in 1 + (0 if where == "follow" else sup.extra):
+		var p0 := at if i == 0 else at + Vector2.from_angle(randf() * TAU) * r * 0.8
+		var root := Node3D.new()
+		root.position = to3(p0, 0.05)
+		level_root.add_child(root)
+		var disc := Fx.mesh(root, Fx.disc(), Fx.mat(Color(col, 0.16), 1.5, true))
+		disc.scale = Vector3(r, 1, r)
+		Fx.mesh(root, Fx.arc_mesh(r - 0.1, r, 0, TAU, 48), Fx.mat(Color(col, 0.6), 2.0, true), Vector3(0, 0.01, 0))
+		if follow:
+			# three blades circling the player
+			for k in 3:
+				var a := TAU * k / 3.0
+				Fx.mesh(root, Fx.box(Vector3(0.7, 0.05, 0.16)), Fx.mat(col, 4.0, true), Vector3(cos(a) * r * 0.7, 0.9, sin(a) * r * 0.7))
+		zones.append({"node": root, "pos": p0, "r": r, "t": 0.0, "max": b.dur * sup.dur, "tick": 0.0, "every": b.every, "coef": coef,
+			"type": type, "spell": spell, "sup": sup, "follow": follow, "slow": b.get("slow", 0.0), "strike": b.get("strike", false), "col": col})
+
+
+func _update_zones(delta: float) -> void:
+	for z in zones:
+		z.t += delta
+		z.tick -= delta
+		if z.follow:
+			z.pos = player.pos
+			z.node.position = to3(z.pos, 0.05)
+			z.node.rotation.y += delta * 8.0
+		if z.tick <= 0.0:
+			z.tick = z.every
+			_with_sup(z.sup, func():
+				if z.strike:
+					# raining strikes: one small blast per tick, on an enemy inside when there is one
+					var near := enemies_in_radius(z.pos, z.r)
+					var at: Vector2 = near.pick_random().pos if not near.is_empty() else z.pos + Vector2.from_angle(randf() * TAU) * randf() * z.r
+					Fx.ring(level_root, to3(at), 1.5, z.col, 0.25)
+					Fx.burst(level_root, to3(at, 0.3), 10, z.col, 5.0)
+					for e in enemies_in_radius(at, 1.5):
+						hit_enemy(e, roll_damage(z.coef, z.type, z.spell))
+				else:
+					Fx.burst(level_root, to3(z.pos, 0.4), 6, z.col, z.r * 1.5, 0.4, 0.0)
+					for e in enemies_in_radius(z.pos, z.r):
+						hit_enemy(e, roll_damage(z.coef, z.type, z.spell))
+						if z.slow > 0.0:
+							e.slow = maxf(e.slow, z.slow))
+		if z.t >= z.max:
+			z.node.queue_free()
+	zones = zones.filter(func(z): return z.t < z.max)
+
+
+func _fx_summon(id: String, c: Dictionary, b: Dictionary, col: Color) -> void:
+	var p := player
+	var mine := minions.filter(func(m): return m.skill == id)
+	for i in b.n:
+		if mine.size() >= b.max + sup.mcount:
+			var old: Ally = mine.pop_front()
+			_kill_ally(old)
+			minions.erase(old)
+		var at: Vector2 = c.pos + Vector2.from_angle(randf() * TAU) * 1.6
+		if map.circle_hits(at, 0.45):
+			at = c.pos
+		var m := Ally.new()
+		level_root.add_child(m)
+		m.setup_minion(at, (50.0 + p.level * 12) * b.life * sup.mlife * (1.0 + p.s.ally_life / 100.0), sup, col)
+		m.skill = id
+		m.coef = b.coef
+		m.max_t = b.dur * sup.dur
+		m.model.scale *= b.get("scale", 1.0)
+		m.face = c.aim
+		m.sync_node(0.0, false)
+		minions.append(m)
+		mine.append(m)
+		Fx.burst(level_root, to3(at, 0.5), 14, col, 4.0)
 
 
 func _cast_slash(c: Dictionary) -> void:
@@ -1262,14 +1708,14 @@ func _drop_meteor(at: Vector2, delay: float) -> void:
 func _cast_dash(c: Dictionary) -> void:
 	var p := player
 	var to: Vector2 = c.to - c.pos
-	p.dash = {"dir": to.normalized() if to.length() > 0.01 else Vector2.from_angle(c.aim), "left": clampf(to.length(), 5.0, 11.0), "hit": {}, "sup": sup}
+	p.dash = {"dir": to.normalized() if to.length() > 0.01 else Vector2.from_angle(c.aim), "left": clampf(to.length(), 5.0, 11.0) * sup.mdist, "hit": {}, "sup": sup}
 	p.invuln = 0.3
 
 
 func _update_dash(delta: float) -> void:
 	var p := player
 	var d := p.dash
-	var step := minf(d.left, 60.0 * delta)
+	var step := minf(d.left, d.get("speed", 60.0) * delta)
 	d.left -= step
 	while step > 0.0:
 		var sub := minf(0.3, step)
@@ -1279,15 +1725,25 @@ func _update_dash(delta: float) -> void:
 		if before.distance_to(p.pos) < 0.01:
 			d.left = 0.0
 			break
-	_with_sup(d.sup, func():
-		for e in enemies:
-			if e.dead or d.hit.has(e) or e.pos.distance_to(p.pos) > e.r + p.r + 0.6:
-				continue
-			d.hit[e] = true
-			hit_enemy(e, roll_damage(0.9, "phys")))
+	var coef: float = d.get("coef", 0.9)
+	if coef > 0.0:
+		_with_sup(d.sup, func():
+			for e in enemies:
+				if e.dead or d.hit.has(e) or e.pos.distance_to(p.pos) > e.r + p.r + 0.6:
+					continue
+				d.hit[e] = true
+				hit_enemy(e, roll_damage(coef, d.get("type", "phys"), d.get("spell", false))))
 	Fx.burst(level_root, to3(p.pos, 0.8), 3, Color("#8c78ff"), 1.0, 0.3, 0.0)
 	if d.left <= 0.0:
 		p.dash = {}
+		# a landing blow, and "impact" from a linked support
+		var land: Dictionary = d.get("land", {})
+		var col: Color = Data.SKILLS[d.sup.skill].color
+		_with_sup(d.sup, func():
+			if not land.is_empty():
+				_fx_burst(p.pos, land.r * sup.aoe, land.coef, land.type, d.get("spell", false), 0.0, col)
+			if sup.mland > 0:
+				_fx_burst(p.pos, 3.0 * sup.aoe, 0.8, "phys", false, 0.0, col))
 		if p.effects.has("dash_nova"):
 			_cast_nova(_player_caster(), true)
 
@@ -1297,19 +1753,23 @@ func _cast_skeleton(c: Dictionary) -> void:
 	if c.player:
 		p.act("Spellcast_Raise", 2.0, p.action_t)
 	var most: int = 3 + sup.mcount + (2 if p.effects.has("bone_legion") else 0)
+	var mine := minions.filter(func(m): return m.skill == "skeleton")
 	for i in (3 if p.effects.has("bone_march") else 2):
-		if minions.size() >= most:
-			_kill_ally(minions[0])   # the oldest crumbles to make room
-			minions.remove_at(0)
+		if mine.size() >= most:
+			var old: Ally = mine.pop_front()   # the oldest crumbles to make room
+			_kill_ally(old)
+			minions.erase(old)
 		var at: Vector2 = c.pos + Vector2.from_angle(randf() * TAU) * 1.6
 		if map.circle_hits(at, 0.45):
 			at = c.pos
 		var m := Ally.new()
 		level_root.add_child(m)
 		m.setup_minion(at, (50.0 + p.level * 12) * sup.mlife * (1.0 + p.s.ally_life / 100.0), sup)
+		m.skill = "skeleton"
 		m.face = c.aim
 		m.sync_node(0.0, false)
 		minions.append(m)
+		mine.append(m)
 		Fx.burst(level_root, to3(at, 0.5), 14, Color("#e8e0c8"), 4.0)
 
 
@@ -1367,6 +1827,9 @@ func _update_projectiles(delta: float) -> void:
 		pr.t += delta
 		pr.pos += pr.vel * delta
 		pr.node.position = to3(pr.pos, 1.0)
+		if pr.kind == "fx":
+			_update_fx_proj(pr, delta)
+			continue
 		if pr.kind == "wave" or pr.kind == "spear":
 			var spear: bool = pr.kind == "spear"
 			for e in enemies:
@@ -1396,10 +1859,13 @@ func _update_projectiles(delta: float) -> void:
 				hit_enemy(e, roll_damage(1.5, "fire", true))
 	sup = no_sup
 	projs = projs.filter(func(pr): return pr.t <= pr.max)
+	projs.append_array(proj_spawn)
+	proj_spawn.clear()
 
 
 # =================== totems and minions ===================
 const TOTEM_MAX := 2
+const TRAP_MAX := 3
 
 
 func _place_totem(id: String, s: Dictionary, c: Dictionary) -> void:
@@ -1410,12 +1876,17 @@ func _place_totem(id: String, s: Dictionary, c: Dictionary) -> void:
 		if not map.circle_hits(at, 0.5):
 			break
 		at -= back * 0.8
-	var mine := totems.filter(func(t): return t.skill == id)
-	if mine.size() >= TOTEM_MAX + (1 if p.effects.has("twin_totems") else 0):
+	var trap: bool = s.trap > 0 and s.totem == 0
+	var mine := totems.filter(func(t): return t.skill == id and t.trap == trap)
+	if mine.size() >= (TRAP_MAX if trap else TOTEM_MAX + (1 if p.effects.has("twin_totems") else 0)):
 		mine[0].life = 0.0
 	var t := Ally.new()
 	level_root.add_child(t)
 	t.setup_totem(at, id, (60.0 + p.level * 15) * (1.0 + p.s.ally_life / 100.0), s)
+	if trap:
+		t.trap = true
+		t.max_t = 12.0
+		t.model.scale = Vector3(0.45, 0.45, 0.45)
 	t.sync_node(0.0, false)
 	totems.append(t)
 	Fx.burst(level_root, to3(at, 1.0), 20, Data.SKILLS[id].color, 5.0)
@@ -1444,6 +1915,14 @@ func _update_totems(delta: float) -> void:
 			continue
 		if t.cast_t > 0.0:
 			continue
+		if t.trap:
+			# a trap springs once, when an enemy comes close
+			var near := _nearest_enemy(t.pos, 4.5)
+			if near:
+				t.life = 0.0
+				var tc := {"pos": t.pos, "aim": (near.pos - t.pos).angle(), "to": near.pos, "player": false}
+				_with_sup(t.sup, func(): _cast(t.skill, tc))
+			continue
 		var best := _nearest_enemy(t.pos, 20.0)
 		if best == null:
 			t.cast_t = 0.3
@@ -1452,7 +1931,7 @@ func _update_totems(delta: float) -> void:
 		t.cast_t = maxf(0.45, sk.get("cast", 0.4) * 1.5 / t.sup.speed) / (1.25 if player.effects.has("lich_lord") else 1.0)
 		t.face = (best.pos - t.pos).angle()
 		var c := {"pos": t.pos, "aim": t.face, "to": best.pos, "player": false}
-		_with_sup(t.sup, func(): call("_cast_" + t.skill, c))
+		_with_sup(t.sup, func(): _cast(t.skill, c))
 	for t in totems:
 		if t.life <= 0.0:
 			_kill_ally(t)
@@ -1463,6 +1942,10 @@ func _update_minions(delta: float) -> void:
 	var p := player
 	for m in minions:
 		if m.life <= 0.0:
+			continue
+		m.t += delta
+		if m.max_t > 0.0 and m.t >= m.max_t:   # summoned for a while only
+			m.life = 0.0
 			continue
 		m.atk_cd -= delta
 		m.scan_t -= delta
@@ -1488,7 +1971,7 @@ func _update_minions(delta: float) -> void:
 				if m.atk_cd <= 0.0:
 					m.atk_cd = 0.9 / m.sup.speed / (1.25 if p.effects.has("lich_lord") else 1.0)
 					m.swing_t = 0.3
-					_with_sup(m.sup, func(): hit_enemy(e, roll_damage(0.55, "phys", true)))
+					_with_sup(m.sup, func(): hit_enemy(e, roll_damage(m.coef, "phys", true)))
 		elif dp < 3.2:
 			moving = false
 		if moving:
@@ -1574,10 +2057,14 @@ func _update_enemy(e: Enemy, delta: float) -> void:
 	e.atk_cd -= delta
 	e.slow -= delta
 	e.shock -= delta
-	if e.burn_t > 0.0:
-		_update_burn(e, delta)
+	e.vuln_t -= delta
+	if e.burn_t > 0.0 or e.bleed_t > 0.0 or e.poison_t > 0.0:
+		_update_dots(e, delta)
 		if e.dead:
 			return
+	if e.stun > 0.0:
+		e.stun -= delta
+		return
 	if e.frozen > 0.0:
 		e.frozen -= delta
 		return
@@ -1637,20 +2124,29 @@ func _update_enemy(e: Enemy, delta: float) -> void:
 	e.face = (tg.pos - e.pos).angle()
 
 
-## "ignite": burning loses life over time, shown as one number every half second
-func _update_burn(e: Enemy, delta: float) -> void:
-	var d := e.burn_dps * minf(delta, e.burn_t)
-	e.burn_t -= delta
+const DOTS := {"burn": ["fire", Color("#ff9a50")], "bleed": ["phys", Color("#d04040")], "poison": ["chaos", Color("#90d060")]}
+
+
+## burning, bleeding and poison lose life over time, shown as one number every half second
+func _update_dots(e: Enemy, delta: float) -> void:
+	var d := 0.0
+	var last := "burn"
+	for k in DOTS:
+		var left: float = e.get(k + "_t")
+		if left > 0.0:
+			d += e.get(k + "_dps") * minf(delta, left)
+			e.set(k + "_t", left - delta)
+			last = k
 	e.life -= d
 	e.burn_acc += d
 	e.burn_show -= delta
-	if e.burn_show <= 0.0 or e.burn_t <= 0.0:
+	if e.burn_show <= 0.0:
 		e.burn_show = 0.5
 		if e.burn_acc >= 1.0:
-			add_text(e.pos, str(roundi(e.burn_acc)), Color("#ff9a50"), 14)
+			add_text(e.pos, str(roundi(e.burn_acc)), DOTS[last][1], 14)
 			e.burn_acc = 0.0
 	if e.life <= 0.0:
-		_asc_on_kill(e, {"type": "fire", "spell": true})
+		_asc_on_kill(e, {"type": DOTS[last][0], "spell": true})
 		_kill_enemy(e)
 
 
@@ -1978,7 +2474,7 @@ func _drop_loot(e: Enemy) -> void:
 	var cn := randi_range(3, 5) if e.boss else (randi_range(1, 2) if not e.elite.is_empty() and randf() < 0.5 else (1 if randf() < 0.035 else 0))
 	for i in cn:
 		_drop_currency(_weighted(Data.CURRENCIES.filter(func(c): return c.w > 0.0)).k, 1, e.pos)
-	if randf() < (0.6 if e.boss else (0.15 if not e.elite.is_empty() else 0.004)):
+	if randf() < (0.8 if e.boss else (0.25 if not e.elite.is_empty() else 0.01)):
 		_drop_gem(e.pos)
 
 

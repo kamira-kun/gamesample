@@ -8,6 +8,10 @@ var slot_row := HBoxContainer.new()
 var skill_grid := GridContainer.new()
 var gem_grid := GridContainer.new()
 var gem_hint := Label.new()
+var tag_row := HBoxContainer.new()
+var tag_sel := ""                # skill list filter: a tag, or "" for every skill
+var fit_only := CheckBox.new()   # gem list: only gems the selected skill can use
+const FILTER_TAGS := ["", "attack", "spell", "projectile", "aoe", "fire", "cold", "lightning", "chaos", "minion", "buff", "curse", "movement"]
 
 
 func _ready() -> void:
@@ -40,10 +44,12 @@ func _ready() -> void:
 	left.add_theme_constant_override("separation", 6)
 	body.add_child(left)
 	left.add_child(_sub("スキル"))
+	tag_row.add_theme_constant_override("separation", 3)
+	left.add_child(tag_row)
 	skill_grid.columns = 2
 	skill_grid.add_theme_constant_override("h_separation", 6)
 	skill_grid.add_theme_constant_override("v_separation", 6)
-	left.add_child(skill_grid)
+	left.add_child(_scroll(skill_grid, Vector2(520, 400)))
 	var right := VBoxContainer.new()
 	right.add_theme_constant_override("separation", 6)
 	body.add_child(right)
@@ -51,10 +57,24 @@ func _ready() -> void:
 	gem_hint.add_theme_font_size_override("font_size", 12)
 	gem_hint.add_theme_color_override("font_color", Data.GEM_COLOR)
 	right.add_child(gem_hint)
+	fit_only.text = "このスキルに使えるものだけ表示"
+	fit_only.button_pressed = true
+	fit_only.add_theme_font_size_override("font_size", 12)
+	fit_only.toggled.connect(func(_on): refresh())
+	right.add_child(fit_only)
 	gem_grid.columns = 2
 	gem_grid.add_theme_constant_override("h_separation", 6)
 	gem_grid.add_theme_constant_override("v_separation", 6)
-	right.add_child(gem_grid)
+	right.add_child(_scroll(gem_grid, Vector2(420, 372)))
+
+
+## a list that scrolls vertically once it outgrows `size`
+static func _scroll(inner: Control, size: Vector2) -> ScrollContainer:
+	var sc := ScrollContainer.new()
+	sc.custom_minimum_size = size
+	sc.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	sc.add_child(inner)
+	return sc
 
 
 func _sub(text: String) -> Label:
@@ -133,6 +153,8 @@ static func gem_tip(g: Dictionary) -> Array:
 	var target := "対象：" + Data.tag_text(g.tags)
 	if g.has("not"):
 		target += "（%sを除く）" % Data.tag_text(g.not)
+	if g.has("need"):
+		target += "\n%sスキルのみ" %"・".join(PackedStringArray(g.need.map(func(k): return Data.NEED_NAMES[k])))
 	return [[g.name, g.color, 17], ["サポートジェム", Color("#9a9080"), 12], [g.desc, Color("#dddddd"), 13], [target, Color("#8fb4ff"), 12]]
 
 
@@ -147,6 +169,17 @@ func refresh() -> void:
 		c.free()
 	for c in gem_grid.get_children():
 		c.free()
+	for c in tag_row.get_children():
+		c.free()
+	for t in FILTER_TAGS:
+		var on: bool = tag_sel == t
+		var tb := card("すべて" if t == "" else Data.TAG_NAMES[t], Color("#2a2014") if on else Color("#120e0a"),
+			Color("#ffd36a") if on else Color("#3a3024"), Color("#ffe8b0") if on else Color("#a89878"))
+		tb.add_theme_font_size_override("font_size", 11)
+		tb.pressed.connect(func():
+			tag_sel = t
+			refresh())
+		tag_row.add_child(tb)
 
 	for i in Data.SLOT_KEYS.size():
 		var id: String = p.slots[i]
@@ -190,6 +223,8 @@ func refresh() -> void:
 
 	for id in Data.SKILL_ORDER:
 		var sk: Dictionary = Data.SKILLS[id]
+		if tag_sel != "" and not tag_sel in sk.tags:
+			continue
 		var locked: bool = p.level < sk.lvl
 		var at := p.slots.find(id)
 		var tag := "Lv %d で習得" % sk.lvl if locked else ("装備中：%s" % Data.SLOT_KEYS[at].label if at >= 0 else "")
@@ -204,9 +239,13 @@ func refresh() -> void:
 	var sel_id: String = p.slots[sel]
 	var sel_links: Array = p.links[sel]
 	gem_hint.text = "「%s」に%d個までリンクできます（Lv5・Lv10でソケット追加）" % [Data.SKILLS[sel_id].name, sockets]
-	for g in Data.SUPPORTS:
+	# gems owned come first
+	var gems: Array = Data.SUPPORTS.filter(func(g): return g.id in p.gems) + Data.SUPPORTS.filter(func(g): return not g.id in p.gems)
+	for g in gems:
 		var owned: bool = g.id in p.gems
 		var fits := Data.support_fits(g, sel_id)
+		if fit_only.button_pressed and not fits and not g.id in sel_links:
+			continue
 		var linked: bool = g.id in sel_links
 		var tag := "未入手" if not owned else ("リンク中" if linked else ("" if fits else "対象外"))
 		var font: Color = g.color if owned and fits else g.color.darkened(0.6)

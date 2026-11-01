@@ -264,6 +264,8 @@ func refresh() -> void:
 	xp_bar.value = float(p.xp) / Data.xp_need(p.level)
 	var where: String = main.area.name if main.in_hideout() else "%s エリアLv %d" % [main.area.name, main.floor_level]
 	info.text = "%s　Lv %d　◆ %d" % [where, p.level, p.cur.ember]
+	for id in p.tbuffs:
+		info.text += "　｜ %s %s %.0f秒" % [Data.SKILLS[id].icon, Data.SKILLS[id].name, ceilf(p.tbuffs[id].t)]
 	if tip.visible:
 		_place_tip()
 	potion.text = "回復薬 %d/%d  [F]" % [p.potions, p.max_potions()]

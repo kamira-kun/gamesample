@@ -22,7 +22,7 @@ func _build() -> void:
 	var cols := HBoxContainer.new()
 	cols.add_theme_constant_override("separation", 22)
 	body.add_child(cols)
-	for pair in [["基本能力", base_list], ["スキル強化", skill_list]]:
+	for pair in [["基本能力", base_list], ["スキル強化（スキルバーのスキル）", skill_list]]:
 		var c := VBoxContainer.new()
 		c.add_theme_constant_override("separation", 4)
 		c.add_child(sub(pair[0]))
@@ -40,6 +40,8 @@ func refresh() -> void:
 	clear(skill_list)
 	for t in Data.talents():
 		var r: int = p.talents[t.k]
+		if t.get("skill", false) and r == 0 and not t.k in p.slots:
+			continue   # skill talents: only the skills on the bar and those already ranked
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
 		var col: Color = Data.SKILLS[t.k].color if t.get("skill", false) else Color("#f0dcb4")

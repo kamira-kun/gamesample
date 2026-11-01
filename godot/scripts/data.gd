@@ -4,7 +4,18 @@ extends Node
 var ui_font: SystemFont
 
 # every skill, in the order the skill panel lists them; `lvl` is the character level that teaches it
-const SKILL_ORDER := ["slash", "whirl", "fireball", "ice_spear", "nova", "chain", "storm", "meteor", "dash", "skeleton"]
+const SKILL_ORDER := ["slash", "fireball", "nova", "chain", "meteor", "dash", "throw_knives", "firebolt",
+	"skeleton", "heavy_strike", "thrust", "frost_bolt", "sparks",
+	"ice_spear", "wide_cleave", "double_slash", "flame_nova",
+	"whirl", "flame_strike", "shield_bash", "ice_shards", "thunderbolt", "leap_slam",
+	"ground_slam", "punch_wave", "ice_pillars", "hex_frail", "blink",
+	"storm", "frost_blade", "flame_jet", "shock_nova", "war_cry",
+	"thunder_strike", "void_bolt", "hex_mire", "spirit_wolves",
+	"venom_strike", "frost_axe", "lightning_lance", "tailwind",
+	"glacial_hammer", "ball_thunder", "miasma", "arcane_surge",
+	"blade_tempest", "fire_rain", "stone_skin", "stone_golem",
+	"fire_wheel", "frost_vortex", "earthquake", "soul_wisps", "blood_rage",
+	"blade_rain", "blizzard", "phantom_host", "comet", "fissure", "doom"]
 const SKILLS := {
 	"slash": {"name": "斬撃", "icon": "⚔", "mana": 0, "cd": 0.0, "attack": true, "color": Color("#c9b48a"), "lvl": 1,
 		"tags": ["attack", "melee"], "desc": "前方の敵を薙ぎ払う。攻撃速度の影響を受ける。"},
@@ -19,16 +30,183 @@ const SKILLS := {
 	"chain": {"name": "チェインライトニング", "icon": "ϟ", "mana": 12, "cd": 0.0, "cast": 0.4, "color": Color("#c9a8ff"), "lvl": 1,
 		"tags": ["spell", "chain", "lightning"], "desc": "カーソル付近の敵に雷を放ち、次々と連鎖する。"},
 	"storm": {"name": "サンダーストーム", "icon": "☈", "mana": 24, "cd": 0.0, "cast": 0.75, "color": Color("#b0a0ff"), "lvl": 6,
-		"tags": ["spell", "aoe", "lightning"], "desc": "カーソル位置に雷雲を呼び、範囲内の敵に落雷を降らせ続ける。"},
+		"tags": ["spell", "aoe", "lightning", "duration"], "desc": "カーソル位置に雷雲を呼び、範囲内の敵に落雷を降らせ続ける。"},
 	"meteor": {"name": "メテオ", "icon": "☄", "mana": 30, "cd": 0.0, "cast": 0.9, "color": Color("#ff4d2a"), "lvl": 1,
-		"tags": ["spell", "aoe", "fire"], "desc": "カーソル位置に隕石を落とし、地面を燃やす。"},
+		"tags": ["spell", "aoe", "fire", "duration"], "desc": "カーソル位置に隕石を落とし、地面を燃やす。"},
 	"dash": {"name": "シャドウダッシュ", "icon": "➤", "mana": 8, "cd": 2.5, "color": Color("#9a8cff"), "lvl": 1,
-		"tags": ["attack", "movement"], "desc": "カーソル方向へ駆け抜け、通過した敵を切り裂く。移動中は無敵。"},
+		"tags": ["attack", "movement"], "kinds": ["move"], "desc": "カーソル方向へ駆け抜け、通過した敵を切り裂く。移動中は無敵。"},
 	"skeleton": {"name": "骸骨召喚", "icon": "☠", "mana": 20, "cd": 0.0, "cast": 0.6, "color": Color("#e8e0c8"), "lvl": 2,
 		"tags": ["spell", "minion"], "desc": "戦う骸骨の戦士を2体呼び出す（最大3体）。骸骨は近くの敵に斬りかかる。"},
+	# ---- skills built from effect blocks (`fx`); main.gd resolves each block by its `k` ----
+	# arc: swing in front / slam: circle in front / line: lane toward the cursor / nova: circle around the caster
+	# area: telegraphed circles at the cursor / proj: projectiles / chain: jumping bolt / zone: ticking area
+	# buff: timed self buff / curse: marks enemies / summon: minions / move: dash with an optional landing
+	# `sup` on a skill adds built-in support modifiers (ailment chances, knockback)
+	"heavy_strike": {"name": "重撃", "icon": "⚒", "mana": 3, "cd": 0.0, "attack": true, "color": Color("#d8b888"), "lvl": 2,
+		"tags": ["attack", "melee"], "desc": "正面の狭い範囲に重い一撃を叩き込む。",
+		"anim": ["2H_Melee_Attack_Chop", 1.8], "fx": [{"k": "arc", "reach": 3.0, "half": 0.6, "coef": 1.7, "type": "phys"}]},
+	"wide_cleave": {"name": "大薙ぎ", "icon": "☾", "mana": 4, "cd": 0.0, "attack": true, "color": Color("#e0c890"), "lvl": 3,
+		"tags": ["attack", "melee", "aoe"], "desc": "大きく武器を振るい、前方の広い範囲を薙ぎ払う。",
+		"anim": ["2H_Melee_Attack_Slice", 1.8], "fx": [{"k": "arc", "reach": 4.2, "half": 1.7, "coef": 0.85, "type": "phys"}]},
+	"thrust": {"name": "刺突", "icon": "↣", "mana": 3, "cd": 0.0, "attack": true, "color": Color("#e8d8b0"), "lvl": 2,
+		"tags": ["attack", "melee"], "desc": "一直線に突き、貫いた敵すべてを傷つける。",
+		"anim": ["1H_Melee_Attack_Stab", 2.2], "fx": [{"k": "line", "len": 5.5, "w": 1.2, "coef": 1.25, "type": "phys"}]},
+	"ground_slam": {"name": "大地砕き", "icon": "⛰", "mana": 6, "cd": 0.0, "attack": true, "color": Color("#c8a070"), "lvl": 5,
+		"tags": ["attack", "melee", "aoe"], "desc": "前方の地面を叩き割り、周囲の敵を巻き込む。",
+		"anim": ["2H_Melee_Attack_Chop", 1.6], "fx": [{"k": "slam", "dist": 2.6, "r": 3.0, "coef": 1.25, "type": "phys"}]},
+	"flame_strike": {"name": "炎刃", "icon": "✢", "mana": 5, "cd": 0.0, "attack": true, "color": Color("#ff8a40"), "lvl": 4,
+		"tags": ["attack", "melee", "aoe", "fire"], "desc": "炎をまとった斬撃。切っ先で小さな爆発が起きる。",
+		"anim": ["1H_Melee_Attack_Slice_Diagonal", 2.0], "fx": [{"k": "arc", "reach": 3.2, "half": 1.0, "coef": 0.9, "type": "fire"},
+			{"k": "slam", "dist": 3.0, "r": 2.0, "coef": 0.6, "type": "fire"}]},
+	"frost_blade": {"name": "霜の刃", "icon": "❅", "mana": 5, "cd": 0.0, "attack": true, "color": Color("#9fe0ff"), "lvl": 6,
+		"tags": ["attack", "melee", "projectile", "cold"], "desc": "冷気の斬撃とともに、敵を貫く氷の刃を3本放つ。",
+		"anim": ["1H_Melee_Attack_Slice_Horizontal", 2.2], "fx": [{"k": "arc", "reach": 3.0, "half": 0.9, "coef": 0.9, "type": "cold"},
+			{"k": "proj", "n": 3, "spread": 0.22, "speed": 26.0, "life": 0.45, "coef": 0.4, "type": "cold", "pierce": true, "shape": "blade"}]},
+	"thunder_strike": {"name": "雷打", "icon": "↯", "mana": 6, "cd": 0.0, "attack": true, "color": Color("#d0b8ff"), "lvl": 7,
+		"tags": ["attack", "melee", "lightning", "chain"], "desc": "雷を帯びた一撃。カーソル付近の敵から雷が3回連鎖する。",
+		"anim": ["1H_Melee_Attack_Chop", 2.0], "fx": [{"k": "arc", "reach": 3.0, "half": 0.8, "coef": 1.0, "type": "light"},
+			{"k": "chain", "n": 3, "coef": 0.5, "type": "light"}]},
+	"venom_strike": {"name": "毒牙", "icon": "☣", "mana": 5, "cd": 0.0, "attack": true, "color": Color("#8fd060"), "lvl": 8,
+		"tags": ["attack", "melee", "chaos"], "desc": "毒を塗った刃で斬りつける混沌の攻撃。高確率で敵を毒に冒す。",
+		"anim": ["Dualwield_Melee_Attack_Stab", 2.0], "sup": {"poison": 0.6},
+		"fx": [{"k": "arc", "reach": 3.0, "half": 0.9, "coef": 1.1, "type": "chaos"}]},
+	"double_slash": {"name": "双閃", "icon": "✕", "mana": 3, "cd": 0.0, "attack": true, "color": Color("#f0e0b8"), "lvl": 3,
+		"tags": ["attack", "melee"], "desc": "素早く2回斬りつける。",
+		"anim": ["Dualwield_Melee_Attack_Slice", 2.2], "fx": [{"k": "arc", "reach": 3.0, "half": 1.0, "coef": 0.65, "type": "phys"},
+			{"k": "arc", "reach": 3.0, "half": 1.0, "coef": 0.65, "type": "phys", "wait": 0.15}]},
+	"blade_tempest": {"name": "旋刃嵐", "icon": "✴", "mana": 10, "cd": 0.0, "attack": true, "color": Color("#e8d090"), "lvl": 10,
+		"tags": ["attack", "melee", "aoe", "duration"], "desc": "2秒間、自分の周りを刃の嵐が回り続け、触れた敵を何度も切り刻む。",
+		"anim": ["2H_Melee_Attack_Spinning", 1.6], "fx": [{"k": "zone", "at": "follow", "r": 3.6, "dur": 2.0, "every": 0.25, "coef": 0.32, "type": "phys"}]},
+	"earthquake": {"name": "地鳴り", "icon": "≋", "mana": 9, "cd": 0.0, "attack": true, "color": Color("#b89060"), "lvl": 12,
+		"tags": ["attack", "melee", "aoe"], "desc": "地面を叩き、1秒後に足元で大きな余震を起こす。",
+		"anim": ["2H_Melee_Attack_Chop", 1.5], "fx": [{"k": "slam", "dist": 1.5, "r": 3.0, "coef": 0.8, "type": "phys"},
+			{"k": "area", "at": "self", "r": 5.5, "delay": 1.0, "coef": 1.6, "type": "phys"}]},
+	"shield_bash": {"name": "盾打ち", "icon": "⛨", "mana": 3, "cd": 0.0, "attack": true, "color": Color("#c0c8d0"), "lvl": 4,
+		"tags": ["attack", "melee"], "desc": "盾で殴りつけて敵を吹き飛ばし、一瞬動きを止める。",
+		"anim": ["Block_Attack", 2.0], "sup": {"knock": 2.5},
+		"fx": [{"k": "arc", "reach": 2.8, "half": 0.8, "coef": 0.8, "type": "phys", "freeze": 0.5}]},
+	"glacial_hammer": {"name": "氷槌", "icon": "❆", "mana": 6, "cd": 0.0, "attack": true, "color": Color("#a8e8ff"), "lvl": 9,
+		"tags": ["attack", "melee", "aoe", "cold"], "desc": "冷気をまとった槌を振り下ろし、周囲の敵を凍結させる。",
+		"anim": ["2H_Melee_Attack_Chop", 1.6], "fx": [{"k": "slam", "dist": 2.2, "r": 2.3, "coef": 1.4, "type": "cold", "freeze": 0.6}]},
+	"throw_knives": {"name": "投げナイフ", "icon": "➹", "mana": 2, "cd": 0.0, "attack": true, "color": Color("#d0d0d8"), "lvl": 1,
+		"tags": ["attack", "projectile"], "desc": "3本のナイフを扇状に投げる。命中した敵を出血させることがある。",
+		"anim": ["Throw", 2.4], "sup": {"bleed": 0.25},
+		"fx": [{"k": "proj", "n": 3, "spread": 0.14, "speed": 30.0, "life": 0.6, "coef": 0.55, "type": "phys", "shape": "blade"}]},
+	"blade_rain": {"name": "刃の雨", "icon": "⇊", "mana": 8, "cd": 0.0, "attack": true, "color": Color("#c8c8d8"), "lvl": 13,
+		"tags": ["attack", "aoe"], "desc": "カーソル付近に無数の刃を降らせる。",
+		"anim": ["Throw", 2.0], "fx": [{"k": "area", "n": 5, "scatter": 2.6, "r": 1.6, "delay": 0.35, "coef": 0.5, "type": "phys"}]},
+	"frost_axe": {"name": "氷斧投げ", "icon": "⟲", "mana": 6, "cd": 0.0, "attack": true, "color": Color("#9fd8ff"), "lvl": 8,
+		"tags": ["attack", "projectile", "aoe", "cold"], "desc": "冷気の斧を投げつける。着弾点で砕けて周囲を凍らせる。",
+		"anim": ["Throw", 2.0], "fx": [{"k": "proj", "speed": 22.0, "life": 0.9, "coef": 1.2, "type": "cold", "boom": 2.3, "freeze": 0.4, "size": 0.3}]},
+	"punch_wave": {"name": "拳圧", "icon": "◎", "mana": 3, "cd": 0.0, "attack": true, "color": Color("#f0d8a8"), "lvl": 5,
+		"tags": ["attack", "projectile"], "desc": "拳の風圧を飛ばし、直線上の敵すべてを打つ。",
+		"anim": ["Unarmed_Melee_Attack_Punch_A", 2.2], "fx": [{"k": "proj", "speed": 30.0, "life": 0.5, "coef": 1.1, "type": "phys", "pierce": true, "shape": "wave"}]},
+	"firebolt": {"name": "火矢", "icon": "➝", "mana": 4, "cd": 0.0, "cast": 0.3, "color": Color("#ff9a50"), "lvl": 1,
+		"tags": ["spell", "projectile", "fire"], "desc": "素早く小さな火の矢を放つ。",
+		"anim": ["Spellcast_Shoot", 2.4], "fx": [{"k": "proj", "speed": 32.0, "life": 0.8, "coef": 1.1, "type": "fire", "size": 0.2}]},
+	"frost_bolt": {"name": "氷弾", "icon": "✳", "mana": 6, "cd": 0.0, "cast": 0.42, "color": Color("#9fe8ff"), "lvl": 2,
+		"tags": ["spell", "projectile", "cold"], "desc": "ゆっくり進む氷の弾。敵を貫通し、わずかに凍結させる。",
+		"anim": ["Spellcast_Shoot", 2.0], "fx": [{"k": "proj", "speed": 20.0, "life": 1.2, "coef": 1.35, "type": "cold", "pierce": true, "freeze": 0.3, "shape": "spear"}]},
+	"sparks": {"name": "迸る火花", "icon": "✧", "mana": 6, "cd": 0.0, "cast": 0.4, "color": Color("#d8c8ff"), "lvl": 2,
+		"tags": ["spell", "projectile", "lightning"], "desc": "不規則に揺れ動く雷の火花を4つ放つ。",
+		"anim": ["Spellcast_Shoot", 2.0], "fx": [{"k": "proj", "n": 4, "spread": 0.4, "speed": 17.0, "life": 1.5, "coef": 0.45, "type": "light", "wander": 3.0, "size": 0.15}]},
+	"ball_thunder": {"name": "雷球", "icon": "◉", "mana": 12, "cd": 0.0, "cast": 0.5, "color": Color("#c0a8ff"), "lvl": 9,
+		"tags": ["spell", "projectile", "aoe", "lightning"], "desc": "ゆっくり進む雷の球。進路の周囲の敵に雷を落とし続ける。",
+		"anim": ["Spellcast_Shoot", 1.8], "fx": [{"k": "proj", "speed": 7.0, "life": 2.6, "coef": 0.0, "type": "light", "pierce": true, "size": 0.45,
+			"pulse": {"every": 0.3, "r": 3.5, "coef": 0.35}}]},
+	"void_bolt": {"name": "虚無の矢", "icon": "✪", "mana": 9, "cd": 0.0, "cast": 0.45, "color": Color("#a070e0"), "lvl": 7,
+		"tags": ["spell", "projectile", "chaos"], "desc": "敵を追いかける混沌の矢を放つ。",
+		"anim": ["Spellcast_Shoot", 2.0], "fx": [{"k": "proj", "speed": 24.0, "life": 1.1, "coef": 1.6, "type": "chaos", "homing": 3.0}]},
+	"flame_jet": {"name": "火炎放射", "icon": "≫", "mana": 6, "cd": 0.0, "cast": 0.3, "color": Color("#ff7a30"), "lvl": 6,
+		"tags": ["spell", "fire"], "desc": "前方に炎を噴き出す。敵を燃焼させることがある。",
+		"anim": ["Spellcast_Shoot", 2.4], "sup": {"burn": 0.3}, "fx": [{"k": "line", "len": 7.0, "w": 2.2, "coef": 0.85, "type": "fire"}]},
+	"ice_shards": {"name": "氷片の扇", "icon": "⋔", "mana": 6, "cd": 0.0, "cast": 0.35, "color": Color("#bff0ff"), "lvl": 4,
+		"tags": ["spell", "projectile", "cold"], "desc": "5本の氷片を扇状に放つ。",
+		"anim": ["Spellcast_Shoot", 2.2], "fx": [{"k": "proj", "n": 5, "spread": 0.18, "speed": 28.0, "life": 0.5, "coef": 0.5, "type": "cold", "shape": "spear"}]},
+	"lightning_lance": {"name": "雷光の槍", "icon": "⇶", "mana": 9, "cd": 0.0, "cast": 0.4, "color": Color("#e0d0ff"), "lvl": 8,
+		"tags": ["spell", "lightning"], "desc": "長い直線上を雷光で一瞬にして貫く。",
+		"anim": ["Spellcast_Shoot", 2.0], "fx": [{"k": "line", "len": 14.0, "w": 1.1, "coef": 1.45, "type": "light"}]},
+	"soul_wisps": {"name": "彷徨う魂", "icon": "∴", "mana": 10, "cd": 0.0, "cast": 0.45, "color": Color("#b090f0"), "lvl": 12,
+		"tags": ["spell", "projectile", "chaos"], "desc": "敵を追い続ける3つの魂を解き放つ。",
+		"anim": ["Spellcast_Raise", 2.0], "fx": [{"k": "proj", "n": 3, "spread": 0.8, "speed": 11.0, "life": 2.6, "coef": 0.65, "type": "chaos", "homing": 4.0}]},
+	"fire_wheel": {"name": "火輪", "icon": "✺", "mana": 10, "cd": 0.0, "cast": 0.5, "color": Color("#ffa050"), "lvl": 11,
+		"tags": ["spell", "projectile", "fire"], "desc": "全方位に10発の火球を放つ。",
+		"anim": ["Spellcast_Raise", 2.0], "fx": [{"k": "proj", "n": 10, "ring": true, "speed": 18.0, "life": 0.6, "coef": 0.5, "type": "fire"}]},
+	"comet": {"name": "彗星", "icon": "✶", "mana": 22, "cd": 0.0, "cast": 0.8, "color": Color("#a0e8ff"), "lvl": 14,
+		"tags": ["spell", "aoe", "cold"], "desc": "少し遅れてカーソル位置に氷の彗星が落ち、敵を凍結させる。",
+		"anim": ["Spellcast_Long", 1.8], "fx": [{"k": "area", "r": 3.5, "delay": 0.9, "coef": 3.0, "type": "cold", "freeze": 0.8}]},
+	"flame_nova": {"name": "炎環", "icon": "☀", "mana": 9, "cd": 0.0, "cast": 0.4, "color": Color("#ff8840"), "lvl": 3,
+		"tags": ["spell", "aoe", "fire"], "desc": "自分を中心に炎の輪を放つ。",
+		"anim": ["Spellcast_Raise", 2.2], "fx": [{"k": "nova", "r": 6.0, "coef": 1.15, "type": "fire"}]},
+	"shock_nova": {"name": "雷環", "icon": "❂", "mana": 10, "cd": 0.0, "cast": 0.4, "color": Color("#c8b0ff"), "lvl": 6,
+		"tags": ["spell", "aoe", "lightning"], "desc": "自分を中心に雷の輪を放ち、敵を感電させやすい。",
+		"anim": ["Spellcast_Raise", 2.2], "sup": {"shock": 0.5}, "fx": [{"k": "nova", "r": 7.0, "coef": 1.0, "type": "light"}]},
+	"ice_pillars": {"name": "氷柱", "icon": "▲", "mana": 9, "cd": 0.0, "cast": 0.5, "color": Color("#b0f0ff"), "lvl": 5,
+		"tags": ["spell", "aoe", "cold"], "desc": "カーソル付近の地面から3本の氷柱を突き上げる。",
+		"anim": ["Spellcast_Raise", 2.0], "fx": [{"k": "area", "n": 3, "scatter": 2.2, "r": 1.8, "delay": 0.5, "coef": 1.0, "type": "cold", "freeze": 0.4}]},
+	"fire_rain": {"name": "火の雨", "icon": "⁂", "mana": 18, "cd": 0.0, "cast": 0.6, "color": Color("#ff6a2a"), "lvl": 10,
+		"tags": ["spell", "aoe", "fire", "duration"], "desc": "3秒間、カーソル位置に火の雨を降らせる。",
+		"anim": ["Spellcast_Long", 2.0], "fx": [{"k": "zone", "r": 5.0, "dur": 3.0, "every": 0.25, "coef": 0.65, "type": "fire", "strike": true}]},
+	"blizzard": {"name": "吹雪", "icon": "❉", "mana": 18, "cd": 0.0, "cast": 0.6, "color": Color("#d0f4ff"), "lvl": 13,
+		"tags": ["spell", "aoe", "cold", "duration"], "desc": "4秒間、カーソル位置に吹雪を起こし、範囲内の敵を減速させる。",
+		"anim": ["Spellcast_Long", 2.0], "fx": [{"k": "zone", "r": 6.0, "dur": 4.0, "every": 0.4, "coef": 0.35, "type": "cold", "slow": 1.0}]},
+	"thunderbolt": {"name": "落雷", "icon": "⌁", "mana": 7, "cd": 0.0, "cast": 0.45, "color": Color("#e0d0ff"), "lvl": 4,
+		"tags": ["spell", "aoe", "lightning"], "desc": "カーソル位置に雷を落とす。",
+		"anim": ["Spellcast_Raise", 2.2], "fx": [{"k": "area", "r": 2.2, "delay": 0.25, "coef": 2.0, "type": "light", "bolt": true}]},
+	"miasma": {"name": "瘴気の雲", "icon": "☁", "mana": 14, "cd": 0.0, "cast": 0.5, "color": Color("#90c060"), "lvl": 9,
+		"tags": ["spell", "aoe", "chaos", "duration"], "desc": "5秒間残る毒の雲を生み出す。中の敵は毒に冒されやすい。",
+		"anim": ["Spellcast_Long", 2.0], "sup": {"poison": 0.5}, "fx": [{"k": "zone", "r": 4.0, "dur": 5.0, "every": 0.5, "coef": 0.25, "type": "chaos"}]},
+	"fissure": {"name": "灼熱の地割れ", "icon": "≡", "mana": 14, "cd": 0.0, "cast": 0.55, "color": Color("#ff6a20"), "lvl": 15,
+		"tags": ["spell", "fire"], "desc": "前方へ長い地割れを走らせ、溶岩で敵を焼く。燃焼させやすい。",
+		"anim": ["Spellcast_Long", 2.0], "sup": {"burn": 0.4}, "fx": [{"k": "line", "len": 12.0, "w": 1.7, "coef": 1.35, "type": "fire"}]},
+	"frost_vortex": {"name": "冷気の渦", "icon": "⊛", "mana": 14, "cd": 0.0, "cast": 0.5, "color": Color("#90d8ff"), "lvl": 11,
+		"tags": ["spell", "aoe", "cold", "duration"], "desc": "周囲に冷気を放ち、その場に3秒間残る冷気の渦を作る。",
+		"anim": ["Spellcast_Raise", 2.0], "fx": [{"k": "nova", "r": 4.0, "coef": 0.9, "type": "cold"},
+			{"k": "zone", "at": "self", "r": 4.0, "dur": 3.0, "every": 0.4, "coef": 0.25, "type": "cold", "slow": 0.6}]},
+	"doom": {"name": "破滅の宣告", "icon": "✠", "mana": 30, "cd": 0.0, "cast": 0.9, "color": Color("#9050d0"), "lvl": 18,
+		"tags": ["spell", "aoe", "chaos"], "desc": "1.5秒後、カーソル位置に壊滅的な混沌の爆発を起こす。",
+		"anim": ["Spellcast_Long", 1.6], "fx": [{"k": "area", "r": 4.0, "delay": 1.5, "coef": 5.0, "type": "chaos"}]},
+	"hex_frail": {"name": "脆弱の呪い", "icon": "⌘", "mana": 10, "cd": 0.0, "cast": 0.4, "color": Color("#c070c0"), "lvl": 5,
+		"tags": ["spell", "curse", "aoe", "duration"], "desc": "範囲内の敵を6秒間呪い、受けるダメージを25%増やす。",
+		"anim": ["Spellcast_Shoot", 2.2], "fx": [{"k": "curse", "r": 5.0, "dur": 6.0, "vuln": 0.25}]},
+	"hex_mire": {"name": "泥濘の呪い", "icon": "⌇", "mana": 10, "cd": 0.0, "cast": 0.4, "color": Color("#80a070"), "lvl": 7,
+		"tags": ["spell", "curse", "aoe", "duration"], "desc": "範囲内の敵を6秒間呪って減速させ、受けるダメージを10%増やす。",
+		"anim": ["Spellcast_Shoot", 2.2], "fx": [{"k": "curse", "r": 6.0, "dur": 6.0, "vuln": 0.1, "slow": true}]},
+	"war_cry": {"name": "鬨の声", "icon": "❢", "mana": 12, "cd": 0.0, "cast": 0.35, "color": Color("#ffb060"), "lvl": 6,
+		"tags": ["buff", "aoe", "duration"], "desc": "雄叫びで周囲の敵を押し返し、6秒間ダメージ +25%。",
+		"anim": ["Cheer", 2.0], "sup": {"knock": 2.0},
+		"fx": [{"k": "nova", "r": 5.0, "coef": 0.4, "type": "phys"}, {"k": "buff", "dur": 6.0, "stats": {"dmg": 25}}]},
+	"tailwind": {"name": "疾風の加護", "icon": "»", "mana": 16, "cd": 0.0, "cast": 0.3, "color": Color("#a0f0c0"), "lvl": 8,
+		"tags": ["buff", "duration"], "desc": "8秒間、攻撃速度・詠唱速度 +20%、移動速度 +15%。",
+		"anim": ["Spellcast_Raise", 2.4], "fx": [{"k": "buff", "dur": 8.0, "stats": {"atk_spd": 20, "cast_spd": 20, "move": 15}}]},
+	"stone_skin": {"name": "岩肌", "icon": "▣", "mana": 14, "cd": 0.0, "cast": 0.3, "color": Color("#b0a080"), "lvl": 10,
+		"tags": ["buff", "duration"], "desc": "6秒間、受けるダメージ -25%、毎秒ライフの2%を回復。",
+		"anim": ["Block", 2.0], "fx": [{"k": "buff", "dur": 6.0, "stats": {"dr": 25, "regen": 2}}]},
+	"blood_rage": {"name": "血の狂乱", "icon": "♥", "mana": 10, "cd": 0.0, "cast": 0.3, "color": Color("#ff5050"), "lvl": 12,
+		"tags": ["buff", "duration"], "desc": "8秒間、ダメージ +30%、攻撃速度 +15%。",
+		"anim": ["Cheer", 2.2], "fx": [{"k": "buff", "dur": 8.0, "stats": {"dmg": 30, "atk_spd": 15}}]},
+	"arcane_surge": {"name": "秘力の奔流", "icon": "❖", "mana": 12, "cd": 0.0, "cast": 0.3, "color": Color("#8fb0ff"), "lvl": 9,
+		"tags": ["buff", "duration"], "desc": "6秒間、詠唱速度 +25%、ダメージ +15%。",
+		"anim": ["Spellcast_Raise", 2.4], "fx": [{"k": "buff", "dur": 6.0, "stats": {"cast_spd": 25, "dmg": 15}}]},
+	"stone_golem": {"name": "岩の巨兵", "icon": "⛫", "mana": 30, "cd": 0.0, "cast": 0.7, "color": Color("#b8a888"), "lvl": 10,
+		"tags": ["spell", "minion"], "desc": "頑丈で一撃の重い巨兵を1体呼び出す（最大1体）。",
+		"anim": ["Spellcast_Long", 1.8], "fx": [{"k": "summon", "n": 1, "max": 1, "life": 3.0, "coef": 1.6, "dur": 0.0, "scale": 1.5}]},
+	"spirit_wolves": {"name": "霊狼", "icon": "♞", "mana": 18, "cd": 0.0, "cast": 0.5, "color": Color("#a0d0ff"), "lvl": 7,
+		"tags": ["spell", "minion", "duration"], "desc": "20秒間戦う霊の戦士を2体呼び出す（最大4体）。",
+		"anim": ["Spellcast_Raise", 2.0], "fx": [{"k": "summon", "n": 2, "max": 4, "life": 0.7, "coef": 0.6, "dur": 20.0, "scale": 0.8}]},
+	"phantom_host": {"name": "亡霊の軍勢", "icon": "☗", "mana": 22, "cd": 0.0, "cast": 0.6, "color": Color("#c0b0e0"), "lvl": 13,
+		"tags": ["spell", "minion", "duration"], "desc": "8秒間だけ戦う亡霊を3体呼び出す（最大6体）。",
+		"anim": ["Spellcast_Long", 2.0], "fx": [{"k": "summon", "n": 3, "max": 6, "life": 0.4, "coef": 0.5, "dur": 8.0, "scale": 0.9}]},
+	"blink": {"name": "瞬歩", "icon": "⇢", "mana": 8, "cd": 3.0, "color": Color("#c8b8ff"), "lvl": 5,
+		"tags": ["spell", "movement", "lightning"], "desc": "カーソル方向へ一瞬で移動し、到着点で放電する。",
+		"anim": ["Spellcast_Shoot", 3.0], "fx": [{"k": "move", "dist": 9.0, "speed": 220.0, "coef": 0.0, "land": {"r": 3.0, "coef": 0.6, "type": "light"}}]},
+	"leap_slam": {"name": "跳躍斬", "icon": "⤴", "mana": 8, "cd": 4.0, "color": Color("#e0b880"), "lvl": 4,
+		"tags": ["attack", "movement", "aoe"], "desc": "カーソル方向へ跳び、着地点の周囲を叩き斬る。",
+		"anim": ["Jump_Full_Short", 1.6], "fx": [{"k": "move", "dist": 8.0, "speed": 28.0, "coef": 0.0, "land": {"r": 3.5, "coef": 1.4, "type": "phys"}}]},
 }
 const TAG_NAMES := {"attack": "攻撃", "melee": "近接", "spell": "スペル", "projectile": "投射", "aoe": "範囲", "fire": "火炎",
-	"cold": "冷気", "lightning": "雷", "chain": "連鎖", "movement": "移動", "minion": "ミニオン"}
+	"cold": "冷気", "lightning": "雷", "chain": "連鎖", "movement": "移動", "minion": "ミニオン", "chaos": "混沌", "duration": "持続",
+	"curse": "呪い", "buff": "強化"}
 
 # the six skill bar slots and the skills they start with
 const SLOT_KEYS := [{"short": "LMB", "label": "左クリック"}, {"short": "RMB", "label": "右クリック"}, {"short": "Q", "label": "Q"},
@@ -52,13 +230,73 @@ const SUPPORTS := [
 		"add": {"leech": 0.03}},
 	{"id": "frostbite", "name": "凍結付与", "color": Color("#bff4ff"), "tags": ["attack", "spell"], "desc": "命中した敵を0.4秒凍結させる",
 		"max": {"freeze": 0.4}, "mul": {"mana": 1.1}},
-	{"id": "totem", "name": "トーテム化", "color": Color("#d8a060"), "tags": ["spell"], "not": ["minion", "movement"],
+	{"id": "totem", "name": "トーテム化", "color": Color("#d8a060"), "tags": ["spell"], "not": ["minion", "movement", "buff"],
 		"desc": "スキルの代わりにカーソル位置へトーテムを設置。トーテムが10秒間スキルを自動で放つ（最大2本）／ダメージ -15%",
 		"add": {"totem": 1}, "mul": {"dmg": 0.85}},
 	{"id": "minion_power", "name": "ミニオン強化", "color": Color("#e8e0c8"), "tags": ["minion"], "desc": "ミニオンのライフ +50%、ダメージ +30%",
 		"mul": {"mlife": 1.5, "dmg": 1.3}},
 	{"id": "swarm", "name": "軍勢", "color": Color("#b8b0a0"), "tags": ["minion"], "desc": "ミニオンの最大数 +2",
 		"add": {"mcount": 2}, "mul": {"mana": 1.2}},
+	# damage by type and conversion
+	{"id": "brutal", "name": "残虐", "color": Color("#e8d8c0"), "tags": ["attack", "spell", "buff"], "desc": "物理ダメージ +40%", "mul": {"m_phys": 1.4, "mana": 1.15}},
+	{"id": "fire_amp", "name": "火炎増幅", "color": Color("#ff8a40"), "tags": ["attack", "spell", "buff"], "desc": "火炎ダメージ +35%", "mul": {"m_fire": 1.35, "mana": 1.15}},
+	{"id": "cold_amp", "name": "冷気増幅", "color": Color("#8fdcff"), "tags": ["attack", "spell", "buff"], "desc": "冷気ダメージ +35%", "mul": {"m_cold": 1.35, "mana": 1.15}},
+	{"id": "light_amp", "name": "雷撃増幅", "color": Color("#d9b8ff"), "tags": ["attack", "spell", "buff"], "desc": "雷ダメージ +35%", "mul": {"m_light": 1.35, "mana": 1.15}},
+	{"id": "chaos_amp", "name": "混沌増幅", "color": Color("#90d060"), "tags": ["attack", "spell", "buff"], "desc": "混沌ダメージ +35%", "mul": {"m_chaos": 1.35, "mana": 1.15}},
+	{"id": "conv_fire", "name": "灼熱変換", "color": Color("#ff7030"), "tags": ["attack", "spell"], "desc": "物理ダメージを火炎ダメージに変換し、ダメージ +10%", "set": {"conv": "fire"}, "mul": {"dmg": 1.1}},
+	{"id": "conv_cold", "name": "氷結変換", "color": Color("#80d0ff"), "tags": ["attack", "spell"], "desc": "物理ダメージを冷気ダメージに変換し、ダメージ +10%", "set": {"conv": "cold"}, "mul": {"dmg": 1.1}},
+	{"id": "conv_light", "name": "雷電変換", "color": Color("#c8a8ff"), "tags": ["attack", "spell"], "desc": "物理ダメージを雷ダメージに変換し、ダメージ +10%", "set": {"conv": "light"}, "mul": {"dmg": 1.1}},
+	{"id": "conv_chaos", "name": "虚無変換", "color": Color("#9060c0"), "tags": ["attack", "spell"], "desc": "すべてのダメージを混沌ダメージに変換し、ダメージ +15%", "set": {"conv": "chaos"}, "mul": {"dmg": 1.15, "mana": 1.1}},
+	# critical strikes
+	{"id": "crit_chance", "name": "急所狙い", "color": Color("#ffe060"), "tags": ["attack", "spell"], "desc": "クリティカル率 +8%", "add": {"crit": 8.0}, "mul": {"mana": 1.1}},
+	{"id": "crit_dmg", "name": "会心増幅", "color": Color("#ffc040"), "tags": ["attack", "spell"], "desc": "クリティカルダメージ +45%", "add": {"critm": 45.0}, "mul": {"mana": 1.1}},
+	# projectiles (need a skill that fires projectiles from an effect block)
+	{"id": "pspeed", "name": "高速投射", "color": Color("#a0e0ff"), "tags": ["projectile"], "need": ["proj"], "desc": "投射物の速度 +60%、ダメージ +10%", "mul": {"pspeed": 1.6, "dmg": 1.1}},
+	{"id": "pierce", "name": "貫通", "color": Color("#c0e8ff"), "tags": ["projectile"], "need": ["proj"], "desc": "投射物が敵を貫通する／ダメージ -10%", "add": {"pierce": 1}, "mul": {"dmg": 0.9}},
+	{"id": "homing", "name": "追尾", "color": Color("#b0c8ff"), "tags": ["projectile"], "need": ["proj"], "desc": "投射物が近くの敵を追いかける", "add": {"homing": 4.0}, "mul": {"mana": 1.1}},
+	{"id": "fork", "name": "分岐", "color": Color("#90e0d0"), "tags": ["projectile"], "need": ["proj"], "desc": "投射物が最初に命中したとき、左右2つに分かれる", "add": {"fork": 1}, "mul": {"mana": 1.15}},
+	{"id": "pchain", "name": "跳弾", "color": Color("#c0b0ff"), "tags": ["projectile"], "need": ["proj"], "desc": "投射物が命中後、別の敵へ2回まで跳ね返る／ダメージ -10%", "add": {"pchain": 2}, "mul": {"dmg": 0.9, "mana": 1.15}},
+	{"id": "volley", "name": "弾幕", "color": Color("#8fd8ff"), "tags": ["projectile"], "desc": "投射物 +4／ダメージ -35%", "add": {"proj": 4}, "mul": {"dmg": 0.65, "mana": 1.3}},
+	# area and duration
+	{"id": "conc", "name": "集中", "color": Color("#ffc870"), "tags": ["aoe"], "desc": "効果範囲 -25%、ダメージ +35%", "mul": {"aoe": 0.75, "dmg": 1.35, "mana": 1.15}},
+	{"id": "wide", "name": "広域", "color": Color("#ffe090"), "tags": ["aoe"], "desc": "効果範囲 +60%／ダメージ -15%", "mul": {"aoe": 1.6, "dmg": 0.85, "mana": 1.2}},
+	{"id": "dur_long", "name": "持続延長", "color": Color("#a0d8a0"), "tags": ["duration"], "desc": "効果時間 +50%", "mul": {"dur": 1.5, "mana": 1.15}},
+	{"id": "dur_short", "name": "瞬間集中", "color": Color("#d8e0a0"), "tags": ["duration"], "desc": "効果時間 -30%、ダメージ +30%", "mul": {"dur": 0.7, "dmg": 1.3, "mana": 1.1}},
+	{"id": "aftershock", "name": "余波", "color": Color("#e8b070"), "tags": ["aoe"], "need": ["area", "nova", "slam"], "desc": "範囲攻撃の0.5秒後、同じ場所に小さな余波（範囲70%・ダメージ50%）が起きる", "add": {"after": 1}, "mul": {"mana": 1.2}},
+	{"id": "extra", "name": "増殖", "color": Color("#f0c880"), "tags": ["aoe"], "need": ["area", "zone"], "desc": "設置・落下する範囲の数 +1／ダメージ -10%", "add": {"extra": 1}, "mul": {"dmg": 0.9, "mana": 1.25}},
+	# ailments
+	{"id": "ignite_s", "name": "燃焼付与", "color": Color("#ff9050"), "tags": ["attack", "spell"], "desc": "命中時30%で燃焼させ、3秒かけてヒットの50%の火炎ダメージ", "add": {"burn": 0.3}, "mul": {"mana": 1.1}},
+	{"id": "shock_s", "name": "感電付与", "color": Color("#d0b8ff"), "tags": ["attack", "spell"], "desc": "命中時35%で4秒間感電させる（受けるダメージ +20%）", "add": {"shock": 0.35}, "mul": {"mana": 1.1}},
+	{"id": "chill_s", "name": "冷気付与", "color": Color("#a8e0ff"), "tags": ["attack", "spell"], "desc": "命中した敵を1.5秒間減速させる", "max": {"chill": 1.5}, "mul": {"mana": 1.05}},
+	{"id": "bleed_s", "name": "出血付与", "color": Color("#d04040"), "tags": ["attack"], "desc": "命中時35%で出血させ、4秒かけてヒットの60%の物理ダメージ", "add": {"bleed": 0.35}, "mul": {"mana": 1.1}},
+	{"id": "poison_s", "name": "毒付与", "color": Color("#80c050"), "tags": ["attack", "spell"], "desc": "命中時40%で毒を与え、3秒かけてヒットの30%の混沌ダメージ（重複する）", "add": {"poison": 0.4}, "mul": {"mana": 1.1}},
+	{"id": "stun_s", "name": "衝撃", "color": Color("#e0d0a0"), "tags": ["attack"], "desc": "命中時25%で敵を0.4秒行動不能にする", "add": {"stun": 0.25}},
+	# on hit / on kill
+	{"id": "cull", "name": "処刑", "color": Color("#c0a0a0"), "tags": ["attack", "spell"], "desc": "ボス以外のライフ12%以下の敵を即座に倒す", "max": {"cull": 0.12}, "mul": {"mana": 1.1}},
+	{"id": "knock", "name": "吹き飛ばし", "color": Color("#d8d0b0"), "tags": ["attack", "spell", "buff"], "desc": "命中した敵（ボス以外）を押し返す", "add": {"knock": 2.0}},
+	{"id": "kboom", "name": "誘爆", "color": Color("#ff7050"), "tags": ["attack", "spell"], "desc": "このスキルで倒した敵が爆発し、周囲にダメージを与える", "add": {"kboom": 1}, "mul": {"mana": 1.2}},
+	{"id": "mleech", "name": "魔力吸収", "color": Color("#7aa8ff"), "tags": ["attack", "spell"], "desc": "与えたダメージの2%をマナとして回復", "add": {"mleech": 0.02}},
+	{"id": "loh", "name": "生命の刻印", "color": Color("#ff8080"), "tags": ["attack", "spell"], "desc": "敵に命中するたびライフを4回復", "add": {"loh": 4.0}},
+	{"id": "hexhit", "name": "呪詛の刃", "color": Color("#c080c0"), "tags": ["attack", "spell"], "desc": "命中した敵を3秒間呪い、受けるダメージ +15%", "max": {"hex": 0.15}, "mul": {"mana": 1.1}},
+	# conditional damage
+	{"id": "lowlife", "name": "背水", "color": Color("#ff6060"), "tags": ["attack", "spell"], "desc": "ライフ50%以下の間、ダメージ +60%", "add": {"lowlife": 0.6}},
+	{"id": "elite", "name": "狩人の印", "color": Color("#ffb070"), "tags": ["attack", "spell"], "desc": "エリートとボスへのダメージ +40%", "add": {"elite": 0.4}},
+	{"id": "close", "name": "肉薄", "color": Color("#f0b080"), "tags": ["attack", "spell"], "desc": "4.5m以内の敵へのダメージ +35%", "add": {"close": 0.35}},
+	{"id": "vsfrozen", "name": "砕氷", "color": Color("#b8f0ff"), "tags": ["attack", "spell"], "desc": "凍結・減速中の敵へのダメージ +45%", "add": {"vsfrozen": 0.45}},
+	# speed and cost
+	{"id": "efficient", "name": "効率化", "color": Color("#90b8ff"), "tags": ["attack", "spell", "buff"], "desc": "マナコスト -40%／ダメージ -10%", "mul": {"mana": 0.6, "dmg": 0.9}},
+	{"id": "heavy", "name": "渾身", "color": Color("#e09060"), "tags": ["attack", "spell"], "desc": "ダメージ +50%／攻撃・詠唱速度 -20%", "mul": {"dmg": 1.5, "speed": 0.8, "mana": 1.2}},
+	{"id": "rapid", "name": "連打", "color": Color("#a0e0a0"), "tags": ["attack", "spell"], "not": ["movement"], "desc": "攻撃・詠唱速度 +40%／ダメージ -20%", "mul": {"speed": 1.4, "dmg": 0.8, "mana": 1.1}},
+	{"id": "echo", "name": "残響", "color": Color("#c0d0ff"), "tags": ["attack", "spell"], "not": ["minion", "movement", "buff"], "desc": "0.25秒後にもう一度発動する（2回目のダメージ -30%）", "add": {"echo": 1}, "mul": {"mana": 1.4}},
+	{"id": "trap", "name": "罠化", "color": Color("#c8a070"), "tags": ["attack", "spell"], "not": ["minion", "movement", "buff"],
+		"desc": "スキルの代わりにカーソル位置へ罠を設置。敵が近づくとスキルを1回発動する（最大3個、12秒）", "add": {"trap": 1}, "mul": {"dmg": 1.2}},
+	# minions, curses, buffs, movement
+	{"id": "minion_speed", "name": "迅速の僕", "color": Color("#d0e8c0"), "tags": ["minion"], "desc": "ミニオンの攻撃速度 +30%", "mul": {"speed": 1.3, "mana": 1.1}},
+	{"id": "minion_tough", "name": "鋼の僕", "color": Color("#c8c0b0"), "tags": ["minion"], "desc": "ミニオンのライフ +100%／ダメージ -10%", "mul": {"mlife": 2.0, "dmg": 0.9}},
+	{"id": "curse_eff", "name": "呪詛強化", "color": Color("#d070d0"), "tags": ["curse"], "desc": "呪いの効果 +50%", "mul": {"ceff": 1.5, "mana": 1.2}},
+	{"id": "buff_eff", "name": "鼓舞", "color": Color("#ffd080"), "tags": ["buff"], "desc": "強化スキルの効果 +40%", "mul": {"beff": 1.4, "mana": 1.2}},
+	{"id": "move_far", "name": "長駆", "color": Color("#b0b0ff"), "tags": ["movement"], "desc": "移動距離 +40%", "mul": {"mdist": 1.4}},
+	{"id": "move_land", "name": "着地衝撃", "color": Color("#e0c0a0"), "tags": ["movement"], "desc": "移動の終点で衝撃波を起こし、周囲に物理ダメージ", "add": {"mland": 1}, "mul": {"mana": 1.2}},
 ]
 const DEFAULT_GEMS := ["power", "haste"]
 const LINK_MAX := 3
@@ -77,8 +315,17 @@ static func support(id: String) -> Dictionary:
 
 
 static func support_fits(g: Dictionary, skill_id: String) -> bool:
-	var tags: Array = SKILLS[skill_id].tags
+	var sk: Dictionary = SKILLS[skill_id]
+	var tags: Array = sk.tags
+	if g.has("need"):
+		var kinds: Array = sk.get("kinds", []) + sk.get("fx", []).map(func(b): return b.k)
+		if not g.need.any(func(k): return k in kinds):
+			return false
 	return g.tags.any(func(t): return t in tags) and not g.get("not", []).any(func(t): return t in tags)
+
+
+# what a support's `need` asks for, for its tooltip
+const NEED_NAMES := {"proj": "投射物を放つ", "area": "範囲を指定する", "nova": "周囲に放つ", "slam": "前方を叩く", "zone": "持続範囲を置く", "move": "移動する"}
 
 
 static func tag_text(tags: Array) -> String:
@@ -88,9 +335,18 @@ static func tag_text(tags: Array) -> String:
 ## the support modifiers a slot's linked gems give its skill (gems that don't fit are skipped)
 static func build_sup(skill_id: String, ids: Array) -> Dictionary:
 	var s := {"dmg": 1.0, "mana": 1.0, "speed": 1.0, "proj": 0, "aoe": 1.0, "chain": 0, "leech": 0.0, "freeze": 0.0,
-		"totem": 0, "mlife": 1.0, "mcount": 0, "ids": [], "skill": skill_id}
+		"totem": 0, "mlife": 1.0, "mcount": 0, "ids": [], "skill": skill_id,
+		"m_phys": 1.0, "m_fire": 1.0, "m_cold": 1.0, "m_light": 1.0, "m_chaos": 1.0, "conv": "", "crit": 0.0, "critm": 0.0,
+		"pspeed": 1.0, "pierce": 0, "homing": 0.0, "fork": 0, "pchain": 0, "dur": 1.0, "after": 0, "extra": 0,
+		"burn": 0.0, "shock": 0.0, "chill": 0.0, "bleed": 0.0, "poison": 0.0, "stun": 0.0, "cull": 0.0, "knock": 0.0, "kboom": 0,
+		"mleech": 0.0, "loh": 0.0, "hex": 0.0, "lowlife": 0.0, "elite": 0.0, "close": 0.0, "vsfrozen": 0.0,
+		"echo": 0, "trap": 0, "ceff": 1.0, "beff": 1.0, "mdist": 1.0, "mland": 0}
 	if skill_id == "":
 		return s
+	# a skill's own built-in modifiers (its ailment chances, knockback)
+	var own: Dictionary = SKILLS[skill_id].get("sup", {})
+	for k in own:
+		s[k] += own[k]
 	for id in ids:
 		var g := support(id)
 		if g.is_empty() or not support_fits(g, skill_id):
@@ -101,6 +357,8 @@ static func build_sup(skill_id: String, ids: Array) -> Dictionary:
 			s[k] += g.add[k]
 		for k in g.get("max", {}):
 			s[k] = maxf(s[k], g.max[k])
+		for k in g.get("set", {}):
+			s[k] = g.set[k]
 		s.ids.append(id)
 	return s
 
@@ -230,7 +488,7 @@ const THEMES := [
 	{"name": "凍てつく聖堂", "tint": Color("#b8d0ff"), "torch": Color("#c8dcff")},
 ]
 
-const DMG_COLORS := {"phys": Color.WHITE, "fire": Color("#ff9a40"), "cold": Color("#8fdcff"), "light": Color("#d9b8ff")}
+const DMG_COLORS := {"phys": Color.WHITE, "fire": Color("#ff9a40"), "cold": Color("#8fdcff"), "light": Color("#d9b8ff"), "chaos": Color("#9fe070")}
 
 
 func _ready() -> void:

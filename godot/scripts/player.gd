@@ -11,6 +11,7 @@ var asc_ranks := {}
 var asc_cores: Array = ["", "", ""]
 var buffs := {}              # stacking timed buffs from core talents: key -> {"n", "t"}
 var combo := 0               # attack skills used, for "three strikes"
+var tbuffs := {}             # timed self buffs from buff skills: skill id -> {"t", "stats"}
 var atlas: Atlas             # for the atlas passives that change stats
 var chill := 0.0             # slowed by the witch's frost
 var life := 100.0
@@ -171,10 +172,23 @@ func buff(k: String) -> int:
 
 
 func tick_buffs(delta: float) -> void:
-	for k in buffs.keys():
-		buffs[k].t -= delta
-		if buffs[k].t <= 0.0:
-			buffs.erase(k)
+	for list in [buffs, tbuffs]:
+		for k in list.keys():
+			list[k].t -= delta
+			if list[k].t <= 0.0:
+				list.erase(k)
+
+
+func add_tbuff(id: String, dur: float, stats: Dictionary) -> void:
+	tbuffs[id] = {"t": dur, "stats": stats}
+
+
+## a stat summed over the active buff skills: dmg, atk_spd, cast_spd, move, dr (all %) and regen (% life per second)
+func tstat(k: String) -> float:
+	var v := 0.0
+	for id in tbuffs:
+		v += tbuffs[id].stats.get(k, 0.0)
+	return v
 
 
 func low_life() -> bool:
@@ -183,11 +197,11 @@ func low_life() -> bool:
 
 ## attacks per second right now, with the core talents' temporary boosts
 func attack_rate_now() -> float:
-	return s.aps * (1.0 + (s.atk_spd + buff("fervor") * 2 + (20 if low_life() else 0)) / 100.0)
+	return s.aps * (1.0 + (s.atk_spd + buff("fervor") * 2 + (20 if low_life() else 0) + tstat("atk_spd")) / 100.0)
 
 
 func cast_speed_now() -> float:
-	return 1.0 + (s.cast_spd + buff("spell_frenzy") * 5) / 100.0
+	return 1.0 + (s.cast_spd + buff("spell_frenzy") * 5 + tstat("cast_spd")) / 100.0
 
 
 ## play an attack/cast clip that holds for `hold` seconds before locomotion resumes

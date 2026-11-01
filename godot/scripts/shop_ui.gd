@@ -61,7 +61,7 @@ func _ready() -> void:
 	gem_grid.columns = 2
 	gem_grid.add_theme_constant_override("h_separation", 4)
 	gem_grid.add_theme_constant_override("v_separation", 4)
-	left.add_child(gem_grid)
+	left.add_child(SkillUI._scroll(gem_grid, Vector2(350, 150)))
 
 	var right := VBoxContainer.new()
 	right.add_theme_constant_override("separation", 8)
