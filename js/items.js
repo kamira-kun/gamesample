@@ -42,8 +42,9 @@ function genItem(ilvl, boost = 0, forceRarity = null, forceSlot = null) {
 }
 
 const sellPrice = it => Math.round((3 + it.ilvl * 2) * (1 + it.rarity * 2));
-const buyPrice = it => sellPrice(it) * 5;
-const potionPrice = () => 15 + G.floor * 8;
+const discount = () => 1 - apVal('haggle') / 100;
+const buyPrice = it => Math.round(sellPrice(it) * 5 * discount());
+const potionPrice = () => Math.round((15 + G.floor * 8) * discount());
 const rerollPrice = () => 25 + G.floor * 15;
 
 function genShop() {

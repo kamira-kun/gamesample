@@ -25,7 +25,38 @@ const MAP_MODS = [
 ];
 const MOD_BY_KEY = Object.fromEntries(MAP_MODS.map(m => [m.k, m]));
 
-function newAtlas() { return { cleared: [], abyss: 0, mods: {}, sel: 'ash' }; }
+// ---- atlas passives: points come from first clears and each Ember Abyss clear ----
+const ATLAS_PASSIVES = [
+  { branch: '財宝', color: '#ffcf3a', nodes: [
+    { id: 'gold', name: '黄金の嗅覚', max: 3, per: 10, fmt: 'ゴールド獲得量 +{v}%' },
+    { id: 'find', name: '目利き', max: 3, per: 8, fmt: 'アイテムレア度 +{v}%' },
+    { id: 'plenty', name: '豊穣', max: 3, per: 6, fmt: 'アイテム数量 +{v}%' },
+    { id: 'relic', name: '秘宝の導き', max: 2, per: 10, fmt: 'ボスのレジェンド確定ドロップ率 +{v}%' },
+  ] },
+  { branch: '征服', color: '#ff7a5a', nodes: [
+    { id: 'horde', name: '群れの呼び声', max: 3, per: 8, fmt: 'マップの敵の数 +{v}%' },
+    { id: 'hunt', name: '精鋭狩り', max: 3, per: 15, fmt: 'エリートの出現率 +{v}%' },
+    { id: 'train', name: '修練', max: 3, per: 8, fmt: '獲得経験値 +{v}%' },
+    { id: 'prowess', name: '強者の証', max: 2, per: 10, fmt: 'マップ効果1つにつきアイテムレア度 +{v}%' },
+  ] },
+  { branch: '探索', color: '#7fd4ff', nodes: [
+    { id: 'flask', name: '携行袋', max: 2, per: 1, fmt: '回復薬の最大所持数 +{v}' },
+    { id: 'ward', name: '灯火の加護', max: 3, per: 2, fmt: 'ライフ回復 +{v}/秒' },
+    { id: 'haggle', name: '商人の縁', max: 3, per: 8, fmt: 'ショップの購入価格 -{v}%' },
+    { id: 'fox', name: '狐の嗅覚', max: 2, per: 25, fmt: 'ペットの回収範囲 +{v}%' },
+  ] },
+];
+const PASSIVE_BY_ID = Object.fromEntries(ATLAS_PASSIVES.flatMap(b => b.nodes.map((n, i) => [n.id, { ...n, branch: b, tier: i }])));
+const apRank = id => (G.atlas && G.atlas.passives[id]) || 0;
+const apVal = id => apRank(id) * PASSIVE_BY_ID[id].per;
+const apTotal = () => G.atlas.cleared.length + G.atlas.abyss;
+const apSpent = () => Object.values(G.atlas.passives).reduce((a, b) => a + b, 0);
+const apFree = () => apTotal() - apSpent();
+const apUnlocked = id => { const n = PASSIVE_BY_ID[id]; return n.tier === 0 || apRank(n.branch.nodes[n.tier - 1].id) > 0; };
+const apResetPrice = () => apSpent() * 30;
+const maxPotions = () => 5 + apVal('flask');
+
+function newAtlas() { return { cleared: [], abyss: 0, mods: {}, sel: 'ash', passives: {} }; }
 const nodeLevel = n => (n.endless ? n.level + G.atlas.abyss : n.level);
 const nodeTheme = n => (n.endless ? G.atlas.abyss % THEMES.length : n.theme);
 const isCleared = n => G.atlas.cleared.includes(n.id);
@@ -43,12 +74,24 @@ function nodeMods(n) {
   return G.atlas.mods[n.id];
 }
 function modEffects(keys) {
-  const fx = { life: 1, dmg: 1, speed: 1, swarm: 1, elite: 1, rarity: 0, quantity: 1 };
+  const fx = { life: 1, dmg: 1, speed: 1, swarm: 1, elite: 1, rarity: 0, quantity: 1, gold: 1, xp: 1, legend: 0 };
   for (const k of keys) {
     const m = MOD_BY_KEY[k];
     for (const f of ['life', 'dmg', 'speed', 'swarm', 'elite']) if (m[f]) fx[f] *= m[f];
     fx.rarity += 0.3; fx.quantity += 0.15;
   }
+  return fx;
+}
+// map modifiers plus atlas passive bonuses for a run
+function mapEffects(keys) {
+  const fx = modEffects(keys);
+  fx.gold += apVal('gold') / 100;
+  fx.rarity += apVal('find') / 100 + keys.length * apVal('prowess') / 100;
+  fx.quantity += apVal('plenty') / 100;
+  fx.legend = apVal('relic') / 100;
+  fx.swarm *= 1 + apVal('horde') / 100;
+  fx.elite *= 1 + apVal('hunt') / 100;
+  fx.xp += apVal('train') / 100;
   return fx;
 }
 const modRerollPrice = n => 20 + nodeLevel(n) * 12;
@@ -60,7 +103,8 @@ function enterMap(id) {
   G.area = n;
   G.floor = nodeLevel(n);
   G.runMods = [...nodeMods(n)];
-  G.modFx = modEffects(G.runMods);
+  G.modFx = mapEffects(G.runMods);
+  if (UI.open) UI.toggle(UI.open);
   Atlas.hide();
   G.state = 'play';
   spawnFloor();
@@ -68,8 +112,8 @@ function enterMap(id) {
 }
 
 function completeMap() {
-  const n = G.area;
-  if (!isCleared(n)) G.atlas.cleared.push(n.id);
+  const n = G.area, wasCleared = isCleared(n);
+  if (!wasCleared) G.atlas.cleared.push(n.id);
   const newly = n.links.map(id => NODE_BY_ID[id]).filter(o => !isCleared(o));
   if (n.endless) G.atlas.abyss++;
   delete G.atlas.mods[n.id];
@@ -77,6 +121,8 @@ function completeMap() {
   showMsg(`${n.name} を踏破した！`, '#ffd36a');
   if (newly.length) showMsg(`新たな地点が開放：${newly.map(o => o.name).join('、')}`, '#e8d8b0');
   if (n.endless) showMsg(`残り火の深淵が Lv ${nodeLevel(n)} に深まった`, '#b48cff');
+  const gained = (wasCleared ? 0 : 1) + (n.endless ? 1 : 0);
+  if (gained) showMsg(`アトラスパッシブポイント +${gained}（P）`, '#8fd18f');
 }
 
 function abandonMap() {
@@ -192,7 +238,7 @@ const Atlas = {
     const n = NODE_BY_ID[G.atlas.sel] || ATLAS_NODES[0], p = G.player;
     const unlocked = isUnlocked(n), ti = nodeTheme(n);
     const mods = unlocked ? nodeMods(n) : [];
-    const fx = modEffects(mods), boss = ENEMY_TYPES[BOSS_ROTATION[ti].type];
+    const fx = mapEffects(mods), boss = ENEMY_TYPES[BOSS_ROTATION[ti].type];
     const status = isCleared(n) ? '<span style="color:#8fd18f">踏破済み</span>' : unlocked ? '<span style="color:#ffd36a">未踏</span>' : '<span style="color:#8a5040">未開放</span>';
     const rp = modRerollPrice(n);
     $('atlasDetail').innerHTML = `
@@ -203,10 +249,11 @@ const Atlas = {
       <div class="ad-row"><span>ボス</span><b style="color:#ff7a5a">${boss.name}</b></div>
       <h4>マップ効果</h4>
       ${mods.length ? mods.map(k => `<div class="ad-mod">◆ ${MOD_BY_KEY[k].name}</div>`).join('') : '<div class="ad-none">なし</div>'}
-      ${mods.length ? `<div class="ad-bonus">アイテムレア度 +${Math.round(fx.rarity * 100)}%　アイテム数量 +${Math.round((fx.quantity - 1) * 100)}%</div>` : ''}
+      ${fx.rarity > 0 || fx.quantity > 1 ? `<div class="ad-bonus">アイテムレア度 +${Math.round(fx.rarity * 100)}%　アイテム数量 +${Math.round((fx.quantity - 1) * 100)}%</div>` : ''}
       <button class="btn ad-go" id="atlasGo"${unlocked ? '' : ' disabled'}>${unlocked ? '出撃する' : '隣接する地点を踏破すると開放'}</button>
       ${unlocked && nodeLevel(n) >= 3 ? `<button class="sbtn ad-reroll" id="atlasReroll"${p.gold < rp ? ' disabled' : ''}>マップ効果を再抽選（● ${rp}）</button>` : ''}`;
     $('atlasInfo').innerHTML = `Lv ${p.level}　<span class="gold">● ${p.gold}</span>　踏破 ${G.atlas.cleared.length}/${ATLAS_NODES.length}`;
+    $('apBadge').textContent = apFree() > 0 ? apFree() : '';
     const go = $('atlasGo');
     if (go && unlocked) go.addEventListener('click', () => enterMap(n.id));
     const rr = $('atlasReroll');

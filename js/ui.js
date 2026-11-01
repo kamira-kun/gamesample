@@ -9,7 +9,7 @@ const UI = {
     addEventListener('mousemove', e => this.moveTip(e));
     $('buyPotion').addEventListener('click', () => {
       const p = G.player, cost = potionPrice();
-      if (p.gold < cost || p.potions >= 5) return;
+      if (p.gold < cost || p.potions >= maxPotions()) return;
       p.gold -= cost; p.potions++;
       this.refresh();
     });
@@ -25,7 +25,7 @@ const UI = {
   },
 
   toggle(name) {
-    for (const n of ['inventory', 'talents', 'status', 'skills', 'shop', 'filter', 'pause']) $(n).classList.toggle('hidden', n !== name || this.open === name);
+    for (const n of ['inventory', 'talents', 'status', 'skills', 'shop', 'filter', 'apassive', 'pause']) $(n).classList.toggle('hidden', n !== name || this.open === name);
     this.open = this.open === name ? null : name;
     this.hideTip();
     Input.mdown = [false, false, false];
@@ -68,6 +68,8 @@ const UI = {
     if (this.open === 'skills') this.renderSkills();
     if (this.open === 'shop') this.renderShop();
     if (this.open === 'filter') this.renderFilter();
+    if (this.open === 'apassive') this.renderAtlasPassives();
+    if (G.state === 'atlas') Atlas.renderDetail();
   },
 
   buildSkillbar() {
@@ -158,8 +160,8 @@ const UI = {
       stock.appendChild(wrap);
     }
     const pp = potionPrice(), rp = rerollPrice();
-    $('buyPotion').textContent = `回復薬を買う（● ${pp}）　所持 ${p.potions}/5`;
-    $('buyPotion').disabled = p.gold < pp || p.potions >= 5;
+    $('buyPotion').textContent = `回復薬を買う（● ${pp}）　所持 ${p.potions}/${maxPotions()}`;
+    $('buyPotion').disabled = p.gold < pp || p.potions >= maxPotions();
     $('rerollShop').textContent = `品揃えを入れ替える（● ${rp}）`;
     $('rerollShop').disabled = p.gold < rp;
     const bag = $('shopBag');
@@ -221,6 +223,43 @@ const UI = {
       this.filterChanged();
     }));
   },
+  renderAtlasPassives() {
+    const p = G.player, free = apFree(), rp = apResetPrice();
+    $('apPoints').innerHTML = `残りポイント <b>${free}</b>　／　獲得合計 ${apTotal()}`;
+    const reset = $('apReset');
+    reset.textContent = `振り直す（● ${rp}）`;
+    reset.disabled = !apSpent() || p.gold < rp;
+    reset.onclick = () => {
+      if (!apSpent() || p.gold < rp || !confirm('アトラスパッシブをすべて振り直しますか？')) return;
+      p.gold -= rp; G.atlas.passives = {};
+      p.recalc(); saveGame(); this.refresh();
+    };
+    const tree = $('apTree');
+    tree.innerHTML = '';
+    for (const b of ATLAS_PASSIVES) {
+      const col = document.createElement('div');
+      col.className = 'ap-col';
+      col.innerHTML = `<h3 style="color:${b.color}">${b.branch}</h3>`;
+      for (const n of b.nodes) {
+        const r = apRank(n.id), unlocked = apUnlocked(n.id);
+        const el = document.createElement('div');
+        el.className = 'ap-node' + (unlocked ? '' : ' locked') + (r ? ' has' : '') + (r >= n.max ? ' maxed' : '');
+        el.style.setProperty('--c', b.color);
+        if (r) el.style.setProperty('--lc', b.color);
+        const cur = n.fmt.replace('{v}', r * n.per), next = n.fmt.replace('{v}', Math.min(n.max, r + 1) * n.per);
+        el.innerHTML = `<div class="nm"><span>${n.name}</span><span class="rk">${r} / ${n.max}</span></div>
+          <div class="ds">${r ? cur : n.fmt.replace('{v}', n.per)}${r && r < n.max ? `<br>次：${next}` : ''}</div>`;
+        el.addEventListener('click', () => {
+          if (!unlocked || r >= n.max || apFree() <= 0) return;
+          G.atlas.passives[n.id] = r + 1;
+          p.recalc(); saveGame(); this.refresh();
+        });
+        col.appendChild(el);
+      }
+      tree.appendChild(col);
+    }
+  },
+
   filterChanged() {
     if (G.state === 'play') sellHiddenGround();
     saveGame();

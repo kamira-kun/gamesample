@@ -138,6 +138,24 @@ canvas#game { position: fixed; inset: 0; display: block; cursor: crosshair; }
   font-family: inherit; font-size: 13px; }
 .bulk .sbtn { flex: 1; }
 .filterbtn { width: 100%; margin-top: 8px; }
+#apassive { width: min(820px, 96vw); }
+.ap-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+#apPoints { font-size: 15px; color: #e8dcc4; } #apPoints b { color: #8fd18f; font-size: 20px; }
+#apTree { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.ap-col h3 { margin: 0 0 8px; font-size: 15px; font-weight: normal; letter-spacing: .3em; text-align: center; }
+.ap-node { position: relative; border: 1px solid #3a3024; border-radius: 6px; background: #0e0b08; padding: 8px 10px; cursor: pointer; }
+.ap-node + .ap-node { margin-top: 18px; }
+.ap-node + .ap-node::before { content: ''; position: absolute; left: 50%; top: -19px; width: 2px; height: 18px; background: var(--lc, #3a3024); }
+.ap-node:hover { border-color: #a08040; }
+.ap-node.locked { opacity: .4; cursor: default; }
+.ap-node.maxed { cursor: default; }
+.ap-node.has { border-color: var(--c); box-shadow: 0 0 8px color-mix(in srgb, var(--c) 35%, transparent); }
+.ap-node .nm { display: flex; justify-content: space-between; font-size: 13px; color: #f0d8a0; }
+.ap-node .rk { color: var(--c); font-size: 12px; }
+.ap-node .ds { font-size: 11px; color: #a89a80; margin-top: 3px; }
+.ap-btn #apBadge { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: #3a7a3a; color: #fff; font-size: 11px; }
+.ap-btn #apBadge:empty { display: none; }
+@media (max-width: 760px) { #apTree { grid-template-columns: 1fr; } }
 #filter { width: min(520px, 96vw); }
 #filter .fh { font-size: 13px; color: #b8a888; font-weight: normal; letter-spacing: .1em; margin: 14px 0 8px; }
 #filter .fh small { letter-spacing: 0; color: #7a6e5a; }
@@ -155,6 +173,7 @@ canvas#game { position: fixed; inset: 0; display: block; cursor: crosshair; }
 .panel { max-width: 96vw; z-index: 30; }
 body.in-atlas #hud, body.in-atlas #topinfo, body.in-atlas #minimap, body.in-atlas #bossbar, body.in-atlas #talentHint { display: none; }
 #messages { z-index: 25; }
+body.in-atlas #messages { top: auto; bottom: 24px; }
 #atlas { position: fixed; inset: 0; z-index: 15; display: flex; flex-direction: column; background: #070504; }
 .atlas-head { display: flex; align-items: center; gap: 18px; padding: 10px 16px; border-bottom: 1px solid #4a3a26;
   background: linear-gradient(#1a120a, #0c0805); flex-wrap: wrap; }

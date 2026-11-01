@@ -17,6 +17,7 @@ function panelKeys() {
   if (Input.pressed.KeyC) UI.toggle('status');
   if (Input.pressed.KeyK) UI.toggle('skills');
   if (Input.pressed.KeyL) UI.toggle('filter');
+  if (Input.pressed.KeyP) UI.toggle('apassive');
 }
 
 function frame(now) {

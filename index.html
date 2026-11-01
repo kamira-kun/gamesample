@@ -104,12 +104,18 @@
   <p class="fnote">拾う：所持品に入れる　／　拾って売却：拾った瞬間にゴールドに換える<br>非表示：地面に落とさず、ドロップした瞬間に自動で売却する</p>
 </div>
 
+<div id="apassive" class="panel hidden">
+  <div class="phead">アトラスパッシブ <span class="hint">地点の初踏破と残り火の深淵の踏破でポイント獲得</span><button data-close>×</button></div>
+  <div class="ap-top"><div id="apPoints"></div><button id="apReset" class="sbtn"></button></div>
+  <div id="apTree"></div>
+</div>
+
 <div id="pause" class="panel hidden">
   <div class="phead">一時停止<button data-close>×</button></div>
   <div class="controls">
     <div><b>WASD</b> 移動</div><div><b>左/右クリック</b> スキル</div><div><b>Q E R Space</b> スキル</div>
     <div><b>K</b> スキル付け替え</div><div><b>F</b> 回復薬</div><div><b>B</b> 商人と取引（近くで）</div>
-    <div><b>I / Tab</b> インベントリ</div><div><b>T</b> タレント</div><div><b>C</b> キャラクター</div><div><b>L</b> アイテムフィルター</div>
+    <div><b>I / Tab</b> インベントリ</div><div><b>T</b> タレント</div><div><b>C</b> キャラクター</div><div><b>L</b> アイテムフィルター</div><div><b>P</b> アトラスパッシブ</div>
     <div><b>Esc</b> 閉じる／一時停止</div>
   </div>
   <button id="abandonBtn" class="btn">遠征図に戻る（マップを放棄）</button>
@@ -121,6 +127,7 @@
     <div class="atlas-title">遠征図</div>
     <div id="atlasInfo"></div>
     <div class="atlas-btns">
+      <button class="sbtn ap-btn" data-open="apassive">アトラスパッシブ [P] <span id="apBadge"></span></button>
       <button class="sbtn" data-open="inventory">所持品 [I]</button>
       <button class="sbtn" data-open="skills">スキル [K]</button>
       <button class="sbtn" data-open="talents">タレント [T]</button>

@@ -45,6 +45,7 @@ class Player {
     s.maxLife += s.life + tl.vitality * 20;
     s.maxMana += s.mana + tl.spirit * 12;
     s.manaRegen += tl.spirit * 0.5;
+    s.lifeRegen += apVal('ward');
     s.incDmg += tl.might * 8;
     s.moveSpd += tl.swift * 3; s.atkSpd += tl.swift * 3;
     s.crit += tl.precision * 1.5; s.critMulti += tl.precision * 8;
@@ -163,9 +164,9 @@ function enemiesInRadius(x, y, r) {
 function killEnemy(e) {
   e.dead = true;
   const p = G.player;
-  p.gainXp(Math.round(e.xp));
+  p.gainXp(Math.round(e.xp * G.modFx.xp));
   p.life = Math.min(p.s.maxLife, p.life + p.s.lifeOnKill + (p.s.effects.has('killHeal') ? p.s.maxLife * 0.03 : 0));
-  if (++p.potionProg >= 14) { p.potionProg = 0; if (p.potions < 5) { p.potions++; addText(p.x, p.y - 44, '回復薬 +1', '#ff7070', 14); } }
+  if (++p.potionProg >= 14) { p.potionProg = 0; if (p.potions < maxPotions()) { p.potions++; addText(p.x, p.y - 44, '回復薬 +1', '#ff7070', 14); } }
   burst(e.x, e.y, e.boss ? 80 : 14, e.t.color, e.boss ? 300 : 150, false);
   for (let i = 0; i < 6; i++) G.particles.push({ x: e.x, y: e.y, vx: rand(-40, 40), vy: rand(-40, 40), t: 0, max: 6, size: rand(3, 6), color: 'rgba(70,10,10,0.8)', drag: 6, decal: true });
 
@@ -177,10 +178,10 @@ function killEnemy(e) {
   else if (e.elite) { drops = randi(1, 2); boost += 1.2; }
   else if (Math.random() < 0.13 * fx.quantity) drops = 1;
   if ((e.boss || e.elite) && Math.random() < fx.quantity - 1) drops++;
-  for (let i = 0; i < drops; i++) dropItem(genItem(ilvl, boost, e.boss && i === 0 ? (Math.random() < 0.35 ? 3 : 2) : null), e.x, e.y);
+  for (let i = 0; i < drops; i++) dropItem(genItem(ilvl, boost, e.boss && i === 0 ? (Math.random() < 0.35 + fx.legend ? 3 : 2) : null), e.x, e.y);
   if (Math.random() < (e.elite || e.boss ? 1 : 0.25)) {
     const n = e.boss ? 6 : e.elite ? 3 : 1;
-    for (let i = 0; i < n; i++) G.golds.push({ x: e.x + rand(-30, 30), y: e.y + rand(-30, 30), amt: Math.round(rand(2, 6) * G.floor * (e.elite ? 2 : 1)) });
+    for (let i = 0; i < n; i++) G.golds.push({ x: e.x + rand(-30, 30), y: e.y + rand(-30, 30), amt: Math.round(rand(2, 6) * G.floor * (e.elite ? 2 : 1) * fx.gold) });
   }
 
   if (e.elite && e.elite.k === 'volatile') {
@@ -780,7 +781,7 @@ function updatePet(dt) {
     const bagFull = p.bag.length >= BAG_SIZE;
     let best = null, bd = Infinity;
     for (const g of [...G.golds, ...G.ground.filter(g => !isHidden(g.item) && (!bagFull || willAutoSell(g.item)))]) {
-      if (pet.ignore.has(g) || dist2(g.x, g.y, p.x, p.y) > 380 * 380) continue;
+      if (pet.ignore.has(g) || dist2(g.x, g.y, p.x, p.y) > (380 * (1 + apVal('fox') / 100)) ** 2) continue;
       const d = dist2(g.x, g.y, pet.x, pet.y) * (g.item ? 1 : 0.6);
       if (d < bd && G.map.los(pet.x, pet.y, g.x, g.y)) { bd = d; best = g; }
     }
