@@ -1,15 +1,16 @@
 class_name Assets
 extends RefCounted
-## Paths and loaders for the KayKit CC0 art (godot/assets/kaykit).
+## Paths and loaders for the CC0 art (godot/assets/kaykit, godot/assets/quaternius).
 
 const DUNGEON := "res://assets/kaykit/dungeon/Assets/gltf/"
 const ADVENTURERS := "res://assets/kaykit/adventurers/Characters/gltf/"
 const SKELETONS := "res://assets/kaykit/skeletons/Characters/gltf/"
 const SKELETON_GEAR := "res://assets/kaykit/skeletons/Assets/gltf/"
 const ADVENTURER_GEAR := "res://assets/kaykit/adventurers/Assets/gltf/"
-# clips that should repeat (glTF imports them as one-shots)
+const QUATERNIUS := "res://assets/quaternius/"
+# clips that should repeat (glTF imports them as one-shots); Quaternius clips are matched after their "Armature|" prefix
 const LOOPS := ["Idle", "Idle_B", "Idle_Combat", "Running_A", "Running_B", "Running_C", "Walking_A", "Walking_B",
-	"Walking_C", "Walking_D_Skeletons", "Spellcasting", "2H_Melee_Idle", "Unarmed_Idle"]
+	"Walking_C", "Walking_D_Skeletons", "Spellcasting", "2H_Melee_Idle", "Unarmed_Idle", "Run", "Walk", "Gallop", "Idle_2"]
 
 static var _scenes := {}
 static var _meshes := {}
@@ -49,7 +50,7 @@ static func character(path: String) -> Node3D:
 	var inst := scene(path).instantiate() as Node3D
 	var ap := inst.find_child("AnimationPlayer", true, false) as AnimationPlayer
 	if ap:
-		for clip in LOOPS:
-			if ap.has_animation(clip):
+		for clip in ap.get_animation_list():
+			if String(clip).get_slice("|", String(clip).get_slice_count("|") - 1) in LOOPS:
 				ap.get_animation(clip).loop_mode = Animation.LOOP_LINEAR
 	return inst

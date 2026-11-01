@@ -53,12 +53,14 @@
 - `scripts/assets.gd` / `level_builder.gd` — KayKit 素材の読み込みと、ダンジョンへの床・壁・たいまつ・小物の配置
 
 ## 素材（CC0）
-`assets/kaykit/` に Kay Lousberg 氏の KayKit シリーズ（CC0）を収録しています。各フォルダに LICENSE.txt があります。
+`assets/kaykit/` に Kay Lousberg 氏の KayKit シリーズ（CC0）、`assets/quaternius/` に Quaternius 氏のモデル（CC0）を収録しています。各フォルダに LICENSE.txt があります。
 - [KayKit Dungeon Remastered](https://github.com/KayKit-Game-Assets/KayKit-Dungeon-Remastered-1.0) — 床、壁、柱、たいまつ、小物
 - [KayKit Character Pack: Adventurers](https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0) — プレイヤー（騎士の体とローグの頭を組み合わせて色を塗り替え）、ボス（バーバリアン）、プレイヤーが手に持つ武器（装備中の武器に合わせて切り替え）
 - [KayKit Character Pack: Skeletons](https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Skeletons-1.0) — スケルトン系の敵
+- Quaternius [Demon](https://poly.pizza/m/LnfIziKv4o) — インプ
+- Quaternius [Fox](https://poly.pizza/m/Bc97C66HKi) — 灯り狐（尻尾の先にランタンを付けています）
 
-インプと灯り狐はまだ仮の図形です。灼熱の巨像は大きなスケルトン戦士、凍嵐の魔女は魔法使いのモデルを使っています。
+灼熱の巨像は大きなスケルトン戦士、凍嵐の魔女は魔法使いのモデルを使っています。
 
 ## 開発用
 自動テスト（商人・遠征図・全スキル発動・トーテムとサポートジェム・タレント・ルートフィルタ・ペット・遠征パッシブ・巨像と魔女の技・ボス撃破・踏破・死亡と再挑戦・アイテムとクラフト）。セーブファイルには書き込みません:
@@ -66,7 +68,7 @@
 Godot_v4.7.2-stable_win64.exe --headless --path . -- --smoke
 ```
 
-画面を1つだけ開いて確認する場合（セーブは読み書きしません）。`merchant` `device` `skills` `talents` `status` `filter` `passives` が使えます。`colossus` `witch` では最初のマップでそのボスがすぐ横に出ます:
+画面を1つだけ開いて確認する場合（セーブは読み書きしません）。`merchant` `device` `skills` `talents` `status` `filter` `passives` が使えます。`colossus` `witch` では最初のマップでそのボスがすぐ横に出ます（`imp` ではインプが3体）:
 ```
 Godot_v4.7.2-stable_win64.exe --path . -- --view=merchant
 Godot_v4.7.2-stable_win64.exe --path . -- --view=colossus
