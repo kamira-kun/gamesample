@@ -14,6 +14,7 @@ class Player {
     this.level = 1; this.xp = 0; this.talentPts = 0;
     this.talents = Object.fromEntries(TALENTS.map(t => [t.k, 0]));
     this.equip = {}; this.bag = []; this.slots = [...DEFAULT_SLOTS];
+    this.autoSell = [false, false, false, false]; // per rarity: sell the moment it's picked up
     this.gold = 0; this.potions = 3; this.potionProg = 0;
     this.cds = {}; this.actionT = 0; this.swingT = 0; this.aim = 0;
     this.invuln = 0; this.hitFlash = 0; this.walkT = 0; this.dash = null; this.dead = false;
@@ -170,10 +171,12 @@ function killEnemy(e) {
 
   // loot
   const ilvl = G.floor + (e.elite ? 1 : 0) + (e.boss ? 2 : 0);
-  let drops = 0, boost = 0;
-  if (e.boss) { drops = 4; boost = 2.5; }
-  else if (e.elite) { drops = randi(1, 2); boost = 1.2; }
-  else if (Math.random() < 0.13) drops = 1;
+  const fx = G.modFx;
+  let drops = 0, boost = fx.rarity;
+  if (e.boss) { drops = 4; boost += 2.5; }
+  else if (e.elite) { drops = randi(1, 2); boost += 1.2; }
+  else if (Math.random() < 0.13 * fx.quantity) drops = 1;
+  if ((e.boss || e.elite) && Math.random() < fx.quantity - 1) drops++;
   for (let i = 0; i < drops; i++) dropItem(genItem(ilvl, boost, e.boss && i === 0 ? (Math.random() < 0.35 ? 3 : 2) : null), e.x, e.y);
   if (Math.random() < (e.elite || e.boss ? 1 : 0.25)) {
     const n = e.boss ? 6 : e.elite ? 3 : 1;
@@ -192,6 +195,23 @@ function killEnemy(e) {
     showMsg(`${e.name}を討伐した！ ポータルが開いた`, '#ff9a4a');
     UI.setBoss(null);
   }
+}
+
+const willAutoSell = it => !!G.player.autoSell[it.rarity];
+// returns false when the item can't be taken (bag full)
+function pickupItem(it, x, y, byPet = false) {
+  const p = G.player;
+  if (willAutoSell(it)) {
+    const g = sellPrice(it);
+    p.gold += g;
+    addText(x, y - 20, `自動売却 +${g}`, '#ffcf3a', 13);
+    return true;
+  }
+  if (p.bag.length >= BAG_SIZE) return false;
+  p.bag.push(it);
+  showMsg(byPet ? `${PET_NAME}が ${it.name} を拾ってきた` : `${it.name} を拾った`, RARITY[it.rarity].color);
+  UI.refresh();
+  return true;
 }
 
 function dropItem(it, x, y) {
@@ -366,6 +386,8 @@ function makeEnemy(type, x, y, pack, eliteAffix = null) {
     if (eliteAffix.k === 'armored') e.maxLife *= 1.8;
     if (eliteAffix.k === 'frenzied') e.dmg *= 1.5;
   }
+  const fx = G.modFx || modEffects([]);
+  e.maxLife *= fx.life; e.dmg *= fx.dmg; e.speed *= fx.speed;
   e.life = e.maxLife;
   G.enemies.push(e);
   return e;
@@ -643,8 +665,11 @@ function separateEnemies() {
 // =================== floor setup ===================
 function spawnFloor() {
   Object.assign(G, { enemies: [], projs: [], eprojs: [], particles: [], texts: [], effects: [], hazards: [], tele: [], storms: [], ground: [], golds: [], portal: null, boss: null });
+  G.area = G.area || ATLAS_NODES[0];
+  G.modFx = G.modFx || modEffects([]);
   G.map = new Dungeon(72, 72, G.floor);
-  G.theme = THEMES[Math.floor((G.floor - 1) / 3) % THEMES.length];
+  const ti = nodeTheme(G.area), fx = G.modFx;
+  G.theme = THEMES[ti];
   const p = G.player, m = G.map;
   p.x = m.start.cx * T + T / 2; p.y = m.start.cy * T + T / 2;
   p.dead = false; p.dash = null; p.recalc(true);
@@ -654,6 +679,8 @@ function spawnFloor() {
   let mp = m.randomFloorIn(m.start);
   for (let i = 0; i < 20 && dist2(mp.x, mp.y, p.x, p.y) < 90 * 90; i++) mp = m.randomFloorIn(m.start);
   G.merchant = { x: mp.x, y: mp.y, r: 14, merchant: true };
+  G.pet = { x: p.x - 30, y: p.y + 10, r: 9, pet: true, face: 0, walkT: 0, target: null, scanT: 0, wanderT: 0, home: null, stuckT: 0, ignore: new Set() };
+  if (circleHits(m, G.pet.x, G.pet.y, G.pet.r)) { G.pet.x = p.x; G.pet.y = p.y; }
   if (!G.shop || G.shop.floor !== G.floor) G.shop = genShop();
 
   const f = G.floor;
@@ -665,15 +692,15 @@ function spawnFloor() {
   for (const room of m.rooms) {
     if (room === m.start) continue;
     if (room === m.bossRoom) {
-      const bt = BOSS_ROTATION[Math.floor((f - 1) / 3) % BOSS_ROTATION.length];
+      const bt = BOSS_ROTATION[ti];
       const b = makeEnemy(bt.type, room.cx * T + T / 2, room.cy * T + T / 2, ++packId);
       b.maxLife = b.life = b.maxLife * (1 + 0.12 * (f - 1));
       G.boss = b;
       for (const g of bt.guards) { const q = m.randomFloorIn(room); makeEnemy(g, q.x, q.y, packId); }
       continue;
     }
-    const packs = clamp(Math.round(room.w * room.h / 25), 2, 5);
-    for (let k = 0; k < packs; k++) spawnPack(m.randomFloorIn(room), ++packId, randi(4, 8) + Math.floor(f / 2), pool);
+    const packs = clamp(Math.round(room.w * room.h / 25 * fx.swarm), 2, 7);
+    for (let k = 0; k < packs; k++) spawnPack(m.randomFloorIn(room), ++packId, Math.round((randi(4, 8) + Math.floor(f / 2)) * fx.swarm), pool);
   }
   // ambush packs scattered through corridors, away from the entrance
   for (let k = 0, tries = 0; k < 6 + Math.floor(f / 2) && tries < 300; tries++) {
@@ -686,14 +713,75 @@ function spawnFloor() {
     spawnPack(c, ++packId, randi(3, 5), [{ k: 'imp', w: 2 }, { k: 'ghoul', w: 2 }, { k: 'archer', w: 1 }]);
     k++;
   }
-  showMsg(`深度 ${f} — ${G.theme.name}`, '#e8d8b0');
+  showMsg(`${G.area.name}（エリアLv ${f}）— ${G.theme.name}`, '#e8d8b0');
+  for (const k of G.runMods || []) showMsg(`◆ ${MOD_BY_KEY[k].name}`, '#d88a6a');
   UI.setBoss(null);
   UI.refresh();
 }
 
+// =================== pet ===================
+// a lantern fox that roams around the player and fetches nearby loot
+const PET_NAME = '灯り狐';
+function updatePet(dt) {
+  const pet = G.pet, p = G.player;
+  if (!pet || p.dead) return;
+  const dp = dist(pet.x, pet.y, p.x, p.y);
+  if (dp > 650) {
+    burst(pet.x, pet.y, 12, '#ffd36a', 120, true);
+    pet.x = p.x; pet.y = p.y; pet.target = null;
+    burst(pet.x, pet.y, 12, '#ffd36a', 120, true);
+  }
+  if (pet.target && pet.target.dead) pet.target = null;
+
+  pet.scanT -= dt;
+  if (!pet.target && pet.scanT <= 0) {
+    pet.scanT = 0.3;
+    const bagFull = p.bag.length >= BAG_SIZE;
+    let best = null, bd = Infinity;
+    for (const g of [...G.golds, ...G.ground.filter(g => !bagFull || willAutoSell(g.item))]) {
+      if (pet.ignore.has(g) || dist2(g.x, g.y, p.x, p.y) > 380 * 380) continue;
+      const d = dist2(g.x, g.y, pet.x, pet.y) * (g.item ? 1 : 0.6);
+      if (d < bd && G.map.los(pet.x, pet.y, g.x, g.y)) { bd = d; best = g; }
+    }
+    pet.target = best;
+    pet.stuckT = 0;
+  }
+
+  let tx, ty, sp;
+  if (pet.target) { tx = pet.target.x; ty = pet.target.y; sp = 330; }
+  else {
+    pet.wanderT -= dt;
+    if (pet.wanderT <= 0 || !pet.home) {
+      pet.wanderT = rand(1.2, 2.6);
+      const a = rand(0, TAU), d = rand(40, 110);
+      pet.home = { dx: Math.cos(a) * d, dy: Math.sin(a) * d };
+    }
+    tx = p.x + pet.home.dx; ty = p.y + pet.home.dy;
+    sp = dp > 200 ? 330 : 140;
+  }
+  const dx = tx - pet.x, dy = ty - pet.y, d = Math.hypot(dx, dy);
+  if (d > 4) {
+    const ox = pet.x, oy = pet.y, s = Math.min(d, sp * dt);
+    moveCircle(pet, dx / d * s, dy / d * s);
+    pet.face = Math.atan2(dy, dx); pet.walkT += dt;
+    const moved = Math.abs(pet.x - ox) + Math.abs(pet.y - oy);
+    pet.stuckT = moved < s * 0.3 ? pet.stuckT + dt : 0;
+    if (pet.stuckT > 1) { if (pet.target) pet.ignore.add(pet.target); pet.target = null; pet.home = null; pet.stuckT = 0; }
+  }
+
+  const g = pet.target;
+  if (g && dist2(g.x, g.y, pet.x, pet.y) < 16 * 16) {
+    if (g.item) {
+      if (!pickupItem(g.item, pet.x, pet.y, true)) { pet.target = null; return; }
+    } else p.gold += g.amt;
+    g.dead = true; pet.target = null;
+    burst(pet.x, pet.y, 8, '#ffe8a0', 90, true);
+  }
+}
+
 function spawnPack(c, packId, n, pool) {
   const main = weighted(pool).k;
-  if (Math.random() < 0.13 + G.floor * 0.01) makeEnemy(main, c.x, c.y, packId, pick(ELITE_AFFIXES));
+  if (Math.random() < (0.13 + G.floor * 0.01) * G.modFx.elite) makeEnemy(main, c.x, c.y, packId, pick(ELITE_AFFIXES));
   for (let i = 0; i < n; i++) {
     const type = Math.random() < 0.7 ? main : weighted(pool).k;
     let x = c.x + rand(-60, 60), y = c.y + rand(-60, 60);
@@ -702,17 +790,12 @@ function spawnPack(c, packId, n, pool) {
   }
 }
 
-function nextFloor() {
-  G.floor++;
-  spawnFloor();
-  saveGame();
-}
-
 // =================== world update ===================
 function updateWorld(dt) {
   const p = G.player;
   G.time += dt;
   updatePlayer(dt);
+  updatePet(dt);
 
   G.flowT -= dt;
   if (G.flowT <= 0) { G.flowT = 0.25; G.map.computeFlow(p.x, p.y); }
@@ -802,10 +885,8 @@ function updateWorld(dt) {
     for (const g of G.ground) {
       g.t += dt;
       if (dist2(g.x, g.y, p.x, p.y) < 34 * 34) {
-        if (p.bag.length >= BAG_SIZE) { if (!G.fullT || G.time - G.fullT > 2) { G.fullT = G.time; showMsg('インベントリが一杯です（I）', '#ff8080'); } continue; }
-        p.bag.push(g.item); g.dead = true;
-        showMsg(`${g.item.name} を拾った`, RARITY[g.item.rarity].color);
-        UI.refresh();
+        if (pickupItem(g.item, g.x, g.y)) g.dead = true;
+        else if (!G.fullT || G.time - G.fullT > 2) { G.fullT = G.time; showMsg('インベントリが一杯です（I）', '#ff8080'); }
       }
     }
     G.ground = G.ground.filter(g => !g.dead);
@@ -819,7 +900,7 @@ function updateWorld(dt) {
 
   if (G.portal) {
     G.portal.t += dt;
-    if (!p.dead && dist2(G.portal.x, G.portal.y, p.x, p.y) < 30 * 30) nextFloor();
+    if (!p.dead && dist2(G.portal.x, G.portal.y, p.x, p.y) < 30 * 30) { completeMap(); return; }
   }
 
   G.cam.x += (p.x - G.cam.x) * Math.min(1, dt * 8);
@@ -834,7 +915,7 @@ function saveGame() {
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
       floor: G.floor, level: p.level, xp: p.xp, talentPts: p.talentPts, talents: p.talents,
-      equip: p.equip, bag: p.bag, gold: p.gold, potions: p.potions, slots: p.slots, shop: G.shop,
+      equip: p.equip, bag: p.bag, gold: p.gold, potions: p.potions, slots: p.slots, shop: G.shop, autoSell: p.autoSell, atlas: G.atlas,
     }));
   } catch (e) { /* storage unavailable */ }
 }
@@ -846,6 +927,12 @@ function applySave(d) {
   Object.assign(p, { level: d.level, xp: d.xp, talentPts: d.talentPts, equip: d.equip, bag: d.bag, gold: d.gold, potions: d.potions });
   p.talents = { ...p.talents, ...d.talents };
   if (Array.isArray(d.slots) && d.slots.length === SKILL_SLOTS.length && d.slots.every(id => SKILLS[id])) p.slots = d.slots;
+  if (Array.isArray(d.autoSell) && d.autoSell.length === RARITY.length) p.autoSell = d.autoSell.map(Boolean);
   G.player = p; G.floor = d.floor; G.shop = d.shop || null;
+  if (d.atlas) G.atlas = { ...newAtlas(), ...d.atlas };
+  else { // saves from before the atlas: count earlier depths as cleared
+    G.atlas = newAtlas();
+    G.atlas.cleared = ATLAS_NODES.filter(n => !n.endless && n.level < d.floor).map(n => n.id);
+  }
   p.recalc(true);
 }

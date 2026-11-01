@@ -117,12 +117,13 @@ function render(dt) {
   const ents = G.enemies.filter(e => e.x > ox - 80 && e.x < ox + W + 80 && e.y > oy - 80 && e.y < oy + H + 80);
   ents.push(p);
   if (G.merchant) ents.push(G.merchant);
+  if (G.pet) ents.push(G.pet);
   ents.sort((a, b) => a.y - b.y);
   for (const e of ents) {
     ctx.fillStyle = 'rgba(0,0,0,0.4)';
     ctx.beginPath(); ctx.ellipse(e.x, e.y + e.r * 0.7, e.r * 1.1, e.r * 0.45, 0, 0, TAU); ctx.fill();
   }
-  for (const e of ents) e === p ? drawPlayer(ctx, p) : e.merchant ? drawMerchant(ctx, e) : drawEnemy(ctx, e);
+  for (const e of ents) e === p ? drawPlayer(ctx, p) : e.merchant ? drawMerchant(ctx, e) : e.pet ? drawPet(ctx, e) : drawEnemy(ctx, e);
 
   // walls (drawn after entities so they occlude what stands behind them)
   for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
@@ -160,6 +161,7 @@ function render(dt) {
   for (const t of G.tele) lights.push([t.x, t.y, t.r * 1.2, 0.35]);
   if (G.portal) lights.push([G.portal.x, G.portal.y, 220, 0.9]);
   if (G.merchant) lights.push([G.merchant.x + 14, G.merchant.y - 10, 180, 0.85]);
+  if (G.pet) lights.push([G.pet.x, G.pet.y, 110, 0.6]);
   for (const st of G.storms) lights.push([st.x, st.y, st.r * 1.3, 0.5]);
   for (const g of G.ground) if (g.item.rarity >= 2) lights.push([g.x, g.y, 60, 0.4]);
   for (const [lx, ly, lr, li] of lights) {
@@ -344,6 +346,39 @@ function drawPlayer(ctx, p) {
   ctx.lineTo(x + Math.cos(wa) * 13, y - 4 + Math.sin(wa) * 13);
   ctx.stroke();
   ctx.restore();
+}
+
+function drawPet(ctx, pet) {
+  const moving = pet.target || (pet.home && dist(pet.x, pet.y, G.player.x + pet.home.dx, G.player.y + pet.home.dy) > 6);
+  const hop = moving ? Math.abs(Math.sin(pet.walkT * 16)) * 3 : 0;
+  const x = pet.x, y = pet.y - 4 - hop, f = pet.face, dir = Math.cos(f) >= 0 ? 1 : -1;
+  // tail with a little lantern on its tip
+  const sw = Math.sin(G.time * 5) * 0.4;
+  const tx = x - dir * 14, ty = y - 6 + sw * 6;
+  ctx.strokeStyle = '#e8873a'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x - dir * 5, y); ctx.quadraticCurveTo(x - dir * 14, y + 2, tx, ty); ctx.stroke();
+  ctx.strokeStyle = '#fff3e0'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.moveTo(tx + dir * 2, ty + 2); ctx.lineTo(tx, ty); ctx.stroke();
+  const g = ctx.createRadialGradient(tx, ty - 4, 0, tx, ty - 4, 10);
+  g.addColorStop(0, 'rgba(255,240,170,1)'); g.addColorStop(1, 'rgba(255,170,60,0)');
+  ctx.fillStyle = g; ctx.fillRect(tx - 10, ty - 14, 20, 20);
+  // body
+  ctx.fillStyle = '#e8873a'; ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.ellipse(x, y, 10, 7, 0, 0, TAU); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#fff3e0';
+  ctx.beginPath(); ctx.ellipse(x + dir * 3, y + 3, 5, 3, 0, 0, TAU); ctx.fill();
+  // head and ears
+  const hx = x + dir * 9, hy = y - 6;
+  ctx.fillStyle = '#e8873a';
+  for (const e of [-1, 1]) {
+    ctx.beginPath(); ctx.moveTo(hx + e * 4 - 2, hy - 3); ctx.lineTo(hx + e * 5, hy - 12); ctx.lineTo(hx + e * 6 + 2, hy - 2); ctx.fill();
+  }
+  ctx.beginPath(); ctx.arc(hx, hy, 6.5, 0, TAU); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#fff3e0';
+  ctx.beginPath(); ctx.arc(hx + dir * 3, hy + 2, 3, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#2a1a10';
+  ctx.beginPath(); ctx.arc(hx + dir * 2.5, hy - 1.5, 1.4, 0, TAU); ctx.fill();
+  ctx.beginPath(); ctx.arc(hx + dir * 6, hy + 1.5, 1.2, 0, TAU); ctx.fill();
 }
 
 function drawMerchant(ctx, m) {

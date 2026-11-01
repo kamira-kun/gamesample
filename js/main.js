@@ -4,12 +4,18 @@ let last = performance.now(), saveT = 0;
 function startGame(fromSave) {
   const save = fromSave ? loadSave() : null;
   if (save) applySave(save);
-  else { G.player = new Player(); G.floor = 1; G.shop = null; }
+  else { G.player = new Player(); G.floor = 1; G.shop = null; G.atlas = newAtlas(); }
   UI.buildSkillbar();
   $('title').classList.add('hidden');
-  G.state = 'play';
-  spawnFloor();
-  if (!save) showMsg('WASDで移動、左クリックで斬撃、右クリックでファイアボール', '#e8d8b0');
+  Atlas.show();
+  if (!save) showMsg('遠征図から行き先を選んで出撃しよう', '#e8d8b0');
+}
+
+function panelKeys() {
+  if (Input.pressed.KeyI || Input.pressed.Tab) UI.toggle('inventory');
+  if (Input.pressed.KeyT) UI.toggle('talents');
+  if (Input.pressed.KeyC) UI.toggle('status');
+  if (Input.pressed.KeyK) UI.toggle('skills');
 }
 
 function frame(now) {
@@ -17,16 +23,19 @@ function frame(now) {
   last = now;
   if (G.state === 'play') {
     const p = G.player;
-    if (Input.pressed.KeyI || Input.pressed.Tab) UI.toggle('inventory');
-    if (Input.pressed.KeyT) UI.toggle('talents');
-    if (Input.pressed.KeyC) UI.toggle('status');
-    if (Input.pressed.KeyK) UI.toggle('skills');
+    panelKeys();
     if (Input.pressed.Escape) UI.toggle(UI.open ? UI.open : 'pause');
     if (!UI.open) updateWorld(dt);
-    render(UI.open ? 0 : dt);
-    UI.update();
+    if (G.state === 'play') {
+      render(UI.open ? 0 : dt);
+      UI.update();
+    }
     saveT += dt;
     if (saveT > 20 && !p.dead) { saveT = 0; saveGame(); }
+  } else if (G.state === 'atlas') {
+    panelKeys();
+    if (Input.pressed.Escape && UI.open) UI.toggle(UI.open);
+    Atlas.draw();
   }
   Input.endFrame();
   requestAnimationFrame(frame);
@@ -36,10 +45,11 @@ addEventListener('load', () => {
   Input.init($('game'));
   R.init();
   UI.init();
+  Atlas.init();
   const save = loadSave();
   if (save) {
     $('continueBtn').classList.remove('hidden');
-    $('continueBtn').textContent = `続きから（深度 ${save.floor} / Lv ${save.level}）`;
+    $('continueBtn').textContent = `続きから（Lv ${save.level}）`;
   }
   $('continueBtn').addEventListener('click', () => startGame(true));
   $('newBtn').addEventListener('click', () => {
@@ -53,6 +63,11 @@ addEventListener('load', () => {
     spawnFloor();
     saveGame();
   });
+  $('deathAtlasBtn').addEventListener('click', () => {
+    G.player.xp = Math.floor(G.player.xp * 0.7);
+    abandonMap();
+  });
+  $('abandonBtn').addEventListener('click', () => abandonMap());
   $('quitBtn').addEventListener('click', () => { saveGame(); location.reload(); });
   requestAnimationFrame(frame);
 });

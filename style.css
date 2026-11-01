@@ -133,7 +133,41 @@ canvas#game { position: fixed; inset: 0; display: block; cursor: crosshair; }
   border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 13px; }
 .sbtn:disabled { opacity: .4; cursor: default; }
 .baggrid { display: grid; grid-template-columns: repeat(6, 50px); gap: 4px; }
-.panel { max-width: 96vw; }
+.bulk { display: flex; gap: 6px; margin-top: 10px; }
+.bulk select { background: #0c0a08; color: #e8dcc4; border: 1px solid #6a5434; border-radius: 4px; padding: 4px 6px;
+  font-family: inherit; font-size: 13px; }
+.bulk .sbtn { flex: 1; }
+.autosell { margin-top: 10px; padding-top: 8px; border-top: 1px solid #2e241a; font-size: 12px; }
+.autosell .lbl { color: #b8a888; margin-bottom: 4px; }
+.autosell label { display: inline-flex; align-items: center; gap: 3px; margin-right: 10px; cursor: pointer; }
+.autosell input { accent-color: #c08a2a; margin: 0; }
+.panel { max-width: 96vw; z-index: 30; }
+body.in-atlas #hud, body.in-atlas #topinfo, body.in-atlas #minimap, body.in-atlas #bossbar, body.in-atlas #talentHint { display: none; }
+#messages { z-index: 25; }
+#atlas { position: fixed; inset: 0; z-index: 15; display: flex; flex-direction: column; background: #070504; }
+.atlas-head { display: flex; align-items: center; gap: 18px; padding: 10px 16px; border-bottom: 1px solid #4a3a26;
+  background: linear-gradient(#1a120a, #0c0805); flex-wrap: wrap; }
+.atlas-title { font-family: Georgia, serif; font-size: 24px; color: #ffb35a; letter-spacing: .3em; text-shadow: 0 0 14px rgba(255,120,30,.5); }
+#atlasInfo { flex: 1; font-size: 14px; color: #d8c8a8; }
+#atlasInfo .gold { color: #ffcf3a; }
+.atlas-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.atlas-btns .sbtn { padding: 6px 10px; }
+.atlas-body { flex: 1; display: flex; min-height: 0; }
+#atlasCanvas { flex: 1; min-width: 0; height: 100%; display: block; }
+#atlasDetail { width: 300px; padding: 18px; border-left: 1px solid #4a3a26; background: rgba(16,12,9,.96); overflow: auto; }
+.ad-name { font-size: 22px; letter-spacing: .1em; }
+.ad-sub { font-size: 13px; color: #b8a888; margin: 4px 0 10px; }
+.ad-desc { font-size: 13px; color: #a89878; line-height: 1.7; margin: 0 0 12px; }
+.ad-row { display: flex; justify-content: space-between; font-size: 13px; padding: 4px 0; border-bottom: 1px solid #241c14; }
+.ad-row span { color: #998a70; } .ad-row b { font-weight: normal; }
+#atlasDetail h4 { font-size: 13px; color: #b8a888; font-weight: normal; letter-spacing: .15em; margin: 16px 0 6px; }
+.ad-mod { font-size: 13px; color: #e89a7a; padding: 2px 0; }
+.ad-none { font-size: 13px; color: #6a5e4e; }
+.ad-bonus { font-size: 12px; color: #8fb4ff; margin-top: 6px; }
+#atlasDetail .ad-go { width: 100%; min-width: 0; margin-top: 20px; }
+.ad-go:disabled { opacity: .45; cursor: default; }
+.ad-reroll { width: 100%; margin-top: 8px; }
+@media (max-width: 760px) { .atlas-body { flex-direction: column; } #atlasDetail { width: auto; border-left: 0; border-top: 1px solid #4a3a26; max-height: 45vh; } }
 @media (max-width: 760px) { .inv-body { flex-direction: column; align-items: center; } }
 
 #tooltip { position: fixed; z-index: 50; max-width: 320px; background: rgba(8,6,4,.97); border: 1px solid #7a6040;

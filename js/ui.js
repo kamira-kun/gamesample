@@ -46,7 +46,7 @@ const UI = {
       if (se.last !== v) { se.last = v; se.cd.style.background = `conic-gradient(rgba(0,0,0,.72) ${v}turn, transparent 0)`; }
       se.el.classList.toggle('oom', p.mana < sk.mana);
     }
-    const info = `深度 ${G.floor}　Lv ${p.level}　<span class="gold">● ${p.gold}</span>`;
+    const info = `${G.area ? G.area.name : ''} エリアLv ${G.floor}　Lv ${p.level}　<span class="gold">● ${p.gold}</span>`;
     if (this.lastInfo !== info) { this.lastInfo = info; $('topinfo').innerHTML = info; }
     const pot = `回復薬 <b>${p.potions}</b> <small>[F]</small>`;
     if (this.lastPot !== pot) { this.lastPot = pot; $('potion').innerHTML = pot; }
@@ -170,6 +170,40 @@ const UI = {
       bag.appendChild(el);
     }
     $('shopBagCount').textContent = `${p.bag.length} / ${BAG_SIZE}`;
+    this.renderBulk($('shopBulk'));
+  },
+
+  bulkRarity: 0,
+  renderBulk(el) {
+    const p = G.player, max = this.bulkRarity;
+    const items = p.bag.filter(it => it.rarity <= max);
+    const total = items.reduce((s, it) => s + sellPrice(it), 0);
+    el.innerHTML = `<select>${RARITY.map((r, i) =>
+      `<option value="${i}" style="color:${r.color}"${i === max ? ' selected' : ''}>${r.name}以下</option>`).join('')}</select>
+      <button class="sbtn"${items.length ? '' : ' disabled'}>一括売却（${items.length}点 / ● ${total}）</button>`;
+    const sel = el.querySelector('select');
+    sel.style.color = RARITY[max].color;
+    sel.addEventListener('change', () => { this.bulkRarity = +sel.value; this.refresh(); });
+    el.querySelector('button').addEventListener('click', () => {
+      if (!items.length) return;
+      if (items.some(it => it.rarity === 3) && !confirm(`レジェンドを含む ${items.length} 点を売却します。よろしいですか？`)) return;
+      p.bag = p.bag.filter(it => it.rarity > max);
+      p.gold += total;
+      showMsg(`${RARITY[max].name}以下の ${items.length} 点を売却（${total} ゴールド）`, '#ffcf3a');
+      this.hideTip(); this.refresh();
+    });
+  },
+
+  renderAutoSell(el) {
+    const p = G.player;
+    el.innerHTML = '<div class="lbl">拾った瞬間に自動売却するレアリティ</div>' + RARITY.map((r, i) =>
+      `<label style="color:${r.color}"><input type="checkbox" data-r="${i}"${p.autoSell[i] ? ' checked' : ''}>${r.name}</label>`).join('');
+    el.querySelectorAll('input').forEach(cb => cb.addEventListener('change', () => {
+      const i = +cb.dataset.r;
+      if (cb.checked && i === 3 && !confirm('レジェンドも拾った瞬間に売却されます。よろしいですか？')) { cb.checked = false; return; }
+      p.autoSell[i] = cb.checked;
+      saveGame();
+    }));
   },
 
   sellItem(it) {
@@ -195,7 +229,7 @@ const UI = {
   renderStatus() {
     const p = G.player, s = p.s;
     const row = ([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`;
-    $('charLevel').textContent = `レベル ${p.level}　・　深度 ${G.floor}`;
+    $('charLevel').textContent = `レベル ${p.level}　・　踏破 ${G.atlas.cleared.length}/${ATLAS_NODES.length}`;
     $('charXp').style.width = (p.xp / xpNeed(p.level) * 100) + '%';
     $('charXpText').textContent = `経験値 ${p.xp} / ${xpNeed(p.level)}`;
     $('charRes').innerHTML = `<div style="color:#ff7a6a">ライフ<b>${Math.ceil(p.life)}/${Math.round(s.maxLife)}</b></div>
@@ -320,6 +354,8 @@ const UI = {
     }
     $('stats').innerHTML = this.statRows().map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
     $('bagCount').textContent = `${p.bag.length} / ${BAG_SIZE}`;
+    this.renderBulk($('invBulk'));
+    this.renderAutoSell($('autoSell'));
   },
 
   renderTalents() {

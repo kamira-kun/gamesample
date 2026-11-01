@@ -35,6 +35,8 @@
     <div class="right">
       <div class="sub">所持品 <span id="bagCount"></span></div>
       <div id="bag"></div>
+      <div class="bulk" id="invBulk"></div>
+      <div class="autosell" id="autoSell"></div>
     </div>
   </div>
 </div>
@@ -88,6 +90,7 @@
     <div class="right">
       <div class="sub">所持品 <span id="shopBagCount"></span></div>
       <div id="shopBag" class="baggrid"></div>
+      <div class="bulk" id="shopBulk"></div>
     </div>
   </div>
 </div>
@@ -100,7 +103,26 @@
     <div><b>I / Tab</b> インベントリ</div><div><b>T</b> タレント</div><div><b>C</b> キャラクター</div>
     <div><b>Esc</b> 閉じる／一時停止</div>
   </div>
+  <button id="abandonBtn" class="btn">遠征図に戻る（マップを放棄）</button>
   <button id="quitBtn" class="btn">セーブしてタイトルへ</button>
+</div>
+
+<div id="atlas" class="hidden">
+  <div class="atlas-head">
+    <div class="atlas-title">遠征図</div>
+    <div id="atlasInfo"></div>
+    <div class="atlas-btns">
+      <button class="sbtn" data-open="inventory">所持品 [I]</button>
+      <button class="sbtn" data-open="skills">スキル [K]</button>
+      <button class="sbtn" data-open="talents">タレント [T]</button>
+      <button class="sbtn" data-open="status">キャラ [C]</button>
+      <button class="sbtn" id="atlasTitleBtn">タイトルへ</button>
+    </div>
+  </div>
+  <div class="atlas-body">
+    <canvas id="atlasCanvas"></canvas>
+    <div id="atlasDetail"></div>
+  </div>
 </div>
 
 <div id="tooltip" class="hidden"></div>
@@ -119,14 +141,16 @@
 
 <div id="death" class="overlay hidden">
   <div class="logo dead">力尽きた…</div>
-  <p class="lore">経験値の一部を失い、この深度の入口から再挑戦します。</p>
-  <button id="retryBtn" class="btn">再挑戦する</button>
+  <p class="lore">経験値の一部を失います。</p>
+  <button id="retryBtn" class="btn">このマップに再挑戦する</button>
+  <button id="deathAtlasBtn" class="btn">遠征図に戻る</button>
 </div>
 
 <script src="js/util.js"></script>
 <script src="js/data.js"></script>
 <script src="js/dungeon.js"></script>
 <script src="js/items.js"></script>
+<script src="js/atlas.js"></script>
 <script src="js/game.js"></script>
 <script src="js/render.js"></script>
 <script src="js/ui.js"></script>
