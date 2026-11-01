@@ -81,7 +81,8 @@ function updatePlayer(dt) {
   p.life = Math.min(s.maxLife, p.life + s.lifeRegen * dt);
   p.mana = Math.min(s.maxMana, p.mana + s.manaRegen * dt);
   for (const k in p.cds) if (p.cds[k] > 0) p.cds[k] -= dt;
-  p.actionT -= dt; p.swingT -= dt; p.invuln -= dt; p.hitFlash -= dt;
+  p.actionT -= dt; p.swingT -= dt; p.invuln -= dt; p.hitFlash -= dt; p.chill = (p.chill || 0) - dt;
+  if (p.chill > 0 && Math.random() < 0.3) G.particles.push({ x: p.x + rand(-12, 12), y: p.y + rand(-12, 12), vx: 0, vy: -20, t: 0, max: 0.5, size: 3, color: '#bff4ff', glow: true });
   const wm = worldMouse();
   p.aim = Math.atan2(wm.y - p.y, wm.x - p.x);
 
@@ -91,7 +92,7 @@ function updatePlayer(dt) {
   if (Input.keys.KeyW) my--; if (Input.keys.KeyS) my++;
   if (Input.keys.KeyA) mx--; if (Input.keys.KeyD) mx++;
   if (mx || my) {
-    const l = Math.hypot(mx, my), sp = s.moveSpeed * (p.actionT > 0 ? 0.5 : 1);
+    const l = Math.hypot(mx, my), sp = s.moveSpeed * (p.actionT > 0 ? 0.5 : 1) * (p.chill > 0 ? 0.6 : 1);
     moveCircle(p, mx / l * sp * dt, my / l * sp * dt);
     p.walkT += dt;
   }
@@ -188,7 +189,7 @@ function killEnemy(e) {
   if (e.boss) {
     G.boss = null;
     G.portal = { x: e.x, y: e.y, t: 0 };
-    showMsg('深淵の番人を討伐した！ ポータルが開いた', '#ff9a4a');
+    showMsg(`${e.name}を討伐した！ ポータルが開いた`, '#ff9a4a');
     UI.setBoss(null);
   }
 }
@@ -385,7 +386,6 @@ function updateEnemy(e, dt) {
   if (!e.aggro) {
     if ((d < 380 && e.los) || (e.boss && d < 500 && e.los)) {
       alertPack(e);
-      if (e.boss) { UI.setBoss(e); showMsg(`${e.name} が目覚めた！`, '#ff6040'); }
     } else {
       e.wanderT -= dt;
       if (e.wanderT < 0) { e.wanderT = rand(1.5, 4); e.face = rand(0, TAU); e.wandering = rand(0.3, 0.9); }
@@ -460,9 +460,58 @@ function startAttack(e) {
 
 function updateBoss(e, dt, d) {
   const p = G.player;
+  if (!e.announced) { e.announced = true; UI.setBoss(e); showMsg(`${e.name} が目覚めた！`, '#ff6040'); }
+  if (e.charge) { updateCharge(e, dt); return; }
   const enraged = e.life < e.maxLife * 0.5;
+  if (enraged && !e.enraged) {
+    e.enraged = true;
+    showMsg(`${e.name} が激昂した！`, '#ff6040');
+    burst(e.x, e.y, 50, e.t.color, 300, true);
+    G.shake = Math.max(G.shake, 8);
+  }
   e.actT -= dt;
-  if (e.actT <= 0) {
+  if (e.actT <= 0) { BOSS_AI[e.type](e, d, enraged); return; }
+  if (e.type === 'witch') {
+    // keeps her distance and pelts the player from range
+    const sp = e.speed * (e.slow > 0 ? 0.5 : 1);
+    if (d < 220) moveCircle(e, -(p.x - e.x) / d * sp * dt, -(p.y - e.y) / d * sp * dt);
+    else if (d > 380 || !e.los) chase(e, dt);
+  } else if (d > e.r + p.r + 30) chase(e, dt);
+  else if (e.atkCd <= 0) {
+    e.atkCd = 1.6; e.windup = 0.4;
+    e.pending = () => { if (dist(e.x, e.y, p.x, p.y) < e.r + p.r + 40) damagePlayer(e.dmg); };
+  }
+  e.face = Math.atan2(p.y - e.y, p.x - e.x);
+}
+
+function updateCharge(e, dt) {
+  const p = G.player, c = e.charge;
+  let step = Math.min(c.left, 760 * dt);
+  c.left -= step;
+  while (step > 0) {
+    const s = Math.min(8, step); step -= s;
+    const ox = e.x, oy = e.y;
+    moveCircle(e, c.dx * s, c.dy * s);
+    if (Math.abs(e.x - ox) + Math.abs(e.y - oy) < 0.5) { c.left = 0; break; }
+    c.trail += s;
+    if (c.trail > 45) { c.trail = 0; G.hazards.push({ x: e.x, y: e.y, r: 42, t: 0, max: 2.2, tick: 0.3, hostile: true, dmg: e.dmg * 0.3 }); }
+  }
+  burst(e.x, e.y, 3, '#ff8a3a', 120, true);
+  if (!c.hit && dist(e.x, e.y, p.x, p.y) < e.r + p.r + 6) { c.hit = true; damagePlayer(e.dmg * 1.4); }
+  if (c.left <= 0) {
+    e.charge = null;
+    explosionFx(e.x, e.y, 90, '255,110,40');
+    if (dist(e.x, e.y, p.x, p.y) < 90 + p.r && !c.hit) damagePlayer(e.dmg * 0.8);
+  }
+}
+
+function enemyShot(e, a, speed, dmg, rgb, extra = {}) {
+  G.eprojs.push({ x: e.x, y: e.y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, r: 7, dmg, t: 0, max: 3, rgb, ...extra });
+}
+
+const BOSS_AI = {
+  boss(e, d, enraged) {
+    const p = G.player;
     e.actT = enraged ? 2.2 : 3.0;
     const r = Math.random();
     if (d < 230 && r < 0.45) {
@@ -476,29 +525,100 @@ function updateBoss(e, dt, d) {
       e.windup = 0.7;
       e.pending = () => {
         const n = enraged ? 26 : 18, off = rand(0, TAU);
-        for (let i = 0; i < n; i++) {
-          const a = off + i / n * TAU;
-          G.eprojs.push({ x: e.x, y: e.y, vx: Math.cos(a) * 260, vy: Math.sin(a) * 260, r: 7, dmg: e.dmg * 0.8, t: 0, max: 3, color: '#ff5040' });
-        }
+        for (let i = 0; i < n; i++) enemyShot(e, off + i / n * TAU, 260, e.dmg * 0.8, '255,70,50');
       };
       burst(e.x, e.y, 20, '#ff4030', 200, true);
     } else {
       e.windup = 0.6;
-      e.pending = () => {
-        for (let i = 0; i < (enraged ? 6 : 4); i++) {
-          const a = rand(0, TAU), x = e.x + Math.cos(a) * 70, y = e.y + Math.sin(a) * 70;
-          if (!G.map.solidAt(x, y)) { const m = makeEnemy('imp', x, y, e.pack); m.aggro = true; burst(x, y, 10, '#c4523a', 120, true); }
-        }
-      };
+      e.pending = () => summonAround(e, 'imp', enraged ? 6 : 4, 70);
     }
-    return;
+  },
+
+  colossus(e, d, enraged) {
+    const p = G.player;
+    e.actT = enraged ? 2.0 : 2.8;
+    const r = Math.random();
+    if (r < 0.35 && d > 120) {
+      // telegraphed charge that leaves burning ground behind
+      const a = Math.atan2(p.y - e.y, p.x - e.x), len = Math.min(560, d + 140);
+      e.windup = 0.8;
+      e.pending = () => { e.charge = { dx: Math.cos(a), dy: Math.sin(a), left: len, hit: false, trail: 0 }; };
+      G.tele.push({ x: e.x, y: e.y, r: e.r, t: 0, max: 0.8, hostile: true, onDone: () => {}, line: { a, len, w: e.r * 2 } });
+    } else if (r < 0.7) {
+      // meteor rain around the player
+      const n = enraged ? 8 : 5;
+      for (let i = 0; i < n; i++) {
+        const x = p.x + (i ? rand(-230, 230) : 0), y = p.y + (i ? rand(-230, 230) : 0);
+        addTele(x, y, 75, 1.0 + i * 0.15, true, () => {
+          explosionFx(x, y, 75, '255,110,40');
+          if (dist(x, y, p.x, p.y) < 75 + p.r) damagePlayer(e.dmg * 1.1);
+          G.hazards.push({ x, y, r: 60, t: 0, max: 2.5, tick: 0.4, hostile: true, dmg: e.dmg * 0.3 });
+        });
+      }
+      e.windup = 0.5; e.pending = () => {};
+      burst(e.x, e.y - 30, 30, '#ff7030', 250, true);
+    } else {
+      // eruption: ground slam followed by a ring of fireballs
+      e.windup = 0.9; e.pending = () => {};
+      addTele(e.x, e.y, 165, 0.9, true, () => {
+        if (e.dead) return;
+        explosionFx(e.x, e.y, 165, '255,90,30');
+        if (dist(e.x, e.y, p.x, p.y) < 165 + p.r) damagePlayer(e.dmg * 1.5);
+        const n = enraged ? 16 : 10, off = rand(0, TAU);
+        for (let i = 0; i < n; i++) enemyShot(e, off + i / n * TAU, 300, e.dmg * 0.6, '255,120,40');
+      });
+    }
+  },
+
+  witch(e, d, enraged) {
+    const p = G.player;
+    e.actT = enraged ? 1.7 : 2.4;
+    const r = Math.random();
+    if (r < 0.25) {
+      // blink to a new spot around the player
+      for (let i = 0; i < 25; i++) {
+        const a = rand(0, TAU), dd = rand(230, 330), x = p.x + Math.cos(a) * dd, y = p.y + Math.sin(a) * dd;
+        if (circleHits(G.map, x, y, e.r) || !G.map.los(x, y, p.x, p.y)) continue;
+        burst(e.x, e.y, 30, '#9fe8ff', 220, true);
+        e.x = x; e.y = y;
+        burst(x, y, 30, '#9fe8ff', 220, true);
+        break;
+      }
+      e.actT = 0.6;
+    } else if (r < 0.6) {
+      // fan of chilling ice shards
+      e.windup = 0.5;
+      e.pending = () => {
+        const n = enraged ? 11 : 7, base = Math.atan2(p.y - e.y, p.x - e.x);
+        for (let i = 0; i < n; i++) enemyShot(e, base + (i - (n - 1) / 2) * 0.13, 390, e.dmg * 0.7, '150,230,255', { chill: true, r: 6 });
+      };
+      burst(e.x, e.y, 15, '#bff4ff', 150, true);
+    } else if (r < 0.88) {
+      // frost circles under and around the player
+      const n = enraged ? 5 : 3;
+      for (let i = 0; i < n; i++) {
+        const x = p.x + (i ? rand(-170, 170) : 0), y = p.y + (i ? rand(-170, 170) : 0);
+        addTele(x, y, 90, 1.1, true, () => {
+          explosionFx(x, y, 90, '140,220,255');
+          if (dist(x, y, p.x, p.y) < 90 + p.r) { damagePlayer(e.dmg); p.chill = 2.5; }
+        });
+      }
+      e.windup = 0.4; e.pending = () => {};
+    } else {
+      e.windup = 0.6;
+      e.pending = () => summonAround(e, 'archer', enraged ? 5 : 3, 80);
+    }
+  },
+};
+
+function summonAround(e, type, n, radius) {
+  for (let i = 0; i < n; i++) {
+    const a = rand(0, TAU), x = e.x + Math.cos(a) * radius, y = e.y + Math.sin(a) * radius;
+    if (circleHits(G.map, x, y, ENEMY_TYPES[type].r)) continue;
+    const m = makeEnemy(type, x, y, e.pack);
+    m.aggro = true;
+    burst(x, y, 10, ENEMY_TYPES[type].color, 120, true);
   }
-  if (d > e.r + p.r + 30) chase(e, dt);
-  else if (e.atkCd <= 0) {
-    e.atkCd = 1.6; e.windup = 0.4;
-    e.pending = () => { if (dist(e.x, e.y, p.x, p.y) < e.r + p.r + 40) damagePlayer(e.dmg); };
-  }
-  e.face = Math.atan2(p.y - e.y, p.x - e.x);
 }
 
 function separateEnemies() {
@@ -545,29 +665,41 @@ function spawnFloor() {
   for (const room of m.rooms) {
     if (room === m.start) continue;
     if (room === m.bossRoom) {
-      const b = makeEnemy('boss', room.cx * T + T / 2, room.cy * T + T / 2, ++packId);
+      const bt = BOSS_ROTATION[Math.floor((f - 1) / 3) % BOSS_ROTATION.length];
+      const b = makeEnemy(bt.type, room.cx * T + T / 2, room.cy * T + T / 2, ++packId);
       b.maxLife = b.life = b.maxLife * (1 + 0.12 * (f - 1));
       G.boss = b;
-      for (let i = 0; i < 4; i++) { const q = m.randomFloorIn(room); makeEnemy('ghoul', q.x, q.y, packId); }
+      for (const g of bt.guards) { const q = m.randomFloorIn(room); makeEnemy(g, q.x, q.y, packId); }
       continue;
     }
-    const packs = clamp(Math.round(room.w * room.h / 35), 1, 3);
-    for (let k = 0; k < packs; k++) {
-      const main = weighted(pool).k, c = m.randomFloorIn(room);
-      const n = randi(3, 6) + Math.floor(f / 3);
-      ++packId;
-      if (Math.random() < 0.13 + f * 0.01) makeEnemy(main, c.x, c.y, packId, pick(ELITE_AFFIXES));
-      for (let i = 0; i < n; i++) {
-        const type = Math.random() < 0.7 ? main : weighted(pool).k;
-        let x = c.x + rand(-50, 50), y = c.y + rand(-50, 50);
-        if (circleHits(m, x, y, ENEMY_TYPES[type].r)) { x = c.x; y = c.y; }
-        makeEnemy(type, x, y, packId);
-      }
-    }
+    const packs = clamp(Math.round(room.w * room.h / 25), 2, 5);
+    for (let k = 0; k < packs; k++) spawnPack(m.randomFloorIn(room), ++packId, randi(4, 8) + Math.floor(f / 2), pool);
+  }
+  // ambush packs scattered through corridors, away from the entrance
+  for (let k = 0, tries = 0; k < 6 + Math.floor(f / 2) && tries < 300; tries++) {
+    const tx = randi(1, m.w - 2), ty = randi(1, m.h - 2);
+    if (m.isWall(tx, ty)) continue;
+    const c = { x: tx * T + T / 2, y: ty * T + T / 2 };
+    const br = m.bossRoom;
+    if (dist2(c.x, c.y, p.x, p.y) < 700 * 700) continue;
+    if (tx >= br.x - 2 && tx < br.x + br.w + 2 && ty >= br.y - 2 && ty < br.y + br.h + 2) continue;
+    spawnPack(c, ++packId, randi(3, 5), [{ k: 'imp', w: 2 }, { k: 'ghoul', w: 2 }, { k: 'archer', w: 1 }]);
+    k++;
   }
   showMsg(`深度 ${f} — ${G.theme.name}`, '#e8d8b0');
   UI.setBoss(null);
   UI.refresh();
+}
+
+function spawnPack(c, packId, n, pool) {
+  const main = weighted(pool).k;
+  if (Math.random() < 0.13 + G.floor * 0.01) makeEnemy(main, c.x, c.y, packId, pick(ELITE_AFFIXES));
+  for (let i = 0; i < n; i++) {
+    const type = Math.random() < 0.7 ? main : weighted(pool).k;
+    let x = c.x + rand(-60, 60), y = c.y + rand(-60, 60);
+    if (circleHits(G.map, x, y, ENEMY_TYPES[type].r)) { x = c.x; y = c.y; }
+    makeEnemy(type, x, y, packId);
+  }
 }
 
 function nextFloor() {
@@ -621,7 +753,10 @@ function updateWorld(dt) {
   for (const pr of G.eprojs) {
     pr.t += dt; pr.x += pr.vx * dt; pr.y += pr.vy * dt;
     if (pr.t > pr.max || G.map.solidAt(pr.x, pr.y)) { pr.dead = true; continue; }
-    if (!p.dead && dist2(pr.x, pr.y, p.x, p.y) < (pr.r + p.r) ** 2 && p.invuln <= 0) { pr.dead = true; damagePlayer(pr.dmg); }
+    if (!p.dead && dist2(pr.x, pr.y, p.x, p.y) < (pr.r + p.r) ** 2 && p.invuln <= 0) {
+      pr.dead = true; damagePlayer(pr.dmg);
+      if (pr.chill) p.chill = 2;
+    }
   }
   G.eprojs = G.eprojs.filter(pr => !pr.dead);
 
@@ -631,7 +766,10 @@ function updateWorld(dt) {
   for (const h of G.hazards) {
     h.t += dt; h.tick -= dt;
     if (Math.random() < 0.6) G.particles.push({ x: h.x + rand(-h.r, h.r) * 0.8, y: h.y + rand(-h.r, h.r) * 0.8, vx: 0, vy: -rand(30, 80), t: 0, max: 0.6, size: rand(3, 6), color: pick(['#ff6a20', '#ffb040']), glow: true });
-    if (h.tick <= 0) { h.tick = 0.5; for (const e of enemiesInRadius(h.x, h.y, h.r)) hitEnemy(e, rollDamage(0.35, 'fire', true, 'meteor')); }
+    if (h.tick > 0) continue;
+    h.tick = 0.5;
+    if (h.hostile) { if (dist(h.x, h.y, p.x, p.y) < h.r + p.r * 0.5) damagePlayer(h.dmg); }
+    else for (const e of enemiesInRadius(h.x, h.y, h.r)) hitEnemy(e, rollDamage(0.35, 'fire', true, 'meteor'));
   }
   G.hazards = G.hazards.filter(h => h.t < h.max);
 

@@ -116,7 +116,16 @@ const ENEMY_TYPES = {
   brute: { name: 'ブルート', r: 22, life: 60, dmg: 16, speed: 85, color: '#8a5a9a', atkRange: 40, atkCd: 2.4, windup: 0.75, aoe: 75, xp: 16 },
   shaman: { name: '呪術師', r: 13, life: 16, dmg: 11, speed: 100, color: '#4fb0c0', caster: true, range: 400, atkCd: 3.2, windup: 0.9, xp: 10 },
   boss: { name: '深淵の番人', r: 40, life: 650, dmg: 20, speed: 95, color: '#b03030', boss: true, atkRange: 50, atkCd: 1.6, windup: 0.4, xp: 220 },
+  colossus: { name: '灼熱の巨像', r: 46, life: 820, dmg: 24, speed: 80, color: '#7a3a22', boss: true, atkRange: 55, atkCd: 1.8, windup: 0.5, xp: 260 },
+  witch: { name: '凍嵐の魔女', r: 26, life: 600, dmg: 18, speed: 130, color: '#3a6a9a', boss: true, atkRange: 40, atkCd: 1.5, windup: 0.4, xp: 260 },
 };
+
+// boss changes with the floor theme (every 3 floors)
+const BOSS_ROTATION = [
+  { type: 'boss', guards: ['ghoul', 'ghoul', 'ghoul', 'ghoul'] },
+  { type: 'colossus', guards: ['imp', 'imp', 'imp', 'brute'] },
+  { type: 'witch', guards: ['archer', 'archer', 'shaman', 'shaman'] },
+];
 
 const ELITE_AFFIXES = [
   { k: 'swift', name: '俊足' },

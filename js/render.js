@@ -64,11 +64,20 @@ function render(dt) {
   for (const h of G.hazards) {
     const a = Math.min(1, (h.max - h.t) / 0.5);
     const g = ctx.createRadialGradient(h.x, h.y, 0, h.x, h.y, h.r);
-    g.addColorStop(0, `rgba(255,90,20,${0.45 * a})`); g.addColorStop(1, 'rgba(120,20,0,0)');
+    g.addColorStop(0, h.hostile ? `rgba(255,40,10,${0.55 * a})` : `rgba(255,90,20,${0.45 * a})`); g.addColorStop(1, 'rgba(120,20,0,0)');
     ctx.fillStyle = g; ctx.beginPath(); ctx.arc(h.x, h.y, h.r, 0, TAU); ctx.fill();
+    if (h.hostile) { ctx.strokeStyle = `rgba(255,60,30,${0.5 * a})`; ctx.lineWidth = 1.5; ctx.stroke(); }
   }
   for (const t of G.tele) {
     const k = t.t / t.max, c = t.hostile ? '255,50,40' : '255,150,40';
+    if (t.line) {
+      ctx.save(); ctx.translate(t.x, t.y); ctx.rotate(t.line.a);
+      ctx.fillStyle = `rgba(${c},0.14)`; ctx.fillRect(0, -t.line.w / 2, t.line.len, t.line.w);
+      ctx.strokeStyle = `rgba(${c},0.8)`; ctx.lineWidth = 2; ctx.strokeRect(0, -t.line.w / 2, t.line.len, t.line.w);
+      ctx.fillStyle = `rgba(${c},0.25)`; ctx.fillRect(0, -t.line.w / 2, t.line.len * k, t.line.w);
+      ctx.restore();
+      continue;
+    }
     ctx.strokeStyle = `rgba(${c},0.8)`; ctx.lineWidth = 2;
     ctx.fillStyle = `rgba(${c},0.12)`;
     ctx.beginPath(); ctx.arc(t.x, t.y, t.r, 0, TAU); ctx.fill(); ctx.stroke();
@@ -197,7 +206,7 @@ function render(dt) {
       ctx.beginPath(); ctx.arc(pr.x - Math.cos(pr.a) * 20, pr.y - Math.sin(pr.a) * 20, 26, pr.a - 0.9, pr.a + 0.9); ctx.stroke();
     }
   }
-  for (const pr of G.eprojs) glowBall(ctx, pr.x, pr.y, pr.r * 2, pr.color === '#ff5040' ? '255,70,50' : '230,220,170');
+  for (const pr of G.eprojs) glowBall(ctx, pr.x, pr.y, pr.r * 2, pr.rgb || '230,220,170');
   for (const fx of G.effects) drawEffect(ctx, fx);
   ctx.restore();
 
@@ -313,7 +322,7 @@ function drawPlayer(ctx, p) {
   ctx.lineTo(x + Math.cos(back - 1.3) * 11, y + Math.sin(back - 1.3) * 11 - 4);
   ctx.fill();
   // body
-  ctx.fillStyle = p.hitFlash > 0 ? '#fff' : '#3c4f6e';
+  ctx.fillStyle = p.hitFlash > 0 ? '#fff' : p.chill > 0 ? '#6a9ac8' : '#3c4f6e';
   ctx.strokeStyle = '#0d1018'; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.arc(x, y - 4, p.r, 0, TAU); ctx.fill(); ctx.stroke();
   ctx.fillStyle = '#8a7a5a';
@@ -373,6 +382,8 @@ function drawEnemy(ctx, e) {
   }
   ctx.fillStyle = col; ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 2;
   const f = e.face;
+  if (e.type === 'colossus') { drawColossus(ctx, e, x, y, col); return; }
+  if (e.type === 'witch') { drawWitch(ctx, e, x, y, col); return; }
   if (e.type === 'brute' || e.boss) {
     // horns
     ctx.fillStyle = '#d8ccb0';
@@ -408,6 +419,61 @@ function drawEnemy(ctx, e) {
   for (const s of [-0.45, 0.45]) {
     ctx.beginPath(); ctx.arc(x + Math.cos(f + s) * e.r * 0.6, y + Math.sin(f + s) * e.r * 0.6 - 2, Math.max(1.6, e.r * 0.12), 0, TAU); ctx.fill();
   }
+}
+
+function drawColossus(ctx, e, x, y, col) {
+  const r = e.r, f = e.face, pulse = 0.6 + Math.sin(G.time * 4) * 0.25 + (e.enraged ? 0.3 : 0);
+  // rocky body made of overlapping boulders
+  ctx.fillStyle = col;
+  for (const [ox, oy, s] of [[-0.55, 0.15, 0.55], [0.55, 0.15, 0.55], [0, -0.2, 0.8], [0, 0.35, 0.6]]) {
+    ctx.beginPath(); ctx.arc(x + ox * r, y + oy * r, s * r, 0, TAU); ctx.fill(); ctx.stroke();
+  }
+  // molten cracks
+  ctx.strokeStyle = `rgba(255,${120 + pulse * 60 | 0},40,${pulse})`; ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(x - r * 0.5, y - r * 0.4); ctx.lineTo(x - r * 0.1, y - r * 0.05); ctx.lineTo(x - r * 0.3, y + r * 0.4);
+  ctx.moveTo(x + r * 0.2, y - r * 0.6); ctx.lineTo(x + r * 0.35, y - r * 0.1); ctx.lineTo(x + r * 0.6, y + r * 0.25);
+  ctx.moveTo(x - r * 0.1, y - r * 0.05); ctx.lineTo(x + r * 0.35, y - r * 0.1);
+  ctx.stroke();
+  // fists
+  for (const s of [-1, 1]) {
+    const fx = x + Math.cos(f + s * 1.1) * r * 1.05, fy = y + Math.sin(f + s * 1.1) * r * 1.05;
+    ctx.fillStyle = '#5a2a18'; ctx.beginPath(); ctx.arc(fx, fy, r * 0.32, 0, TAU); ctx.fill(); ctx.stroke();
+  }
+  // burning eyes
+  ctx.fillStyle = '#ffe070';
+  for (const s of [-0.35, 0.35]) {
+    ctx.beginPath(); ctx.arc(x + Math.cos(f + s) * r * 0.45, y - r * 0.25 + Math.sin(f + s) * r * 0.3, 4, 0, TAU); ctx.fill();
+  }
+  if (Math.random() < 0.4) G.particles.push({ x: x + rand(-r, r) * 0.6, y: y - r * 0.4, vx: rand(-10, 10), vy: -rand(30, 70), t: 0, max: 0.7, size: 3, color: '#ff8a30', glow: true });
+}
+
+function drawWitch(ctx, e, x, y, col) {
+  const r = e.r, f = e.face, t = G.time;
+  // orbiting ice crystals
+  for (let i = 0; i < (e.enraged ? 5 : 3); i++) {
+    const a = t * 2 + i / (e.enraged ? 5 : 3) * TAU, cx = x + Math.cos(a) * r * 1.6, cy = y + Math.sin(a) * r * 1.1 - 6;
+    ctx.fillStyle = '#bff4ff';
+    ctx.beginPath(); ctx.moveTo(cx, cy - 8); ctx.lineTo(cx + 4, cy); ctx.lineTo(cx, cy + 8); ctx.lineTo(cx - 4, cy); ctx.fill();
+  }
+  // robe
+  ctx.fillStyle = col; ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x - r, y + r * 0.8); ctx.quadraticCurveTo(x - r * 0.9, y - r * 0.3, x, y - r * 0.5);
+  ctx.quadraticCurveTo(x + r * 0.9, y - r * 0.3, x + r, y + r * 0.8); ctx.closePath(); ctx.fill(); ctx.stroke();
+  // pale face and pointed hood
+  ctx.fillStyle = '#d8e8f0';
+  ctx.beginPath(); ctx.arc(x + Math.cos(f) * 3, y - r * 0.55, r * 0.32, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#22344e';
+  ctx.beginPath(); ctx.moveTo(x - r * 0.5, y - r * 0.55); ctx.lineTo(x + Math.cos(f) * 6, y - r * 1.9); ctx.lineTo(x + r * 0.5, y - r * 0.55); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#7ff0ff';
+  for (const s of [-1, 1]) { ctx.beginPath(); ctx.arc(x + Math.cos(f) * 4 + s * 4, y - r * 0.55, 2, 0, TAU); ctx.fill(); }
+  // staff with a glowing tip
+  const sx = x + Math.cos(f + 0.9) * r, sy = y + Math.sin(f + 0.9) * r * 0.6;
+  ctx.strokeStyle = '#9ab0c0'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(sx, sy + 14); ctx.lineTo(sx, sy - 30); ctx.stroke();
+  ctx.fillStyle = e.windup > 0 ? '#ffffff' : '#9fe8ff';
+  ctx.beginPath(); ctx.arc(sx, sy - 33, 5, 0, TAU); ctx.fill();
 }
 
 function drawMinimap() {
