@@ -36,7 +36,7 @@
       <div class="sub">所持品 <span id="bagCount"></span></div>
       <div id="bag"></div>
       <div class="bulk" id="invBulk"></div>
-      <div class="autosell" id="autoSell"></div>
+      <button class="sbtn filterbtn" data-open="filter">アイテムフィルター設定 [L]</button>
     </div>
   </div>
 </div>
@@ -95,12 +95,21 @@
   </div>
 </div>
 
+<div id="filter" class="panel hidden">
+  <div class="phead">アイテムフィルター <span class="hint">変更はすぐに反映・保存されます</span><button data-close>×</button></div>
+  <h3 class="fh">レアリティごとの扱い</h3>
+  <div id="filterRarity"></div>
+  <h3 class="fh">拾う装備の種類 <small>（チェックを外した種類は非表示。レジェンドは常に対象）</small></h3>
+  <div id="filterSlots"></div>
+  <p class="fnote">拾う：所持品に入れる　／　拾って売却：拾った瞬間にゴールドに換える<br>非表示：地面に落とさず、ドロップした瞬間に自動で売却する</p>
+</div>
+
 <div id="pause" class="panel hidden">
   <div class="phead">一時停止<button data-close>×</button></div>
   <div class="controls">
     <div><b>WASD</b> 移動</div><div><b>左/右クリック</b> スキル</div><div><b>Q E R Space</b> スキル</div>
     <div><b>K</b> スキル付け替え</div><div><b>F</b> 回復薬</div><div><b>B</b> 商人と取引（近くで）</div>
-    <div><b>I / Tab</b> インベントリ</div><div><b>T</b> タレント</div><div><b>C</b> キャラクター</div>
+    <div><b>I / Tab</b> インベントリ</div><div><b>T</b> タレント</div><div><b>C</b> キャラクター</div><div><b>L</b> アイテムフィルター</div>
     <div><b>Esc</b> 閉じる／一時停止</div>
   </div>
   <button id="abandonBtn" class="btn">遠征図に戻る（マップを放棄）</button>
@@ -116,6 +125,7 @@
       <button class="sbtn" data-open="skills">スキル [K]</button>
       <button class="sbtn" data-open="talents">タレント [T]</button>
       <button class="sbtn" data-open="status">キャラ [C]</button>
+      <button class="sbtn" data-open="filter">フィルター [L]</button>
       <button class="sbtn" id="atlasTitleBtn">タイトルへ</button>
     </div>
   </div>

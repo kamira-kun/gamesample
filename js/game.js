@@ -14,7 +14,7 @@ class Player {
     this.level = 1; this.xp = 0; this.talentPts = 0;
     this.talents = Object.fromEntries(TALENTS.map(t => [t.k, 0]));
     this.equip = {}; this.bag = []; this.slots = [...DEFAULT_SLOTS];
-    this.autoSell = [false, false, false, false]; // per rarity: sell the moment it's picked up
+    this.filter = defaultFilter();
     this.gold = 0; this.potions = 3; this.potionProg = 0;
     this.cds = {}; this.actionT = 0; this.swingT = 0; this.aim = 0;
     this.invuln = 0; this.hitFlash = 0; this.walkT = 0; this.dash = null; this.dead = false;
@@ -197,9 +197,38 @@ function killEnemy(e) {
   }
 }
 
-const willAutoSell = it => !!G.player.autoSell[it.rarity];
+// ---- item filter ----
+// per rarity: 'pick' | 'sell' (sold the moment it's picked up) | 'hide' (left on the ground, not shown)
+// unchecked equipment slots are hidden too, except legendaries
+function defaultFilter() {
+  return { rarity: ['pick', 'pick', 'pick', 'pick'], slots: Object.fromEntries(SLOTS.map(s => [s, true])) };
+}
+function itemAction(it) {
+  const f = G.player.filter;
+  if (it.rarity < 3 && !f.slots[it.slot]) return 'hide';
+  return f.rarity[it.rarity];
+}
+const willAutoSell = it => itemAction(it) === 'sell';
+const isHidden = it => itemAction(it) === 'hide';
+
+function collectNearbyLoot(radius) {
+  const p = G.player;
+  let n = 0, gold = 0;
+  for (const g of G.golds) if (dist2(g.x, g.y, p.x, p.y) < radius * radius) { g.dead = true; gold += g.amt; }
+  for (const g of G.ground) {
+    if (isHidden(g.item) || dist2(g.x, g.y, p.x, p.y) > radius * radius) continue;
+    if (!pickupItem(g.item, g.x, g.y, false, true)) continue;
+    g.dead = true; n++;
+  }
+  p.gold += gold;
+  G.golds = G.golds.filter(g => !g.dead);
+  G.ground = G.ground.filter(g => !g.dead);
+  if (n || gold) showMsg(`ポータル周辺のアイテム ${n} 点${gold ? `と ${gold} ゴールド` : ''}を回収した`, '#ffd36a');
+  const left = G.ground.filter(g => !isHidden(g.item) && dist2(g.x, g.y, p.x, p.y) < radius * radius).length;
+  if (left) showMsg(`インベントリが一杯で ${left} 点を拾えなかった`, '#ff8080');
+}
 // returns false when the item can't be taken (bag full)
-function pickupItem(it, x, y, byPet = false) {
+function pickupItem(it, x, y, byPet = false, quiet = false) {
   const p = G.player;
   if (willAutoSell(it)) {
     const g = sellPrice(it);
@@ -209,12 +238,24 @@ function pickupItem(it, x, y, byPet = false) {
   }
   if (p.bag.length >= BAG_SIZE) return false;
   p.bag.push(it);
-  showMsg(byPet ? `${PET_NAME}が ${it.name} を拾ってきた` : `${it.name} を拾った`, RARITY[it.rarity].color);
+  if (!quiet || it.rarity >= 2) showMsg(byPet ? `${PET_NAME}が ${it.name} を拾ってきた` : `${it.name} を拾った`, RARITY[it.rarity].color);
   UI.refresh();
   return true;
 }
 
+// hidden items never touch the ground: they're sold the moment they drop
+function sellHidden(it, x, y) {
+  const g = sellPrice(it);
+  G.player.gold += g;
+  addText(x, y - 10, `+${g}`, '#b8a060', 11);
+}
+function sellHiddenGround() {
+  for (const g of G.ground) if (isHidden(g.item)) { sellHidden(g.item, g.x, g.y); g.dead = true; }
+  G.ground = G.ground.filter(g => !g.dead);
+}
+
 function dropItem(it, x, y) {
+  if (isHidden(it)) { sellHidden(it, x, y); return; }
   const a = rand(0, TAU), d = rand(10, 45);
   let gx = x + Math.cos(a) * d, gy = y + Math.sin(a) * d;
   if (G.map.solidAt(gx, gy)) { gx = x; gy = y; }
@@ -738,7 +779,7 @@ function updatePet(dt) {
     pet.scanT = 0.3;
     const bagFull = p.bag.length >= BAG_SIZE;
     let best = null, bd = Infinity;
-    for (const g of [...G.golds, ...G.ground.filter(g => !bagFull || willAutoSell(g.item))]) {
+    for (const g of [...G.golds, ...G.ground.filter(g => !isHidden(g.item) && (!bagFull || willAutoSell(g.item)))]) {
       if (pet.ignore.has(g) || dist2(g.x, g.y, p.x, p.y) > 380 * 380) continue;
       const d = dist2(g.x, g.y, pet.x, pet.y) * (g.item ? 1 : 0.6);
       if (d < bd && G.map.los(pet.x, pet.y, g.x, g.y)) { bd = d; best = g; }
@@ -884,7 +925,7 @@ function updateWorld(dt) {
   if (!p.dead) {
     for (const g of G.ground) {
       g.t += dt;
-      if (dist2(g.x, g.y, p.x, p.y) < 34 * 34) {
+      if (!isHidden(g.item) && dist2(g.x, g.y, p.x, p.y) < 34 * 34) {
         if (pickupItem(g.item, g.x, g.y)) g.dead = true;
         else if (!G.fullT || G.time - G.fullT > 2) { G.fullT = G.time; showMsg('インベントリが一杯です（I）', '#ff8080'); }
       }
@@ -900,7 +941,7 @@ function updateWorld(dt) {
 
   if (G.portal) {
     G.portal.t += dt;
-    if (!p.dead && dist2(G.portal.x, G.portal.y, p.x, p.y) < 30 * 30) { completeMap(); return; }
+    if (!p.dead && dist2(G.portal.x, G.portal.y, p.x, p.y) < 30 * 30) { collectNearbyLoot(700); completeMap(); return; }
   }
 
   G.cam.x += (p.x - G.cam.x) * Math.min(1, dt * 8);
@@ -915,7 +956,7 @@ function saveGame() {
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
       floor: G.floor, level: p.level, xp: p.xp, talentPts: p.talentPts, talents: p.talents,
-      equip: p.equip, bag: p.bag, gold: p.gold, potions: p.potions, slots: p.slots, shop: G.shop, autoSell: p.autoSell, atlas: G.atlas,
+      equip: p.equip, bag: p.bag, gold: p.gold, potions: p.potions, slots: p.slots, shop: G.shop, filter: p.filter, atlas: G.atlas,
     }));
   } catch (e) { /* storage unavailable */ }
 }
@@ -927,7 +968,8 @@ function applySave(d) {
   Object.assign(p, { level: d.level, xp: d.xp, talentPts: d.talentPts, equip: d.equip, bag: d.bag, gold: d.gold, potions: d.potions });
   p.talents = { ...p.talents, ...d.talents };
   if (Array.isArray(d.slots) && d.slots.length === SKILL_SLOTS.length && d.slots.every(id => SKILLS[id])) p.slots = d.slots;
-  if (Array.isArray(d.autoSell) && d.autoSell.length === RARITY.length) p.autoSell = d.autoSell.map(Boolean);
+  if (d.filter && Array.isArray(d.filter.rarity)) p.filter = { rarity: d.filter.rarity, slots: { ...defaultFilter().slots, ...d.filter.slots } };
+  else if (Array.isArray(d.autoSell)) p.filter.rarity = d.autoSell.map(s => (s ? 'sell' : 'pick')); // older auto-sell setting
   G.player = p; G.floor = d.floor; G.shop = d.shop || null;
   if (d.atlas) G.atlas = { ...newAtlas(), ...d.atlas };
   else { // saves from before the atlas: count earlier depths as cleared

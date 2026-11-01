@@ -21,10 +21,11 @@ const UI = {
     });
     this.initPortrait();
     document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => this.toggle(null)));
+    document.querySelectorAll('.panel [data-open]').forEach(b => b.addEventListener('click', () => this.toggle(b.dataset.open)));
   },
 
   toggle(name) {
-    for (const n of ['inventory', 'talents', 'status', 'skills', 'shop', 'pause']) $(n).classList.toggle('hidden', n !== name || this.open === name);
+    for (const n of ['inventory', 'talents', 'status', 'skills', 'shop', 'filter', 'pause']) $(n).classList.toggle('hidden', n !== name || this.open === name);
     this.open = this.open === name ? null : name;
     this.hideTip();
     Input.mdown = [false, false, false];
@@ -66,6 +67,7 @@ const UI = {
     if (this.open === 'status') this.renderStatus();
     if (this.open === 'skills') this.renderSkills();
     if (this.open === 'shop') this.renderShop();
+    if (this.open === 'filter') this.renderFilter();
   },
 
   buildSkillbar() {
@@ -194,16 +196,35 @@ const UI = {
     });
   },
 
-  renderAutoSell(el) {
-    const p = G.player;
-    el.innerHTML = '<div class="lbl">拾った瞬間に自動売却するレアリティ</div>' + RARITY.map((r, i) =>
-      `<label style="color:${r.color}"><input type="checkbox" data-r="${i}"${p.autoSell[i] ? ' checked' : ''}>${r.name}</label>`).join('');
-    el.querySelectorAll('input').forEach(cb => cb.addEventListener('change', () => {
-      const i = +cb.dataset.r;
-      if (cb.checked && i === 3 && !confirm('レジェンドも拾った瞬間に売却されます。よろしいですか？')) { cb.checked = false; return; }
-      p.autoSell[i] = cb.checked;
-      saveGame();
+  renderFilter() {
+    const f = G.player.filter;
+    const opts = [['pick', '拾う'], ['sell', '拾って売却'], ['hide', '非表示（即売却）']];
+    const rows = $('filterRarity');
+    rows.innerHTML = '';
+    RARITY.forEach((r, i) => {
+      const row = document.createElement('div');
+      row.className = 'frow';
+      row.innerHTML = `<div style="color:${r.color}">${r.name}</div><div class="seg">${opts.map(([v, label]) =>
+        `<button data-v="${v}" class="${f.rarity[i] === v ? 'on' : ''} ${v}">${label}</button>`).join('')}</div>`;
+      row.querySelectorAll('button').forEach(b => b.addEventListener('click', () => {
+        const v = b.dataset.v;
+        if (i === 3 && v !== 'pick' && !confirm('レジェンドも自動で売却されるようになります。よろしいですか？')) return;
+        f.rarity[i] = v;
+        this.filterChanged();
+      }));
+      rows.appendChild(row);
+    });
+    const slots = $('filterSlots');
+    slots.innerHTML = SLOTS.map(s => `<label><input type="checkbox" data-s="${s}"${f.slots[s] ? ' checked' : ''}>${SLOT_INFO[s].name}</label>`).join('');
+    slots.querySelectorAll('input').forEach(cb => cb.addEventListener('change', () => {
+      f.slots[cb.dataset.s] = cb.checked;
+      this.filterChanged();
     }));
+  },
+  filterChanged() {
+    if (G.state === 'play') sellHiddenGround();
+    saveGame();
+    this.refresh();
   },
 
   sellItem(it) {
@@ -355,7 +376,6 @@ const UI = {
     $('stats').innerHTML = this.statRows().map(([k, v]) => `<div><span>${k}</span><b>${v}</b></div>`).join('');
     $('bagCount').textContent = `${p.bag.length} / ${BAG_SIZE}`;
     this.renderBulk($('invBulk'));
-    this.renderAutoSell($('autoSell'));
   },
 
   renderTalents() {
