@@ -39,11 +39,16 @@ static func generate(ilvl: int, boost := 0.0, force_rarity := -1, force_slot := 
 		it.aps = base.aps
 	if base.has("armor"):
 		it.armor = roundi(base.armor * (1.0 + ilvl * 0.2))
-	add_affixes(it, randi_range(Data.RARITY[rarity].aff[0], Data.RARITY[rarity].aff[1]))
+	if legend.has("mods"):
+		for k in legend.mods:
+			it.mods[k] = roll_fixed(it, k, legend.mods[k])
+	else:
+		add_affixes(it, randi_range(Data.RARITY[rarity].aff[0], Data.RARITY[rarity].aff[1]))
 	if rarity == 3:
 		it.name = legend.name
-		it.effect = legend.effect
-		it.desc = legend.desc
+		for k in ["effect", "desc", "flavor"]:
+			if legend.has(k):
+				it[k] = legend[k]
 	else:
 		name_item(it)
 	return it
@@ -52,6 +57,12 @@ static func generate(ilvl: int, boost := 0.0, force_rarity := -1, force_slot := 
 static func roll_value(it: Dictionary, a: Dictionary) -> int:
 	var v: float = (a.min + randf() * (a.max - a.min)) * (1.0 + it.ilvl * a.sc) * (1.2 if it.rarity == 3 else 1.0)
 	return maxi(1, roundi(v))
+
+
+## a unique's own stat line: its [min, max] (negative for a drawback) grown with item level like the affix
+static func roll_fixed(it: Dictionary, k: String, r: Array) -> int:
+	var v: float = (r[0] + randf() * (r[1] - r[0])) * (1.0 + it.ilvl * Data.affix(k).sc)
+	return roundi(v) if roundi(v) != 0 else signi(r[0])
 
 
 static func add_affixes(it: Dictionary, n: int) -> void:
@@ -109,8 +120,9 @@ static func craft(k: String, it: Dictionary) -> String:
 			name_item(it)
 		"divine":
 			if affix_count(it) == 0: return "オプションのあるアイテムにのみ使えます"
+			var fixed: Dictionary = Data.legend(it.name).get("mods", {}) if r == 3 else {}
 			for key in it.mods.keys():
-				it.mods[key] = roll_value(it, Data.affix(key))
+				it.mods[key] = roll_fixed(it, key, fixed[key]) if fixed.has(key) else roll_value(it, Data.affix(key))
 		_:
 			return "このカレンシーはアイテムに使えません"
 	return ""
@@ -169,9 +181,12 @@ static func lines(it: Dictionary) -> Array:
 	for k in it.implicit:
 		out.append([Data.affix(k).fmt % it.implicit[k], Color("#b8b0a0"), 14])
 	for k in it.mods:
-		out.append([Data.affix(k).fmt % it.mods[k], Color("#8fb4ff"), 14])
+		var v: int = it.mods[k]
+		out.append([(Data.affix(k).fmt % v).replace("+-", "-"), Color("#8fb4ff") if v >= 0 else Color("#ff7a6a"), 14])
 	if it.has("desc"):
 		out.append([it.desc, Color("#ff9a4a"), 14])
+	if it.has("flavor"):
+		out.append([it.flavor, Color("#a08a6a"), 12])
 	return out
 
 

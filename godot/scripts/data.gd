@@ -555,17 +555,22 @@ const AFFIXES := [
 	{"k": "life_on_kill", "fmt": "撃破時ライフ +%d", "word": "貪欲な", "min": 2, "max": 5, "sc": 0.12, "slots": ["weapon", "gloves", "ring"]},
 	{"k": "cdr", "fmt": "移動スキルのクールダウン短縮 +%d%%", "word": "時を刻む", "min": 3, "max": 7, "sc": 0.0, "slots": ["helm", "amulet"]},
 	{"k": "energy", "fmt": "エネルギー上限 +%d", "word": "共鳴する", "min": 1, "max": 2, "sc": 0.05, "slots": ["helm", "amulet", "ring"]},
+	# never rolled as affixes (no slots); only uniques carry these
+	{"k": "atk_dmg", "fmt": "攻撃ダメージ +%d%%", "word": "武闘の", "min": 8, "max": 16, "sc": 0.07, "slots": []},
+	{"k": "ally_dmg", "fmt": "ミニオン・トーテムのダメージ +%d%%", "word": "従える", "min": 10, "max": 20, "sc": 0.07, "slots": []},
+	{"k": "ally_life", "fmt": "ミニオン・トーテムのライフ +%d%%", "word": "護る", "min": 10, "max": 20, "sc": 0.05, "slots": []},
 ]
 
-const LEGENDARY := [
-	{"name": "灰燼の王冠", "slot": "helm", "base": 1, "effect": "fireball_multi", "desc": "ファイアボールが3方向に放たれる"},
-	{"name": "霜纏いの足跡", "slot": "boots", "base": 0, "effect": "dash_nova", "desc": "シャドウダッシュの終点でフロストノヴァが発動する"},
-	{"name": "嵐呼びの指輪", "slot": "ring", "base": 2, "effect": "chain_plus", "desc": "チェインライトニングの連鎖数 +4"},
-	{"name": "処刑人の大剣", "slot": "weapon", "base": 1, "effect": "slash_wave", "desc": "斬撃が貫通する衝撃波を放つ"},
-	{"name": "血盟の首飾り", "slot": "amulet", "base": 0, "effect": "kill_heal", "desc": "敵を倒すと最大ライフの3%を回復する"},
-	{"name": "流星の籠手", "slot": "gloves", "base": 1, "effect": "meteor_shower", "desc": "メテオが追加で2つ降り注ぐ"},
-	{"name": "不屈の胸当て", "slot": "armor", "base": 2, "effect": "nova_on_hit", "desc": "被弾時20%の確率でフロストノヴァが発動する"},
-]
+# the 1000 uniques live in uniques.gd; legendary rarity drops one of them
+const LEGENDARY := Uniques.LIST
+static var _legend_by_name := {}
+
+
+static func legend(name: String) -> Dictionary:
+	if _legend_by_name.is_empty():
+		for l in LEGENDARY:
+			_legend_by_name[l.name] = l
+	return _legend_by_name.get(name, {})
 
 const RARE_A := ["災厄", "黄昏", "血染め", "嵐", "亡霊", "灰", "深淵", "黒鉄", "緋色", "月影", "残光", "骸"]
 const RARE_B := ["の牙", "の囁き", "の誓約", "の棘", "の鎖", "の祈り", "の咆哮", "の残響", "の印", "の爪"]

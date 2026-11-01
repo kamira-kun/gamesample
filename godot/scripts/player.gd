@@ -139,6 +139,27 @@ func recalc(full := false) -> void:
 	st.crit_multi += tl.precision * 8
 	if effects.has("chant_power"):
 		st.spell_dmg += st.cast_spd
+	# unique-item keystones that reshape the stats above
+	if effects.has("swift_blade"):
+		st.atk_spd += st.move_spd
+	if effects.has("spell_blade"):
+		st.atk_dmg += st.spell_dmg
+	if effects.has("elem_unity"):
+		var top: float = maxf(st.fire_dmg, maxf(st.cold_dmg, st.light_dmg))
+		st.fire_dmg = top
+		st.cold_dmg = top
+		st.light_dmg = top
+	if effects.has("armor_life"):
+		st.max_life += st.armor * 0.2
+	if effects.has("life_to_mana"):
+		st.max_mana += st.max_life * 0.2
+		st.max_life *= 0.8
+	if effects.has("no_crit"):
+		st.crit = 0.0
+		st.inc_dmg += 45
+	# stacked unique drawbacks must never empty the pools
+	st.max_life = maxf(1.0, st.max_life)
+	st.max_mana = maxf(1.0, st.max_mana)
 	st.move_speed = 8.5 * (1.0 + st.move_spd / 100.0)
 	st.attack_rate = st.aps * (1.0 + st.atk_spd / 100.0)
 	st.dr = minf(0.75, st.armor / (st.armor + 60.0 + L * 10.0))
