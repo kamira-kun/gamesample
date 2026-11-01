@@ -87,14 +87,27 @@ func _ready() -> void:
 		var got := Profiles.take_stash_cur(league(), player.cur)
 		if got > 0:
 			hud.message("スタッシュに戻っていた通貨 %d 個を受け取った" % got, Color("#e8d8b0"))
+		market_notes()   # left over if the game closed before they were shown
 	else:
 		hud.message("WASDで移動、左クリックで斬撃、右クリックでファイアボール", Color("#e8d8b0"))
 	hud.message("I：インベントリ　K：スキル　T：タレント　U：アセンダンシー　C：ステータス　L：フィルタ　P：遠征パッシブ", Color("#b8a888"))
 	for x in args:
 		if x.begins_with("--view="):
 			var kind: String = x.trim_prefix("--view=")
-			if kind in ["merchant", "device", "stash"]:
+			if kind == "exchange":   # a few market days in, with an order out and a limit sell being set up
+				player.cur.ember = 2000
+				player.cur.chaos = 40
+				player.cur.divine = 9
+				for i in 64:
+					Market.tick(league(), {})
+				Market.place_limit(league(), "divine", "sell", Market.price(league(), "divine") * 1.1, 6, player.cur)
+				Market.take_notes(league())
+				hud.exchange_ui.side = "sell"
+				hud.exchange_ui.mode = "limit"
+			if kind in ["merchant", "device", "stash", "exchange"]:
 				open_interact(kind)
+			if kind == "exchange":
+				hud.exchange_ui.select("divine")
 			elif kind == "skills":
 				player.level = 6
 				player.gems.append_array(["multi", "totem"])
@@ -281,6 +294,55 @@ func _smoke_market() -> void:
 	Profiles.data = Profiles.fresh()
 
 
+## the merchant's currency prices follow the exchange, and the exchange screen trades (docs/economy-design.md sections 4 and 7)
+func _smoke_exchange() -> void:
+	var p := player
+	var lg := league()
+	var chaos_cost := Items.currency_price(Data.currency("chaos"), lg)
+	var whet_ok := Items.currency_price(Data.currency("whet"), lg) == roundi(Market.price(lg, "whet") * 250 * Items.discount)
+	var d0 := Items.discount
+	Items.discount = 0.9
+	var haggled := Items.currency_price(Data.currency("chaos"), lg)
+	Items.discount = d0
+	print("SMOKE merchant chaos=%d want=%d haggled=%d whet_ok=%s" % [chaos_cost, roundi(250 * d0), haggled, whet_ok])
+	p.cur.ember = 2000
+	p.cur.chaos = 30
+	p.cur.whet = 0
+	open_interact("exchange")
+	await get_tree().create_timer(0.3).timeout
+	var ex := hud.exchange_ui
+	print("SMOKE exchange open=%s rows=%d board=%d orders_box=%d" % [ex.visible, ex.price_grid.get_child_count() / 4 - 1,
+		ex.board_box.get_child_count(), ex.order_box.get_child_count()])
+	ex.select("whet")
+	ex.side = "buy"
+	ex.mode = "market"
+	ex.qty.value = 3
+	var quoted := Market.quote(lg, "whet", "buy", 3)
+	ex.execute()
+	print("SMOKE exchange market buy whet=%d chaos=%d paid=%d err='%s'" % [p.cur.whet, p.cur.chaos, 30 - p.cur.chaos, ex.error.text])
+	print("SMOKE exchange quote_matches=%s" % (30 - p.cur.chaos == quoted.chaos))
+	ex.qty.value = 500
+	ex.execute()
+	print("SMOKE exchange refused err=%s whet=%d" % [ex.error.text != "", p.cur.whet])
+	ex.side = "sell"
+	ex.mode = "limit"
+	ex.qty.value = 2
+	ex.limit.value = snappedf(Market.price(lg, "whet") * 1.1, 0.01)
+	ex.refresh()
+	var est_lines := ex.est_box.get_children().map(func(l): return l.text)
+	ex.execute()
+	var orders := Market.orders(lg)
+	print("SMOKE exchange limit placed=%d whet=%d rows=%d est=%s" % [orders.size(), p.cur.whet, ex.order_box.get_child_count(),
+		est_lines.any(func(t): return "ティックで成立しそう" in t)])
+	ex.cancel(orders[0].id if orders.size() > 0 else -1)
+	print("SMOKE exchange cancelled orders=%d whet=%d" % [Market.orders(lg).size(), p.cur.whet])
+	hud.close_panels()
+	Market.state(lg).pending.append("テスト通知")
+	var msgs0 := hud.messages.get_child_count()
+	market_notes()
+	print("SMOKE exchange notes shown=%s left=%d" % [hud.messages.get_child_count() > msgs0 or msgs0 >= 5, Market.state(lg).pending.size()])
+
+
 ## automated run used during development: `godot -- --smoke`
 func _smoke_test() -> void:
 	var p := player
@@ -294,13 +356,14 @@ func _smoke_test() -> void:
 	var pots := p.potions
 	hud.shop_ui._buy(shop.items[0])
 	hud.shop_ui._buy_potion()
-	hud.shop_ui._buy_currency("chaos", Items.currency_price(Data.currency("chaos")))
+	hud.shop_ui._buy_currency("chaos", Items.currency_price(Data.currency("chaos"), league()))
 	print("SMOKE bought bag=%d stock=%d potions+%d chaos=%d ember=%d" % [p.bag.size(), shop.items.size(), p.potions - pots, p.cur.chaos, p.cur.ember])
 	hud.shop_ui._buy_gem("leech")
 	print("SMOKE shop gem gems=%s" % [p.gems])
 	hud.shop_ui._sell(0)
 	print("SMOKE shop sold bag=%d" % p.bag.size())
 	hud.close_panels()
+	await _smoke_exchange()
 	_smoke_seasons()
 	_smoke_market()
 	open_interact("device")
@@ -633,6 +696,7 @@ func enter_hideout() -> void:
 	interacts.append({"kind": "device", "name": "遠征図の祭壇", "pos": c + Vector2(0, -2.5 * T), "r": 1.6})
 	interacts.append({"kind": "merchant", "name": "商人", "pos": c + Vector2(-4 * T, 0), "r": 1.0})
 	interacts.append({"kind": "stash", "name": "スタッシュ", "pos": map.tile_center(r.x + r.w - 1, r.y + 6), "r": 1.0})
+	interacts.append({"kind": "exchange", "name": "取引所", "pos": map.tile_center(r.x + 3, r.y), "r": 1.2})
 	_build_device(interacts[0].pos)
 	var merchant := Actor.new()
 	merchant.pos = interacts[1].pos
@@ -723,6 +787,8 @@ func open_interact(kind: String) -> void:
 		hud.shop_ui.open_close()
 	elif kind == "stash":
 		hud.stash_ui.open_close()
+	elif kind == "exchange":
+		hud.exchange_ui.open_close()
 	else:
 		hud.atlas_ui.open_close()
 
@@ -751,12 +817,17 @@ func complete_map() -> void:
 	Market.tick(league(), player.cur)   # one market tick per map completed
 	enter_hideout()
 	hud.message("%s を踏破した！" % n.name, Color("#ffd36a"))
-	for line in Market.take_notes(league()):
-		hud.message(line, Color("#c070ff"))
+	market_notes()
 	if not newly.is_empty():
 		hud.message("新たな地点が開放：%s" % "、".join(newly), Color("#e8d8b0"))
 	if n.get("endless", false):
 		hud.message("残り火の深淵が Lv %d に深まった" % atlas.node_level(n), Color("#b48cff"))
+
+
+## what the exchange did while the player was away (fills, expired orders, the notice board), once each
+func market_notes() -> void:
+	for line in Market.take_notes(league()):
+		hud.message(line, Color("#c070ff"))
 
 
 func abandon_map() -> void:

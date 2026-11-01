@@ -133,6 +133,7 @@ static func sell_price(it: Dictionary) -> int:
 
 
 # =================== merchant ===================
+const EMBER_PER_CHAOS := 250
 static var discount := 1.0     # from the "merchant's favor" atlas passive
 
 
@@ -148,8 +149,9 @@ static func reroll_price(level: int) -> int:
 	return 25 + level * 15
 
 
-static func currency_price(c: Dictionary) -> int:
-	return roundi(c.value * 4 * discount)
+## the merchant's fixed currency price, the ceiling over the exchange: 250 ember a chaos at the league's rates
+static func currency_price(c: Dictionary, league: String) -> int:
+	return roundi(Market.price(league, c.k) * EMBER_PER_CHAOS * discount)
 
 
 static func gem_price() -> int:
