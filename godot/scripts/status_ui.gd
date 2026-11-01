@@ -91,6 +91,7 @@ func refresh() -> void:
 	_row(stats, "タレントポイント", str(p.talent_pts), Color("#ffe27a"))
 	var a := Data.ascendancy(p.asc)
 	_row(stats, "アセンダンシー", "%s（残り %d）" % [a.name, p.asc_free()] if not a.is_empty() else "未選択 [U]", a.get("color", Color("#776a58")))
+	_row(stats, "エネルギー", "%d / %d" % [p.energy_used(), p.energy_max()], Data.GEM_COLOR)
 	clear(gear)
 	for slot in Data.SLOTS:
 		var it: Dictionary = p.equip.get(slot, {})

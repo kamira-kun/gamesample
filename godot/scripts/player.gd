@@ -94,7 +94,7 @@ func recalc(full := false) -> void:
 		"dmg_min": 2.0 + L, "dmg_max": 4.0 + L * 2, "aps": 1.3, "crit": 5.0, "crit_multi": 150.0,
 		"inc_dmg": 0, "flat_dmg": 0, "atk_spd": 0, "cast_spd": 0, "move_spd": 0, "armor": 0, "fire_dmg": 0, "cold_dmg": 0,
 		"light_dmg": 0, "spell_dmg": 0, "life_on_kill": 0, "cdr": 0, "life": 0, "mana": 0,
-		"atk_dmg": 0, "ally_dmg": 0, "ally_life": 0,
+		"atk_dmg": 0, "ally_dmg": 0, "ally_life": 0, "energy": 0,
 	}
 	effects = {}
 	for slot in equip:
@@ -138,6 +138,35 @@ func recalc(full := false) -> void:
 	s = st
 	life = s.max_life if full else s.max_life * old_l
 	mana = s.max_mana if full else s.max_mana * old_m
+
+
+# ---- support gem energy ----
+func energy_max() -> int:
+	return Data.energy_base(level) + int(s.get("energy", 0))
+
+
+func energy_used() -> int:
+	var n := 0
+	for l in links:
+		for gid in l:
+			n += Data.support(gid).get("energy", 0)
+	return n
+
+
+## the gems of slot `i` the pool still powers: slots draw in bar order, so if gear that raised
+## the pool comes off, the last links on the bar go dark first
+func active_links(i: int) -> Array:
+	var left := energy_max()
+	for j in links.size():
+		var on := []
+		for gid in links[j]:
+			var e: int = Data.support(gid).get("energy", 0)
+			if e <= left:
+				left -= e
+				on.append(gid)
+		if j == i:
+			return on
+	return []
 
 
 # ---- ascendancy ----

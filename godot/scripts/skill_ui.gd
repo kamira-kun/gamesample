@@ -155,14 +155,14 @@ static func gem_tip(g: Dictionary) -> Array:
 		target += "（%sを除く）" % Data.tag_text(g.not)
 	if g.has("need"):
 		target += "\n%sスキルのみ" %"・".join(PackedStringArray(g.need.map(func(k): return Data.NEED_NAMES[k])))
-	return [[g.name, g.color, 17], ["サポートジェム", Color("#9a9080"), 12], [g.desc, Color("#dddddd"), 13], [target, Color("#8fb4ff"), 12]]
+	return [[g.name, g.color, 17], ["サポートジェム　エネルギー消費 %d" % g.energy, Color("#9a9080"), 12], [g.desc, Color("#dddddd"), 13], [target, Color("#8fb4ff"), 12]]
 
 
 func refresh() -> void:
 	if not visible:
 		return
 	var p: Player = hud.main.player
-	var sockets := Data.link_sockets(p.level)
+	var e_left := p.energy_max() - p.energy_used()
 	for c in slot_row.get_children():
 		c.free()
 	for c in skill_grid.get_children():
@@ -195,24 +195,28 @@ func refresh() -> void:
 		_hover(b, skill_tip(id, i))
 		card.add_child(b)
 		var socks := HBoxContainer.new()
-		socks.add_theme_constant_override("separation", 4)
+		socks.add_theme_constant_override("separation", 2)
 		socks.alignment = BoxContainer.ALIGNMENT_CENTER
 		card.add_child(socks)
 		var links: Array = p.links[i]
+		var powered := p.active_links(i)
 		for k in Data.LINK_MAX:
 			var gid: String = links[k] if k < links.size() else ""
 			var g := Data.support(gid)
-			var locked := k >= sockets
 			var fits := not g.is_empty() and Data.support_fits(g, id)
+			var dark := not g.is_empty() and not gid in powered
 			var bg: Color = g.color.darkened(0.2) if not g.is_empty() else Color("#0c0a08")
-			var s := card("✕" if not g.is_empty() and not fits else "", bg, Color("#ff5050") if not g.is_empty() and not fits else Color("#5a4a34"), Color.WHITE)
-			s.custom_minimum_size = Vector2(22, 22)
+			var s := card("✕" if not g.is_empty() and not fits else ("!" if dark else ""), bg,
+				Color("#ff5050") if not g.is_empty() and (not fits or dark) else Color("#5a4a34"), Color.WHITE)
+			s.custom_minimum_size = Vector2(18, 20)
+			s.add_theme_font_size_override("font_size", 11)
 			s.alignment = HORIZONTAL_ALIGNMENT_CENTER
-			if locked:
-				s.modulate = Color(1, 1, 1, 0.3)
-				_hover(s, [["Lv %d で開放" % [1, 5, 10][k], Color("#9a9080"), 13]])
-			elif not g.is_empty():
+			if dark:
+				s.modulate = Color(1, 1, 1, 0.45)
+			if not g.is_empty():
 				var tip := gem_tip(g)
+				if dark:
+					tip.append(["エネルギー不足で無効", Color("#ff8080"), 12])
 				tip.append(["クリックで外す" + ("" if fits else "（このスキルには無効）"), Color("#ffd36a"), 12])
 				_hover(s, tip)
 				s.pressed.connect(func():
@@ -238,7 +242,8 @@ func refresh() -> void:
 
 	var sel_id: String = p.slots[sel]
 	var sel_links: Array = p.links[sel]
-	gem_hint.text = "「%s」に%d個までリンクできます（Lv5・Lv10でソケット追加）" % [Data.SKILLS[sel_id].name, sockets]
+	gem_hint.text = "エネルギー %d / %d（残り %d）　「%s」にリンク %d / %d\nジェムごとにエネルギーを消費。上限はレベルと装備で増える" % [
+		p.energy_used(), p.energy_max(), e_left, Data.SKILLS[sel_id].name, sel_links.size(), Data.LINK_MAX]
 	# gems owned come first
 	var gems: Array = Data.SUPPORTS.filter(func(g): return g.id in p.gems) + Data.SUPPORTS.filter(func(g): return not g.id in p.gems)
 	for g in gems:
@@ -248,6 +253,7 @@ func refresh() -> void:
 			continue
 		var linked: bool = g.id in sel_links
 		var tag := "未入手" if not owned else ("リンク中" if linked else ("" if fits else "対象外"))
+		tag = "✦%d　%s" % [g.energy, tag]
 		var font: Color = g.color if owned and fits else g.color.darkened(0.6)
 		var b := card("◇ %s　%s" % [g.name, tag], Color("#1c2a1c") if linked else Color("#120e0a"), g.color if linked else Color("#3a3024"), font, 2 if linked else 1)
 		b.custom_minimum_size = Vector2(200, 34)
@@ -284,8 +290,11 @@ func _toggle_gem(gid: String) -> void:
 	elif not Data.support_fits(g, sel_id):
 		hud.message("%sは「%s」に使えない" % [g.name, Data.SKILLS[sel_id].name], Color("#ff8080"))
 		return
-	elif links.size() >= Data.link_sockets(p.level):
-		hud.message("空きソケットがない", Color("#ff8080"))
+	elif links.size() >= Data.LINK_MAX:
+		hud.message("リンクは最大%d個まで" % Data.LINK_MAX, Color("#ff8080"))
+		return
+	elif p.energy_used() + g.energy > p.energy_max():
+		hud.message("エネルギーが足りない（あと %d 必要）" % (p.energy_used() + g.energy - p.energy_max()), Color("#ff8080"))
 		return
 	else:
 		links.append(gid)

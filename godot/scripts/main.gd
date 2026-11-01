@@ -797,8 +797,7 @@ func gain_xp(v: int) -> void:
 		hud.message("レベル %d に到達！ タレントポイント +1（T）" % p.level, Color("#ffe27a"))
 		if Data.asc_points(p.level) > Data.asc_points(p.level - 1):
 			hud.message("アセンダンシーポイント +1（U）", Data.ascendancy(p.asc).get("color", Color("#ffcf7a")))
-		if Data.link_sockets(p.level) > Data.link_sockets(p.level - 1):
-			hud.message("リンクソケットが %d 個に増えた！（K）" % Data.link_sockets(p.level), Data.GEM_COLOR)
+		hud.message("エネルギー上限 +1（%d）" % p.energy_max(), Data.GEM_COLOR)
 		for id in Data.SKILL_ORDER:
 			if Data.SKILLS[id].lvl == p.level:
 				hud.message("新スキル「%s」を習得！（Kで付け替え）" % Data.SKILLS[id].name, Data.SKILLS[id].color)
@@ -1073,7 +1072,7 @@ func _with_sup(s: Dictionary, fn: Callable) -> void:
 
 func slot_sup(i: int) -> Dictionary:
 	var p := player
-	var s := Data.build_sup(p.slots[i], p.links[i].slice(0, Data.link_sockets(p.level)))
+	var s := Data.build_sup(p.slots[i], p.active_links(i))
 	if p.effects.has("inferno") and "fire" in Data.SKILLS[p.slots[i]].tags:
 		s.aoe *= 1.3
 	return s
