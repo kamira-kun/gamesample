@@ -186,9 +186,12 @@ func refresh() -> void:
 		var sk: Dictionary = Data.SKILLS[id]
 		var card := VBoxContainer.new()
 		card.add_theme_constant_override("separation", 3)
-		var b := card("%s\n%s %s" % [Data.SLOT_KEYS[i].label, sk.icon, sk.name], Color("#2a2014") if i == sel else Color("#120e0a"),
+		var b := card("%s\n%s" % [Data.SLOT_KEYS[i].label, sk.name], Color("#2a2014") if i == sel else Color("#120e0a"),
 			Color("#ffd36a") if i == sel else Color("#4a3a26"), sk.color, 2 if i == sel else 1)
-		b.custom_minimum_size = Vector2(132, 52)
+		b.custom_minimum_size = Vector2(150, 52)
+		var iv := SkillIcon.View.new()
+		iv.skill = id
+		SkillIcon.attach(b, iv, 40)
 		b.pressed.connect(func():
 			sel = i
 			refresh())
@@ -205,15 +208,16 @@ func refresh() -> void:
 			var g := Data.support(gid)
 			var fits := not g.is_empty() and Data.support_fits(g, id)
 			var dark := not g.is_empty() and not gid in powered
-			var bg: Color = g.color.darkened(0.2) if not g.is_empty() else Color("#0c0a08")
-			var s := card("✕" if not g.is_empty() and not fits else ("!" if dark else ""), bg,
+			var s := card("", Color("#0c0a08"),
 				Color("#ff5050") if not g.is_empty() and (not fits or dark) else Color("#5a4a34"), Color.WHITE)
-			s.custom_minimum_size = Vector2(18, 20)
-			s.add_theme_font_size_override("font_size", 11)
-			s.alignment = HORIZONTAL_ALIGNMENT_CENTER
+			s.custom_minimum_size = Vector2(22, 22)
 			if dark:
-				s.modulate = Color(1, 1, 1, 0.45)
+				s.modulate = Color(1, 1, 1, 0.55)
 			if not g.is_empty():
+				var gv := SkillIcon.View.new()
+				gv.gem = g
+				gv.mark = "✕" if not fits else ("!" if dark else "")
+				s.add_child(gv)
 				var tip := gem_tip(g)
 				if dark:
 					tip.append(["エネルギー不足で無効", Color("#ff8080"), 12])
@@ -232,9 +236,13 @@ func refresh() -> void:
 		var locked: bool = p.level < sk.lvl
 		var at := p.slots.find(id)
 		var tag := "Lv %d で習得" % sk.lvl if locked else ("装備中：%s" % Data.SLOT_KEYS[at].label if at >= 0 else "")
-		var b := card("%s %s　%s\nマナ %d%s　%s" % [sk.icon, sk.name, tag, sk.mana, "　CD %s秒" % sk.cd if sk.cd > 0.0 else "", Data.tag_text(sk.tags)],
+		var b := card("%s　%s\nマナ %d%s　%s" % [sk.name, tag, sk.mana, "　CD %s秒" % sk.cd if sk.cd > 0.0 else "", Data.tag_text(sk.tags)],
 			Color("#120e0a"), Color("#6a5a44") if at >= 0 else Color("#3a3024"), sk.color.darkened(0.55) if locked else sk.color)
 		b.custom_minimum_size = Vector2(250, 48)
+		var iv := SkillIcon.View.new()
+		iv.skill = id
+		iv.dim = locked
+		SkillIcon.attach(b, iv, 38)
 		_hover(b, skill_tip(id))
 		if not locked:
 			b.pressed.connect(_assign.bind(id))
@@ -255,8 +263,12 @@ func refresh() -> void:
 		var tag := "未入手" if not owned else ("リンク中" if linked else ("" if fits else "対象外"))
 		tag = "✦%d　%s" % [g.energy, tag]
 		var font: Color = g.color if owned and fits else g.color.darkened(0.6)
-		var b := card("◇ %s　%s" % [g.name, tag], Color("#1c2a1c") if linked else Color("#120e0a"), g.color if linked else Color("#3a3024"), font, 2 if linked else 1)
+		var b := card("%s　%s" % [g.name, tag], Color("#1c2a1c") if linked else Color("#120e0a"), g.color if linked else Color("#3a3024"), font, 2 if linked else 1)
 		b.custom_minimum_size = Vector2(200, 34)
+		var gv := SkillIcon.View.new()
+		gv.gem = g
+		gv.dim = not (owned and fits)
+		SkillIcon.attach(b, gv, 26)
 		_hover(b, gem_tip(g))
 		b.pressed.connect(_toggle_gem.bind(g.id))
 		gem_grid.add_child(b)

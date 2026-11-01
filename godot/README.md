@@ -39,6 +39,7 @@
 - `scripts/hud.gd` — HUD（オーブ、スキルバー、体力バー、ダメージ数字、死亡画面）
 - `scripts/items.gd` / `inventory_ui.gd` / `item_slot.gd` — アイテム生成・クラフト・インベントリ画面
 - `scripts/item_icon.gd` — 装備のベースごとのアイコン（ベクター描画）
+- `scripts/skill_icon.gd` — スキルとサポートジェムのアイコン（ベクター描画。属性色の枠＋スキルごとの発光モチーフ、ジェムは対象でカットが変わる）
 - `scripts/atlas.gd` / `atlas_ui.gd` — 遠征図の進行状況（踏破・開放・マップ効果）と画面
 - `scripts/shop_ui.gd` — 隠れ家の商人
 - `scripts/skill_ui.gd` — スキルとサポートジェムの画面

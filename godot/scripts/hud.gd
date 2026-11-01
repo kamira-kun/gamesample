@@ -381,12 +381,7 @@ class SkillSlot extends Control:
 		var id: String = p.slots[index]
 		var sk: Dictionary = Data.SKILLS[id]
 		var cost: int = hud.main.slot_cost(index)
-		var col: Color = sk.color
-		var rect := Rect2(Vector2.ZERO, size)
-		draw_rect(rect, Color("#0c0a08"))
-		draw_circle(size / 2.0, size.x * 0.42, col.darkened(0.6))
-		var font_col := col if p.mana >= cost else col.darkened(0.6)
-		draw_string(Data.ui_font, Vector2(0, size.y * 0.66), sk.icon, HORIZONTAL_ALIGNMENT_CENTER, size.x, 28, font_col)
+		SkillIcon.draw(self, id, Rect2(Vector2.ZERO, size), p.mana < cost)
 		var left: float = p.cds.get(id, 0.0)
 		if left > 0.0:
 			var k: float = clampf(left / maxf(sk.cd, 1.5), 0.0, 1.0)
@@ -396,16 +391,16 @@ class SkillSlot extends Control:
 				var q := size / 2.0 + Vector2(cos(a), sin(a)) * size.x
 				pts.append(q.clamp(Vector2.ZERO, size))   # keep the pie inside the square slot
 			draw_colored_polygon(pts, Color(0, 0, 0, 0.7))
-		draw_rect(rect, Color("#6a5a44"), false, 1.5)
 		var key: String = Data.SLOT_KEYS[index].short
 		draw_string_outline(Data.ui_font, Vector2(3, size.y - 4), key, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, 3, Color.BLACK)
 		draw_string(Data.ui_font, Vector2(3, size.y - 4), key, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("#dddddd"))
 		if cost > 0:
-			draw_string(Data.ui_font, Vector2(0, 13), str(cost), HORIZONTAL_ALIGNMENT_RIGHT, size.x - 3, 11, Color("#8fb4ff"))
+			draw_string_outline(Data.ui_font, Vector2(0, 13), str(cost), HORIZONTAL_ALIGNMENT_RIGHT, size.x - 4, 11, 3, Color.BLACK)
+			draw_string(Data.ui_font, Vector2(0, 13), str(cost), HORIZONTAL_ALIGNMENT_RIGHT, size.x - 4, 11, Color("#8fb4ff"))
 		# one pip per support gem that applies to this slot
 		var ids: Array = hud.main.slot_sup(index).ids
 		for j in ids.size():
-			draw_rect(Rect2(3 + j * 8, 3, 6, 6), Data.support(ids[j]).color)
+			SkillIcon.draw_gem(self, Data.support(ids[j]), Rect2(1 + j * 9, 1, 11, 11), false)
 
 
 ## draws health bars, elite names and floating numbers by projecting 3D positions
