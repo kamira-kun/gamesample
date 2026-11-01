@@ -70,18 +70,26 @@ func _ready() -> void:
 	var args := Array(OS.get_cmdline_user_args())
 	# dev runs: `--smoke` plays a scripted test, `--view=<panel>` opens a panel or `--view=colossus|witch` a boss fight; neither touches the save
 	smoke = "--smoke" in args or args.any(func(x): return x.begins_with("--view="))
+	for x in args:
+		if x.begins_with("--date="):   # dev runs: pretend it is another day, to test a season ending
+			Data.date_override = x.trim_prefix("--date=")
+	var notes := [] if smoke else Profiles.load_all()
+	if smoke:
+		Profiles.data = Profiles.fresh()
 	var loaded := false if smoke else load_game()
 	passives_changed()
 	enter_hideout()
-	if loaded:
-		hud.message("セーブデータを読み込みました", Color("#e8d8b0"))
+	if not smoke and Profiles.current().is_empty():
+		hud.char_ui.open(notes)
+	elif loaded:
+		hud.message("%s（%s）を読み込みました" % [Profiles.current().name, Profiles.league_name(league())], Color("#e8d8b0"))
 	else:
 		hud.message("WASDで移動、左クリックで斬撃、右クリックでファイアボール", Color("#e8d8b0"))
 	hud.message("I：インベントリ　K：スキル　T：タレント　U：アセンダンシー　C：ステータス　L：フィルタ　P：遠征パッシブ", Color("#b8a888"))
 	for x in args:
 		if x.begins_with("--view="):
 			var kind: String = x.trim_prefix("--view=")
-			if kind in ["merchant", "device"]:
+			if kind in ["merchant", "device", "stash"]:
 				open_interact(kind)
 			elif kind == "skills":
 				player.level = 6
@@ -107,6 +115,32 @@ func _ready() -> void:
 		_smoke_test()
 
 
+## season leagues and the stash, on an in-memory profile file (the real one is never touched)
+func _smoke_seasons() -> void:
+	var p := player
+	var sid: String = Data.SEASONS[0].id
+	var d := Profiles.fresh()
+	Profiles.data = d
+	var sc := Profiles.add_char("s", sid)
+	Profiles.add_char("n", Profiles.STANDARD)
+	Profiles.stash_tabs(sid)[0].items.append(Items.generate(3, 1.0, 1))
+	Profiles.stash_tabs(Profiles.STANDARD)
+	var running := Profiles.migrate(d, Data.SEASONS[0].start)
+	print("SMOKE season running moved=%d league=%s" % [running.size(), sc.league])
+	var notes := Profiles.migrate(d, Data.SEASONS[0].end)
+	print("SMOKE season ended notes=%d league=%s from=%s std_tabs=%d season_stash=%s" % [notes.size(), sc.league, sc.from_season,
+		d.stash[Profiles.STANDARD].size(), d.stash.has(sid)])
+	Profiles.data = Profiles.fresh()
+	hud.toggle(hud.stash_ui)
+	p.bag.append(Items.generate(3, 1.0, 1))
+	var n := p.bag.size()
+	hud.stash_ui._put(0)
+	var put: int = Profiles.stash_tabs(Profiles.STANDARD)[0].items.size()
+	hud.stash_ui._take(0)
+	print("SMOKE stash put=%d back=%s open=%s" % [put, p.bag.size() == n, hud.stash_ui.visible])
+	hud.close_panels()
+
+
 ## automated run used during development: `godot -- --smoke`
 func _smoke_test() -> void:
 	var p := player
@@ -127,6 +161,7 @@ func _smoke_test() -> void:
 	hud.shop_ui._sell(0)
 	print("SMOKE shop sold bag=%d" % p.bag.size())
 	hud.close_panels()
+	_smoke_seasons()
 	open_interact("device")
 	await get_tree().create_timer(0.4).timeout
 	enter_map("wail")
@@ -419,6 +454,7 @@ func enter_hideout() -> void:
 	_dress_hideout(r)
 	interacts.append({"kind": "device", "name": "遠征図の祭壇", "pos": c + Vector2(0, -2.5 * T), "r": 1.6})
 	interacts.append({"kind": "merchant", "name": "商人", "pos": c + Vector2(-4 * T, 0), "r": 1.0})
+	interacts.append({"kind": "stash", "name": "スタッシュ", "pos": map.tile_center(r.x + r.w - 1, r.y + 6), "r": 1.0})
 	_build_device(interacts[0].pos)
 	var merchant := Actor.new()
 	merchant.pos = interacts[1].pos
@@ -507,6 +543,8 @@ func _update_interact() -> bool:
 func open_interact(kind: String) -> void:
 	if kind == "merchant":
 		hud.shop_ui.open_close()
+	elif kind == "stash":
+		hud.stash_ui.open_close()
 	else:
 		hud.atlas_ui.open_close()
 
@@ -634,7 +672,7 @@ func _process(delta: float) -> void:
 	if pressed.has(KEY_ESCAPE):
 		if hud.any_open():
 			hud.close_panels()
-		elif not player.dead:
+		elif not player.dead and not hud.char_ui.visible:
 			hud.pause_ui.open_close()
 	if not hud.blocking() and in_hideout():
 		_update_interact()
@@ -2741,27 +2779,37 @@ func passives_changed() -> void:
 
 
 # =================== save ===================
-const SAVE_PATH := "user://emberfall_save.json"
+## each character's state lives in Profiles (one file for every character and the league stashes)
+
+
+## the league of the character being played; smoke runs play standard
+func league() -> String:
+	return Profiles.current().get("league", Profiles.STANDARD)
+
+
+## leave the current character for the character screen (or straight into `id`): the scene restarts clean
+func switch_char(id := "") -> void:
+	save_game()
+	Profiles.active = id
+	get_tree().reload_current_scene()
 
 
 func save_game() -> void:
-	if smoke:
+	var ch := Profiles.current()
+	if smoke or ch.is_empty():
 		return
 	var p := player
 	var data := {"floor": floor_level, "level": p.level, "xp": p.xp, "potions": p.potions,
 		"equip": p.equip, "bag": p.bag, "cur": p.cur, "atlas": atlas.to_dict(), "shop": shop,
 		"slots": p.slots, "links": p.links, "gems": p.gems, "talent_pts": p.talent_pts, "talents": p.talents, "filter": p.filter,
 		"asc": p.asc, "asc_ranks": p.asc_ranks, "asc_cores": p.asc_cores}
-	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
-	if f:
-		f.store_string(JSON.stringify(data))
+	ch.data = data
+	Profiles.save_all()
 
 
 func load_game() -> bool:
-	if not FileAccess.file_exists(SAVE_PATH):
-		return false
-	var data = JSON.parse_string(FileAccess.get_file_as_string(SAVE_PATH))
-	if typeof(data) != TYPE_DICTIONARY:
+	var data = Profiles.current().get("data", {})
+	if typeof(data) != TYPE_DICTIONARY or data.is_empty():
 		return false
 	var p := player
 	floor_level = int(data.get("floor", 1))

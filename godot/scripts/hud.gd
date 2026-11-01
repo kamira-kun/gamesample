@@ -29,6 +29,8 @@ var filter_ui := FilterUI.new()
 var passive_ui := PassiveUI.new()
 var asc_ui := AscUI.new()
 var pause_ui := PauseUI.new()
+var stash_ui := StashUI.new()
+var char_ui := CharUI.new()
 var talent_hint := Label.new()
 var tip := PanelContainer.new()
 var tip_box := VBoxContainer.new()
@@ -126,7 +128,7 @@ func _ready() -> void:
 	root.add_child(atlas_ui)
 	skill_ui.hud = self
 	root.add_child(skill_ui)
-	for pnl in [talent_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui]:
+	for pnl in [talent_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui, stash_ui]:
 		pnl.hud = self
 		root.add_child(pnl)
 	var tsb := StyleBoxFlat.new()
@@ -144,6 +146,8 @@ func _ready() -> void:
 	death.color = Color(0.05, 0.01, 0.01, 0.82)
 	death.visible = false
 	root.add_child(death)
+	char_ui.hud = self
+	root.add_child(char_ui)
 	var dbox := VBoxContainer.new()
 	dbox.set_anchors_preset(Control.PRESET_CENTER)
 	dbox.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -188,7 +192,7 @@ static func panel_box() -> StyleBoxFlat:
 
 
 func panels() -> Array:
-	return [inventory, shop_ui, atlas_ui, skill_ui, talent_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui]
+	return [inventory, shop_ui, atlas_ui, skill_ui, talent_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui, stash_ui]
 
 
 func any_open() -> bool:
@@ -196,7 +200,7 @@ func any_open() -> bool:
 
 
 func blocking() -> bool:
-	return death.visible or any_open()
+	return death.visible or char_ui.visible or any_open()
 
 
 func close_panels() -> void:
@@ -207,7 +211,7 @@ func close_panels() -> void:
 
 ## open one panel (closing the others, except the atlas it can sit on top of), or close it
 func toggle(pnl: Control) -> void:
-	if death.visible:
+	if death.visible or char_ui.visible:
 		return
 	if pnl.visible:
 		pnl.open_close()
@@ -225,6 +229,7 @@ func toggle_inventory() -> void:
 func refresh_inventory() -> void:
 	inventory.refresh()
 	shop_ui.refresh()
+	stash_ui.refresh()
 
 
 ## lines: [text, color, size]
@@ -263,7 +268,9 @@ func refresh() -> void:
 	mana_orb.text = "%d / %d" % [floori(p.mana), p.s.max_mana]
 	xp_bar.value = float(p.xp) / Data.xp_need(p.level)
 	var where: String = main.area.name if main.in_hideout() else "%s エリアLv %d" % [main.area.name, main.floor_level]
-	info.text = "%s　Lv %d　◆ %d" % [where, p.level, p.cur.ember]
+	var lg: String = main.league()
+	var tag := "" if Profiles.current().is_empty() else "[%s] " % Profiles.league_name(lg)
+	info.text = "%s%s　Lv %d　◆ %d" % [tag, where, p.level, p.cur.ember]
 	for id in p.tbuffs:
 		info.text += "　｜ %s %s %.0f秒" % [Data.SKILLS[id].icon, Data.SKILLS[id].name, ceilf(p.tbuffs[id].t)]
 	if tip.visible:

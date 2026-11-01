@@ -21,8 +21,13 @@ func _build() -> void:
 		open_close()
 		hud.main.abandon_map())
 	body.add_child(leave)
+	var chars := Button.new()
+	chars.text = "キャラクター選択に戻る（セーブします）"
+	chars.custom_minimum_size = Vector2(320, 40)
+	chars.pressed.connect(func(): hud.main.switch_char())
+	body.add_child(chars)
 	body.add_child(sub("操作", 14, Color("#f0d8a0")))
-	for line in ["WASD：移動　左/右クリック・Q・E・R・Space：スキル", "F：回復薬　B：近くの祭壇や商人を使う",
+	for line in ["WASD：移動　左/右クリック・Q・E・R・Space：スキル", "F：回復薬　B：近くの祭壇・商人・スタッシュを使う",
 			"I / Tab：インベントリ　K：スキル　T：タレント", "C：ステータス　L：ルートフィルタ　P：遠征パッシブ"]:
 		body.add_child(sub(line, 13, Color("#c8b898")))
 

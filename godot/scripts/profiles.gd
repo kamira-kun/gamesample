@@ -1,0 +1,139 @@
+class_name Profiles
+## Every character and the stashes, in one JSON file. A character belongs to a league: "standard",
+## or a season id from Data.SEASONS. Each league shares one stash between its characters.
+## When a season ends its characters and stash tabs move to standard (see `migrate`).
+
+const PATH := "user://emberfall_profiles.json"
+const OLD_PATH := "user://emberfall_save.json"   # v1: the single character before seasons; left in place as a backup
+const VERSION := 2
+const STANDARD := "standard"
+const TAB_SIZE := 48
+const TABS := 4
+
+static var data := {}
+static var active := ""        # id of the character being played; survives the scene reload that starts it
+
+
+## read the file (or turn a v1 save into the first standard character), then end finished seasons;
+## returns the lines to tell the player about anything that moved
+static func load_all(today := Data.today()) -> Array:
+	data = {}
+	if FileAccess.file_exists(PATH):
+		var d = JSON.parse_string(FileAccess.get_file_as_string(PATH))
+		if typeof(d) == TYPE_DICTIONARY:
+			data = d
+	if data.is_empty():
+		data = fresh()
+		if FileAccess.file_exists(OLD_PATH):
+			var old = JSON.parse_string(FileAccess.get_file_as_string(OLD_PATH))
+			if typeof(old) == TYPE_DICTIONARY:
+				var c := add_char("放浪者", STANDARD)
+				c.data = old
+	normalize(data)
+	var notes := migrate(data, today)
+	save_all()
+	return notes
+
+
+static func fresh() -> Dictionary:
+	return {"version": VERSION, "next_id": 1, "chars": [], "stash": {}}
+
+
+## fill in anything an older or hand-edited file lacks
+static func normalize(d: Dictionary) -> void:
+	d.version = VERSION
+	d.next_id = int(d.get("next_id", 1))
+	if typeof(d.get("chars")) != TYPE_ARRAY:
+		d.chars = []
+	d.chars = d.chars.filter(func(c): return typeof(c) == TYPE_DICTIONARY and c.has("id"))
+	for c in d.chars:
+		c.name = str(c.get("name", "名無し"))
+		c.league = str(c.get("league", STANDARD))
+		c.from_season = str(c.get("from_season", ""))
+		if typeof(c.get("data")) != TYPE_DICTIONARY:
+			c.data = {}
+	if typeof(d.get("stash")) != TYPE_DICTIONARY:
+		d.stash = {}
+	for lg in d.stash.keys():
+		var tabs = d.stash[lg]
+		if typeof(tabs) != TYPE_ARRAY:
+			d.stash.erase(lg)
+			continue
+		d.stash[lg] = tabs.filter(func(t): return typeof(t) == TYPE_DICTIONARY).map(func(t):
+			return {"name": str(t.get("name", "")), "items": Array(t.get("items", [])).map(func(it): return Items.normalize(it))})
+
+
+## move the characters and stash of every season that is no longer running into standard
+static func migrate(d: Dictionary, today: String) -> Array:
+	var notes := []
+	for c in d.chars:
+		if c.league != STANDARD and not Data.season_running(c.league, today):
+			notes.append("%s はシーズン終了によりスタンダードへ移行しました" % c.name)
+			c.from_season = c.league
+			c.league = STANDARD
+	for lg in d.stash.keys():
+		if lg == STANDARD or Data.season_running(lg, today):
+			continue
+		var sname: String = Data.season(lg).get("name", lg)
+		var dest := stash_tabs(STANDARD, d)
+		var n := 0
+		for t in d.stash[lg]:
+			if t.items.is_empty():
+				continue
+			n += 1
+			dest.append({"name": "%s %d" % [sname, n], "items": t.items})
+		d.stash.erase(lg)
+		if n > 0:
+			notes.append("%s のスタッシュをスタンダードのタブ %d 枚に移しました" % [sname, n])
+	return notes
+
+
+static func save_all() -> void:
+	var tmp := PATH + ".tmp"
+	var f := FileAccess.open(tmp, FileAccess.WRITE)
+	if not f:
+		return
+	f.store_string(JSON.stringify(data))
+	f.close()
+	DirAccess.rename_absolute(tmp, PATH)
+
+
+static func chars() -> Array:
+	return data.get("chars", [])
+
+
+static func find(id: String) -> Dictionary:
+	for c in chars():
+		if c.id == id:
+			return c
+	return {}
+
+
+static func current() -> Dictionary:
+	return find(active)
+
+
+static func add_char(cname: String, league: String) -> Dictionary:
+	var c := {"id": "c%d" % data.next_id, "name": cname, "league": league, "from_season": "",
+		"created": int(Time.get_unix_time_from_system()), "data": {}}
+	data.next_id += 1
+	data.chars.append(c)
+	return c
+
+
+static func remove_char(id: String) -> void:
+	data.chars = chars().filter(func(c): return c.id != id)
+
+
+## the stash tabs a league shares, made on first use
+static func stash_tabs(league: String, d := data) -> Array:
+	if not d.stash.has(league):
+		var tabs := []
+		for i in TABS:
+			tabs.append({"name": str(i + 1), "items": []})
+		d.stash[league] = tabs
+	return d.stash[league]
+
+
+static func league_name(league: String) -> String:
+	return "スタンダード" if league == STANDARD else Data.season(league).get("name", league)
