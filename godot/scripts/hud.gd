@@ -30,6 +30,7 @@ var passive_ui := PassiveUI.new()
 var asc_ui := AscUI.new()
 var pause_ui := PauseUI.new()
 var stash_ui := StashUI.new()
+var exchange_ui := ExchangeUI.new()
 var char_ui := CharUI.new()
 var talent_hint := Label.new()
 var tip := PanelContainer.new()
@@ -129,7 +130,7 @@ func _ready() -> void:
 	root.add_child(atlas_ui)
 	skill_ui.hud = self
 	root.add_child(skill_ui)
-	for pnl in [talent_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui, stash_ui]:
+	for pnl in [talent_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui, stash_ui, exchange_ui]:
 		pnl.hud = self
 		root.add_child(pnl)
 	var tsb := StyleBoxFlat.new()
@@ -193,7 +194,7 @@ static func panel_box() -> StyleBoxFlat:
 
 
 func panels() -> Array:
-	return [inventory, shop_ui, atlas_ui, skill_ui, talent_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui, stash_ui]
+	return [inventory, shop_ui, atlas_ui, skill_ui, talent_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui, stash_ui, exchange_ui]
 
 
 func any_open() -> bool:

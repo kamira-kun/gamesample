@@ -52,7 +52,7 @@ func _ready() -> void:
 		left.add_child(b)
 	potion_btn.pressed.connect(_buy_potion)
 	reroll_btn.pressed.connect(_reroll)
-	left.add_child(_sub("カレンシー交換"))
+	left.add_child(_sub("カレンシー（相場 × %d 灰燼。買い取りはしない）" % Items.EMBER_PER_CHAOS))
 	cur_grid.columns = 2
 	cur_grid.add_theme_constant_override("h_separation", 4)
 	cur_grid.add_theme_constant_override("v_separation", 4)
@@ -136,7 +136,7 @@ func refresh() -> void:
 	for cdef in Data.CURRENCIES:
 		if cdef.w <= 0.0:
 			continue
-		var cost := Items.currency_price(cdef)
+		var cost := Items.currency_price(cdef, m.league())
 		var b := Button.new()
 		b.text = "%s %s  ◆%d" % [cdef.icon, cdef.name, cost]
 		b.add_theme_color_override("font_color", cdef.color)
