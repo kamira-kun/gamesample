@@ -17,6 +17,10 @@ var eprojs: Array = []       # enemy projectiles
 var teles: Array = []        # telegraphed circles that resolve after a delay
 var hazards: Array = []      # burning ground
 var texts: Array = []        # floating damage numbers, drawn by the HUD
+var ground: Array = []       # items lying on the floor
+var drops: Array = []        # currency lying on the floor
+var save_t := 0.0
+var smoke := false
 var portal: Dictionary = {}
 var boss: Enemy = null
 var flow_t := 0.0
@@ -45,9 +49,15 @@ func _ready() -> void:
 	hud = Hud.new()
 	hud.main = self
 	add_child(hud)
+	smoke = "--smoke" in OS.get_cmdline_user_args()
+	var loaded := false if smoke else load_game()
 	spawn_floor()
-	hud.message("WASDで移動、左クリックで斬撃、右クリックでファイアボール", Color("#e8d8b0"))
-	if "--smoke" in OS.get_cmdline_user_args():
+	if loaded:
+		hud.message("セーブデータを読み込みました", Color("#e8d8b0"))
+	else:
+		hud.message("WASDで移動、左クリックで斬撃、右クリックでファイアボール", Color("#e8d8b0"))
+	hud.message("I / Tab：インベントリ", Color("#b8a888"))
+	if smoke:
 		_smoke_test()
 
 
@@ -78,6 +88,31 @@ func _smoke_test() -> void:
 	retry_floor()
 	hud.death.visible = false
 	print("SMOKE retry dead=%s life=%d" % [p.dead, p.life])
+	# loot, inventory, crafting and save round trip
+	for i in 3:
+		drop_item(Items.generate(3, 1.0, 1), p.pos)
+	_drop_currency("chaos", 2, p.pos)
+	_drop_currency("ember", 50, p.pos)
+	await get_tree().create_timer(0.6).timeout
+	print("SMOKE bag=%d chaos=%d ember=%d ground=%d" % [p.bag.size(), p.cur.chaos, p.cur.ember, ground.size()])
+	hud.toggle_inventory()
+	var mi := p.bag.find(p.bag.filter(func(x): return x.rarity == 1)[0])
+	var before: Dictionary = p.bag[mi].mods.duplicate()
+	hud.inventory._pick_currency("chaos")
+	hud.inventory._on_bag_click(mi)
+	print("SMOKE chaos rerolled=%s left=%d" % [before != p.bag[mi].mods or p.bag[mi].mods.size() != before.size(), p.cur.chaos])
+	hud.inventory._cancel_craft()
+	var slot: String = p.bag[0].slot
+	hud.inventory._on_bag_click(0)
+	print("SMOKE equipped=%s life=%d" % [p.equip.has(slot), p.s.max_life])
+	var e0: int = p.cur.ember
+	hud.inventory._on_bag_right(0)
+	print("SMOKE sold ember+%d" % (p.cur.ember - e0))
+	var it := Items.generate(5, 2.0, 2)
+	var back := Items.normalize(JSON.parse_string(JSON.stringify(it)))
+	print("SMOKE json roundtrip=%s" % (back == it))
+	await get_tree().create_timer(0.5).timeout
+	hud.toggle_inventory()
 	get_tree().quit()
 
 
@@ -130,7 +165,7 @@ static func to3(p: Vector2, y := 0.0) -> Vector3:
 func spawn_floor() -> void:
 	if level_root:
 		level_root.queue_free()
-	for list in [projs, eprojs, teles, hazards, texts]:
+	for list in [projs, eprojs, teles, hazards, texts, ground, drops]:
 		list.clear()
 	enemies.clear()
 	portal = {}
@@ -149,6 +184,7 @@ func spawn_floor() -> void:
 	_spawn_enemies()
 	hud.set_boss(null)
 	hud.message("深度 %d — %s" % [floor_level, theme.name], Color("#e8d8b0"))
+	save_game()
 
 
 func _spawn_enemies() -> void:
@@ -210,6 +246,10 @@ func _make_enemy(kind: String, at: Vector2, pack_id: int, affix: Dictionary = {}
 func _process(delta: float) -> void:
 	delta = minf(delta, 0.05)
 	_update_mouse()
+	if pressed.has(KEY_I) or pressed.has(KEY_TAB):
+		hud.toggle_inventory()
+	if pressed.has(KEY_ESCAPE) and hud.inventory.visible:
+		hud.toggle_inventory()
 	if not hud.blocking():
 		time += delta
 		_update_player(delta)
@@ -229,7 +269,12 @@ func _process(delta: float) -> void:
 		_update_eprojs(delta)
 		_update_teles(delta)
 		_update_hazards(delta)
+		_update_loot(delta)
 		_update_portal(delta)
+		save_t += delta
+		if save_t > 20.0 and not player.dead:
+			save_t = 0.0
+			save_game()
 		for tx in texts:
 			tx.t += delta
 			tx.z += delta * 1.6
@@ -326,6 +371,8 @@ func damage_player(amount: float) -> void:
 	add_text(p.pos, str(d), Color("#ff5050"), 18)
 	shake = maxf(shake, 4.0)
 	hud.flash()
+	if p.effects.has("nova_on_hit") and randf() < 0.2:
+		_cast_nova(true)
 	if p.life <= 0.0:
 		p.life = 0.0
 		p.dead = true
@@ -355,6 +402,8 @@ func gain_xp(v: int) -> void:
 func roll_damage(coef: float, type: String, spell := false) -> Dictionary:
 	var s := player.s
 	var d: float = randf_range(s.dmg_min, s.dmg_max) * coef
+	var elem: float = {"fire": s.fire_dmg, "cold": s.cold_dmg, "light": s.light_dmg}.get(type, 0)
+	d *= 1.0 + (s.inc_dmg + (s.spell_dmg if spell else 0) + elem) / 100.0
 	var crit: bool = randf() * 100.0 < s.crit
 	if crit:
 		d *= s.crit_multi / 100.0
@@ -390,6 +439,8 @@ func _kill_enemy(e: Enemy) -> void:
 	e.dead = true
 	var p := player
 	gain_xp(roundi(e.xp))
+	p.life = minf(p.s.max_life, p.life + p.s.life_on_kill + (p.s.max_life * 0.03 if p.effects.has("kill_heal") else 0.0))
+	_drop_loot(e)
 	p.potion_prog += 1
 	if p.potion_prog >= 14:
 		p.potion_prog = 0
@@ -462,11 +513,11 @@ func _try_cast(id: String) -> void:
 		return
 	p.mana -= sk.mana
 	if sk.cd > 0.0:
-		p.cds[id] = sk.cd
+		p.cds[id] = sk.cd * (1.0 - p.s.cdr / 100.0)
 	if sk.get("attack", false):
 		p.action_t = 1.0 / p.s.attack_rate
 	elif sk.has("cast"):
-		p.action_t = sk.cast
+		p.action_t = sk.cast / (1.0 + p.s.cast_spd / 100.0)
 	call("_cast_" + id)
 
 
@@ -493,32 +544,44 @@ func _cast_slash() -> void:
 	arc.position = to3(p.pos, 0.9)
 	level_root.add_child(arc)
 	Fx.fade_out(arc, m, 0.18)
+	if p.effects.has("slash_wave"):
+		var wave := MeshInstance3D.new()
+		wave.mesh = Fx.arc_mesh(0.6, 1.4, -0.9, 0.9)
+		var wm := Fx.mat(Color(1.0, 0.9, 0.7, 0.8), 3.0, true)
+		wm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		wm.cull_mode = BaseMaterial3D.CULL_DISABLED
+		wave.material_override = wm
+		wave.rotation.y = -p.aim
+		level_root.add_child(wave)
+		projs.append({"node": wave, "kind": "wave", "pos": p.pos, "vel": Vector2.from_angle(p.aim) * 26.0, "r": 1.0, "t": 0.0, "max": 0.55, "hit": {}})
 
 
 func _cast_fireball() -> void:
 	var p := player
 	p.act("Spellcast_Shoot", 2.0, p.action_t)
-	var dir := Vector2.from_angle(p.aim)
-	var root := Node3D.new()
-	root.position = to3(p.pos + dir * 0.6, 1.0)
-	level_root.add_child(root)
-	Fx.mesh(root, Fx.sphere(0.28), Fx.mat(Color("#ffa040"), 6.0, true))
-	var light := OmniLight3D.new()
-	light.light_color = Color("#ff8a30")
-	light.light_energy = 2.0
-	light.omni_range = 6.0
-	root.add_child(light)
-	projs.append({"node": root, "kind": "fireball", "pos": p.pos + dir * 0.6, "vel": dir * 24.0, "r": 0.3, "t": 0.0, "max": 1.4})
+	for da in ([-0.22, 0.0, 0.22] if p.effects.has("fireball_multi") else [0.0]):
+		var dir := Vector2.from_angle(p.aim + da)
+		var root := Node3D.new()
+		root.position = to3(p.pos + dir * 0.6, 1.0)
+		level_root.add_child(root)
+		Fx.mesh(root, Fx.sphere(0.28), Fx.mat(Color("#ffa040"), 6.0, true))
+		var light := OmniLight3D.new()
+		light.light_color = Color("#ff8a30")
+		light.light_energy = 2.0
+		light.omni_range = 6.0
+		root.add_child(light)
+		projs.append({"node": root, "kind": "fireball", "pos": p.pos + dir * 0.6, "vel": dir * 24.0, "r": 0.3, "t": 0.0, "max": 1.4})
 
 
-func _cast_nova() -> void:
+func _cast_nova(free := false) -> void:
 	var p := player
-	p.act("Spellcast_Raise", 2.2, 0.35)
+	if not free:
+		p.act("Spellcast_Raise", 2.2, 0.35)
 	var rad := 8.0
 	Fx.ring(level_root, to3(p.pos), rad, Color("#8cdcff"), 0.4)
 	Fx.burst(level_root, to3(p.pos, 0.6), 50, Color("#aee8ff"), 14.0, 0.5, 0.0)
 	for e in enemies_in_radius(p.pos, rad):
-		hit_enemy(e, roll_damage(1.3, "cold", true), 1.8)
+		hit_enemy(e, roll_damage(0.8 if free else 1.3, "cold", true), 1.8)
 
 
 func _chain_target(from: Vector2) -> Variant:
@@ -539,7 +602,7 @@ func _cast_chain() -> void:
 	var target: Variant = _chain_target(player.pos)
 	var hit := {}
 	var src := to3(player.pos, 1.2)
-	var n := 5
+	var n := 5 + (4 if player.effects.has("chain_plus") else 0)
 	while target != null and n > 0:
 		n -= 1
 		var e: Enemy = target
@@ -565,8 +628,15 @@ func _cast_meteor() -> void:
 	p.act("Spellcast_Long", 2.0, 0.5)
 	var to := mouse_ground - p.pos
 	var at := p.pos + to.limit_length(20.0)
+	_drop_meteor(at, 0.75)
+	if p.effects.has("meteor_shower"):
+		_drop_meteor(at + Vector2(randf_range(-5, 5), randf_range(-5, 5)), 1.0)
+		_drop_meteor(at + Vector2(randf_range(-5, 5), randf_range(-5, 5)), 1.25)
+
+
+func _drop_meteor(at: Vector2, delay: float) -> void:
 	var rad := 4.6
-	add_tele(at, rad, 0.75, false, func():
+	add_tele(at, rad, delay, false, func():
 		_explosion(at, rad, Color("#ff6e28"))
 		for e in enemies_in_radius(at, rad):
 			hit_enemy(e, roll_damage(3.6, "fire", true))
@@ -601,6 +671,8 @@ func _update_dash(delta: float) -> void:
 	Fx.burst(level_root, to3(p.pos, 0.8), 3, Color("#8c78ff"), 1.0, 0.3, 0.0)
 	if d.left <= 0.0:
 		p.dash = {}
+		if p.effects.has("dash_nova"):
+			_cast_nova(true)
 
 
 func _add_hazard(at: Vector2, rad: float, dur: float) -> void:
@@ -649,6 +721,15 @@ func _update_projectiles(delta: float) -> void:
 		pr.t += delta
 		pr.pos += pr.vel * delta
 		pr.node.position = to3(pr.pos, 1.0)
+		if pr.kind == "wave":
+			for e in enemies:
+				if not e.dead and not pr.hit.has(e) and e.pos.distance_to(pr.pos) < e.r + pr.r:
+					pr.hit[e] = true
+					hit_enemy(e, roll_damage(0.7, "phys"))
+			if pr.t > pr.max or map.solid_at(pr.pos):
+				pr.t = pr.max + 1.0
+				pr.node.queue_free()
+			continue
 		var boom: bool = pr.t > pr.max or map.solid_at(pr.pos)
 		if not boom:
 			for e in enemies:
@@ -892,3 +973,147 @@ func _update_portal(delta: float) -> void:
 	if not player.dead and player.pos.distance_to(portal.pos) < 1.3:
 		floor_level += 1
 		spawn_floor()
+
+
+# =================== loot ===================
+func _drop_loot(e: Enemy) -> void:
+	var ilvl := floor_level + (1 if not e.elite.is_empty() else 0) + (2 if e.boss else 0)
+	var n := 0
+	var boost := 0.0
+	if e.boss:
+		n = 4
+		boost = 2.5
+	elif not e.elite.is_empty():
+		n = randi_range(1, 2)
+		boost = 1.2
+	elif randf() < 0.13:
+		n = 1
+	for i in n:
+		var force := (3 if randf() < 0.35 else 2) if e.boss and i == 0 else -1
+		drop_item(Items.generate(ilvl, boost, force), e.pos)
+	if randf() < (1.0 if e.boss or not e.elite.is_empty() else 0.25):
+		for i in (6 if e.boss else 3 if not e.elite.is_empty() else 1):
+			_drop_currency("ember", roundi(randf_range(2, 6) * floor_level * (2 if not e.elite.is_empty() else 1)), e.pos)
+	var cn := randi_range(3, 5) if e.boss else (randi_range(1, 2) if not e.elite.is_empty() and randf() < 0.5 else (1 if randf() < 0.035 else 0))
+	for i in cn:
+		_drop_currency(_weighted(Data.CURRENCIES.filter(func(c): return c.w > 0.0)).k, 1, e.pos)
+
+
+func _scatter(at: Vector2) -> Vector2:
+	var p := at + Vector2.from_angle(randf() * TAU) * randf_range(0.4, 1.8)
+	return at if map.solid_at(p) else p
+
+
+func drop_item(it: Dictionary, at: Vector2) -> void:
+	var pos := _scatter(at)
+	var col: Color = Data.RARITY[it.rarity].color
+	var root := Node3D.new()
+	root.position = to3(pos)
+	level_root.add_child(root)
+	var gem := Fx.mesh(root, Fx.box(Vector3(0.35, 0.35, 0.35)), Fx.mat(col, 1.5), Vector3(0, 0.3, 0))
+	gem.rotation = Vector3(0.6, 0.4, 0.6)
+	if it.rarity >= 2:
+		var beam := CylinderMesh.new()
+		beam.top_radius = 0.05
+		beam.bottom_radius = 0.12
+		beam.height = 4.0
+		var bm := Fx.mat(Color(col, 0.35), 3.0, true)
+		bm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		Fx.mesh(root, beam, bm, Vector3(0, 2.0, 0))
+		var light := OmniLight3D.new()
+		light.light_color = col
+		light.light_energy = 1.0
+		light.omni_range = 3.0
+		light.position.y = 0.6
+		root.add_child(light)
+	ground.append({"item": it, "pos": pos, "node": root, "gem": gem})
+
+
+func _drop_currency(k: String, n: int, at: Vector2) -> void:
+	if n <= 0:
+		return
+	var c := Data.currency(k)
+	var pos := _scatter(at)
+	var shard := SphereMesh.new()
+	shard.radius = 0.14 if k == "ember" else 0.2
+	shard.height = shard.radius * 2.6
+	shard.radial_segments = 4
+	shard.rings = 1
+	var node := Fx.mesh(level_root, shard, Fx.mat(c.color, 3.0), to3(pos, 0.3))
+	drops.append({"k": k, "n": n, "pos": pos, "node": node})
+
+
+func _update_loot(delta: float) -> void:
+	var p := player
+	if p.dead:
+		return
+	for g in ground:
+		g.gem.rotate_y(delta * 1.5)
+		if g.pos.distance_to(p.pos) > 1.3:
+			continue
+		if p.bag.size() >= Player.BAG_SIZE:
+			if time - g.get("full_t", -9.0) > 2.0:
+				g.full_t = time
+				hud.message("インベントリが一杯です（I）", Color("#ff8080"))
+			continue
+		p.bag.append(g.item)
+		g.taken = true
+		g.node.queue_free()
+		hud.message("%s を拾った" % g.item.name, Data.RARITY[g.item.rarity].color)
+		hud.refresh_inventory()
+	ground = ground.filter(func(g): return not g.get("taken", false))
+	for d in drops:
+		d.node.rotate_y(delta * 3.0)
+		var dist: float = d.pos.distance_to(p.pos)
+		if dist < 4.5:
+			d.pos = d.pos.move_toward(p.pos, delta * 14.0)
+			d.node.position = to3(d.pos, 0.3)
+		if dist < 0.8:
+			d.taken = true
+			d.node.queue_free()
+			p.cur[d.k] += d.n
+			if d.k != "ember":
+				var c := Data.currency(d.k)
+				hud.message("%s を拾った" % c.name, c.color)
+	drops = drops.filter(func(d): return not d.get("taken", false))
+
+
+# =================== save ===================
+const SAVE_PATH := "user://emberfall_save.json"
+
+
+func save_game() -> void:
+	if smoke:
+		return
+	var p := player
+	var data := {"floor": floor_level, "level": p.level, "xp": p.xp, "potions": p.potions,
+		"equip": p.equip, "bag": p.bag, "cur": p.cur}
+	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	if f:
+		f.store_string(JSON.stringify(data))
+
+
+func load_game() -> bool:
+	if not FileAccess.file_exists(SAVE_PATH):
+		return false
+	var data = JSON.parse_string(FileAccess.get_file_as_string(SAVE_PATH))
+	if typeof(data) != TYPE_DICTIONARY:
+		return false
+	var p := player
+	floor_level = int(data.get("floor", 1))
+	p.level = int(data.get("level", 1))
+	p.xp = int(data.get("xp", 0))
+	p.potions = int(data.get("potions", 3))
+	p.equip = {}
+	for slot in data.get("equip", {}):
+		p.equip[slot] = Items.normalize(data.equip[slot])
+	p.bag = data.get("bag", []).map(func(it): return Items.normalize(it))
+	for k in data.get("cur", {}):
+		p.cur[k] = int(data.cur[k])
+	p.recalc(true)
+	return true
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		save_game()
