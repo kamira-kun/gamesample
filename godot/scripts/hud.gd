@@ -31,6 +31,7 @@ var asc_ui := AscUI.new()
 var pause_ui := PauseUI.new()
 var stash_ui := StashUI.new()
 var exchange_ui := ExchangeUI.new()
+var cinder_ui := CinderUI.new()
 var char_ui := CharUI.new()
 var talent_hint := Label.new()
 var tip := PanelContainer.new()
@@ -130,7 +131,7 @@ func _ready() -> void:
 	root.add_child(atlas_ui)
 	skill_ui.hud = self
 	root.add_child(skill_ui)
-	for pnl in [talent_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui, stash_ui, exchange_ui]:
+	for pnl in [talent_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui, stash_ui, exchange_ui, cinder_ui]:
 		pnl.hud = self
 		root.add_child(pnl)
 	var tsb := StyleBoxFlat.new()
@@ -194,7 +195,7 @@ static func panel_box() -> StyleBoxFlat:
 
 
 func panels() -> Array:
-	return [inventory, shop_ui, atlas_ui, skill_ui, talent_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui, stash_ui, exchange_ui]
+	return [inventory, shop_ui, atlas_ui, skill_ui, talent_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui, stash_ui, exchange_ui, cinder_ui]
 
 
 func any_open() -> bool:
@@ -276,11 +277,14 @@ func refresh() -> void:
 	var where: String = main.area.name if main.in_hideout() else "%s エリアLv %d" % [main.area.name, main.floor_level]
 	var lg: String = main.league()
 	var tag := "" if Profiles.current().is_empty() else "[%s] " % Profiles.league_name(lg)
-	info.text = "%s%s　Lv %d　◆ %d" % [tag, where, p.level, p.cur.ember]
+	info.text = "%s%s　Lv %d　◆ %d　%s %d" % [tag, where, p.level, p.cur.ember, Farm.CURRENCY.icon, Farm.state(lg).cinder]
 	for id in p.tbuffs:
 		info.text += "　｜ %s %s %.0f秒" % [Data.SKILLS[id].icon, Data.SKILLS[id].name, ceilf(p.tbuffs[id].t)]
 	for id in p.auras:
 		info.text += "　｜ %s %s" % [Data.SKILLS[id].icon, Data.SKILLS[id].name]
+	var burning: String = main.altar_status()
+	if burning != "":
+		info.text += "　｜ " + burning
 	if tip.visible:
 		_place_tip()
 	potion.text = "回復薬 %d/%d  [F]" % [p.potions, p.max_potions()]
@@ -433,7 +437,7 @@ class Overlay extends Control:
 			if dr.k == "ember" or dr.pos.distance_to(m.player.pos) > 25.0:
 				continue
 			var sp := cam.unproject_position(Vector3(dr.pos.x, 0.8, dr.pos.y))
-			var c := {"icon": "◇", "name": "サポートジェム：" + Data.support(dr.gem).name, "color": Data.GEM_COLOR} if dr.k == "gem" else Data.currency(dr.k)
+			var c := {"icon": "◇", "name": "サポートジェム：" + Data.support(dr.gem).name, "color": Data.GEM_COLOR} if dr.k == "gem" else Farm.CURRENCY if dr.k == Farm.KEY else Data.currency(dr.k)
 			var label: String = "%s %s" % [c.icon, c.name]
 			var w := Data.ui_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x + 12
 			draw_rect(Rect2(sp.x - w / 2, sp.y - 18, w, 19), Color(0, 0, 0, 0.75))
