@@ -1,0 +1,292 @@
+class_name InventoryUI
+extends PanelContainer
+## Inventory panel: equipment, bag, stats and currency crafting.
+## Click a bag item to equip, click equipment to take it off, right-click to sell.
+## Click a crafting currency, then click items to use it (right-click cancels).
+
+var hud: Hud
+var equip_grid := GridContainer.new()
+var bag_grid := GridContainer.new()
+var stats := Label.new()
+var cur_grid := GridContainer.new()
+var banner := Label.new()
+var bag_count := Label.new()
+var craft_key := ""
+
+const EQUIP_LAYOUT := ["", "helm", "amulet", "weapon", "armor", "gloves", "ring", "boots", ""]
+
+
+func _ready() -> void:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.063, 0.047, 0.035, 0.97)
+	sb.border_color = Color("#7a6040")
+	sb.set_border_width_all(1)
+	sb.set_corner_radius_all(8)
+	sb.set_content_margin_all(16)
+	add_theme_stylebox_override("panel", sb)
+	set_anchors_preset(Control.PRESET_CENTER)
+	grow_horizontal = Control.GROW_DIRECTION_BOTH
+	grow_vertical = Control.GROW_DIRECTION_BOTH
+	visible = false
+
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 10)
+	add_child(col)
+	var head := HBoxContainer.new()
+	col.add_child(head)
+	var title := Label.new()
+	title.text = "インベントリ"
+	title.add_theme_font_size_override("font_size", 20)
+	title.add_theme_color_override("font_color", Color("#f0d8a0"))
+	head.add_child(title)
+	var hint := Label.new()
+	hint.text = "   クリック：装備／外す　右クリック：売却"
+	hint.add_theme_font_size_override("font_size", 12)
+	hint.add_theme_color_override("font_color", Color("#998a70"))
+	hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(hint)
+	var close := Button.new()
+	close.text = "×"
+	close.pressed.connect(hud.toggle_inventory)
+	head.add_child(close)
+
+	var body := HBoxContainer.new()
+	body.add_theme_constant_override("separation", 22)
+	col.add_child(body)
+	var left := VBoxContainer.new()
+	left.add_theme_constant_override("separation", 12)
+	body.add_child(left)
+	equip_grid.columns = 3
+	equip_grid.add_theme_constant_override("h_separation", 6)
+	equip_grid.add_theme_constant_override("v_separation", 6)
+	left.add_child(equip_grid)
+	stats.add_theme_font_size_override("font_size", 13)
+	stats.custom_minimum_size = Vector2(200, 0)
+	left.add_child(stats)
+
+	var right := VBoxContainer.new()
+	right.add_theme_constant_override("separation", 8)
+	body.add_child(right)
+	right.add_child(_sub("カレンシー（クリックしてからアイテムをクリック）"))
+	cur_grid.columns = 4
+	cur_grid.add_theme_constant_override("h_separation", 4)
+	cur_grid.add_theme_constant_override("v_separation", 4)
+	right.add_child(cur_grid)
+	banner.add_theme_font_size_override("font_size", 12)
+	banner.add_theme_color_override("font_color", Color("#ffd36a"))
+	banner.visible = false
+	right.add_child(banner)
+	right.add_child(bag_count)
+	bag_count.add_theme_font_size_override("font_size", 13)
+	bag_count.add_theme_color_override("font_color", Color("#b8a888"))
+	bag_grid.columns = 6
+	bag_grid.add_theme_constant_override("h_separation", 4)
+	bag_grid.add_theme_constant_override("v_separation", 4)
+	right.add_child(bag_grid)
+
+
+func _sub(text: String) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.add_theme_font_size_override("font_size", 13)
+	l.add_theme_color_override("font_color", Color("#b8a888"))
+	return l
+
+
+func open_close() -> void:
+	visible = not visible
+	craft_key = ""
+	hud.hide_tip()
+	if visible:
+		refresh()
+		_center.call_deferred()
+
+
+## center on screen once the contents have a size
+func _center() -> void:
+	reset_size()
+	set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
+
+
+func refresh() -> void:
+	if not visible:
+		return
+	var p: Player = hud.main.player
+	for c in equip_grid.get_children():
+		c.free()
+	for slot in EQUIP_LAYOUT:
+		if slot == "":
+			var gap := Control.new()
+			gap.custom_minimum_size = Vector2(60, 60)
+			equip_grid.add_child(gap)
+			continue
+		var sl := ItemSlot.new()
+		sl.custom_minimum_size = Vector2(60, 60)
+		sl.item = p.equip.get(slot, {})
+		sl.empty_text = Data.SLOT_INFO[slot].name
+		sl.ui = self
+		sl.clicked.connect(_on_equipped_click.bind(slot))
+		sl.right_clicked.connect(_cancel_craft)
+		equip_grid.add_child(sl)
+	for c in bag_grid.get_children():
+		c.free()
+	for i in Player.BAG_SIZE:
+		var sl := ItemSlot.new()
+		sl.custom_minimum_size = Vector2(52, 52)
+		sl.item = p.bag[i] if i < p.bag.size() else {}
+		sl.ui = self
+		sl.clicked.connect(_on_bag_click.bind(i))
+		sl.right_clicked.connect(_on_bag_right.bind(i))
+		bag_grid.add_child(sl)
+	bag_count.text = "所持品 %d / %d" % [p.bag.size(), Player.BAG_SIZE]
+	for c in cur_grid.get_children():
+		c.free()
+	for cdef in Data.CURRENCIES:
+		var b := Button.new()
+		var craftable: bool = cdef.k not in ["ember", "compass"]
+		b.text = "%s %d" % [cdef.icon, p.cur[cdef.k]]
+		b.add_theme_color_override("font_color", cdef.color)
+		b.add_theme_font_size_override("font_size", 14)
+		b.custom_minimum_size = Vector2(76, 30)
+		b.toggle_mode = true
+		b.button_pressed = craft_key == cdef.k
+		b.disabled = not craftable
+		b.tooltip_text = "%s\n%s\n所持数 %d" % [cdef.name, cdef.desc, p.cur[cdef.k]]
+		b.pressed.connect(_pick_currency.bind(cdef.k))
+		cur_grid.add_child(b)
+	banner.visible = craft_key != ""
+	if craft_key != "":
+		var cd := Data.currency(craft_key)
+		banner.text = "%s %s を使用中（残り %d）：アイテムをクリック。右クリックで解除" % [cd.icon, cd.name, p.cur[craft_key]]
+	var s := p.s
+	stats.text = "\n".join([
+		"ダメージ　%d–%d" % [s.dmg_min, s.dmg_max], "攻撃/秒　%.2f" % s.attack_rate,
+		"ダメージ増加　%d%%" % s.inc_dmg, "スキルダメージ　%d%%" % s.spell_dmg,
+		"クリティカル　%.0f%% / %d%%" % [s.crit, s.crit_multi], "詠唱速度　+%d%%" % s.cast_spd,
+		"火炎/冷気/雷　%d/%d/%d%%" % [s.fire_dmg, s.cold_dmg, s.light_dmg],
+		"アーマー　%d（軽減 %d%%）" % [s.armor, roundi(s.dr * 100)], "移動速度　+%d%%" % s.move_spd,
+		"クールダウン短縮　%d%%" % s.cdr, "ライフ回復　%.1f/秒" % s.life_regen, "マナ回復　%.1f/秒" % s.mana_regen,
+	])
+
+
+func _pick_currency(k: String) -> void:
+	var p: Player = hud.main.player
+	if p.cur[k] <= 0:
+		hud.message("%sを持っていない" % Data.currency(k).name, Color("#ff8080"))
+		craft_key = ""
+	else:
+		craft_key = "" if craft_key == k else k
+	refresh()
+
+
+func _cancel_craft() -> void:
+	if craft_key != "":
+		craft_key = ""
+		refresh()
+
+
+## returns true when the click was spent on crafting
+func _try_craft(it: Dictionary) -> bool:
+	if craft_key == "" or it.is_empty():
+		return false
+	var p: Player = hud.main.player
+	var err := Items.craft(craft_key, it)
+	if err != "":
+		hud.message(err, Color("#ff8080"))
+		return true
+	p.cur[craft_key] -= 1
+	if p.cur[craft_key] <= 0:
+		craft_key = ""
+	p.recalc()
+	refresh()
+	hud.show_tip(Items.lines(it))
+	return true
+
+
+func _on_bag_click(i: int) -> void:
+	var p: Player = hud.main.player
+	if i >= p.bag.size() or _try_craft(p.bag[i]):
+		return
+	var it: Dictionary = p.bag[i]
+	var old = p.equip.get(it.slot)
+	p.equip[it.slot] = it
+	p.bag.remove_at(i)
+	if old:
+		p.bag.append(old)
+	p.recalc()
+	hud.hide_tip()
+	refresh()
+
+
+func _on_bag_right(i: int) -> void:
+	var p: Player = hud.main.player
+	if craft_key != "":
+		_cancel_craft()
+		return
+	if i >= p.bag.size():
+		return
+	var it: Dictionary = p.bag[i]
+	var g := Items.sell_price(it)
+	p.bag.remove_at(i)
+	p.cur.ember += g
+	hud.message("%s を売却（%d 灰燼の欠片）" % [it.name, g], Color("#ffcf3a"))
+	hud.hide_tip()
+	refresh()
+
+
+func _on_equipped_click(slot: String) -> void:
+	var p: Player = hud.main.player
+	if not p.equip.has(slot) or _try_craft(p.equip[slot]):
+		return
+	if p.bag.size() >= Player.BAG_SIZE:
+		hud.message("インベントリが一杯です", Color("#ff8080"))
+		return
+	p.bag.append(p.equip[slot])
+	p.equip.erase(slot)
+	p.recalc()
+	hud.hide_tip()
+	refresh()
+
+
+## one square: an item (colored by rarity) or an empty slot
+class ItemSlot extends Control:
+	signal clicked
+	signal right_clicked
+	var item: Dictionary = {}
+	var empty_text := ""
+	var ui: InventoryUI
+
+	func _ready() -> void:
+		mouse_entered.connect(func():
+			if not item.is_empty():
+				var lines := Items.lines(item)
+				var p: Player = ui.hud.main.player
+				var cur: Dictionary = p.equip.get(item.slot, {})
+				if not cur.is_empty() and cur != item and item in p.bag:
+					lines.append(["— 装備中 —", Color("#7a7266"), 12])
+					lines.append_array(Items.lines(cur))
+				ui.hud.show_tip(lines))
+		mouse_exited.connect(func(): ui.hud.hide_tip())
+
+	func _gui_input(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.pressed:
+			if e.button_index == MOUSE_BUTTON_LEFT:
+				clicked.emit()
+			elif e.button_index == MOUSE_BUTTON_RIGHT:
+				right_clicked.emit()
+			accept_event()
+
+	func _draw() -> void:
+		var rect := Rect2(Vector2.ZERO, size)
+		if item.is_empty():
+			draw_rect(rect, Color("#0c0a08"))
+			draw_rect(rect, Color("#3a3024"), false, 1.0)
+			draw_string(Data.ui_font, Vector2(0, size.y / 2 + 5), empty_text, HORIZONTAL_ALIGNMENT_CENTER, size.x, 11, Color("#554a3a"))
+			return
+		var c: Color = Data.RARITY[item.rarity].color
+		draw_rect(rect, c.darkened(0.82))
+		draw_rect(rect, c.darkened(0.3), false, 2.0 if item.rarity == 3 else 1.0)
+		draw_string_outline(Data.ui_font, Vector2(0, size.y / 2 + 9), Data.SLOT_INFO[item.slot].glyph, HORIZONTAL_ALIGNMENT_CENTER, size.x, 24, 3, Color.BLACK)
+		draw_string(Data.ui_font, Vector2(0, size.y / 2 + 9), Data.SLOT_INFO[item.slot].glyph, HORIZONTAL_ALIGNMENT_CENTER, size.x, 24, c)
+		if ui.craft_key != "":
+			draw_rect(rect, Color(1, 0.85, 0.4, 0.12))

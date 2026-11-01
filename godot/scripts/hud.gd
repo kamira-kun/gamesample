@@ -19,6 +19,9 @@ var boss_name := Label.new()
 var boss_bar := Bar.new()
 var death := ColorRect.new()
 var hurt := ColorRect.new()
+var inventory := InventoryUI.new()
+var tip := PanelContainer.new()
+var tip_box := VBoxContainer.new()
 
 
 func _ready() -> void:
@@ -99,6 +102,19 @@ func _ready() -> void:
 	center.add_child(xp_bar)
 	bottom.add_child(mana_orb)
 
+	inventory.hud = self
+	root.add_child(inventory)
+	var tsb := StyleBoxFlat.new()
+	tsb.bg_color = Color(0.03, 0.024, 0.016, 0.97)
+	tsb.border_color = Color("#7a6040")
+	tsb.set_border_width_all(1)
+	tsb.set_content_margin_all(10)
+	tip.add_theme_stylebox_override("panel", tsb)
+	tip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	tip.visible = false
+	tip.add_child(tip_box)
+	root.add_child(tip)
+
 	death.set_anchors_preset(Control.PRESET_FULL_RECT)
 	death.color = Color(0.05, 0.01, 0.01, 0.82)
 	death.visible = false
@@ -129,7 +145,43 @@ func _shadow(l: Label) -> void:
 
 
 func blocking() -> bool:
-	return death.visible
+	return death.visible or inventory.visible
+
+
+func toggle_inventory() -> void:
+	inventory.open_close()
+
+
+func refresh_inventory() -> void:
+	inventory.refresh()
+
+
+## lines: [text, color, size]
+func show_tip(lines: Array) -> void:
+	for c in tip_box.get_children():
+		c.free()
+	for l in lines:
+		var lab := Label.new()
+		lab.text = l[0]
+		lab.add_theme_color_override("font_color", l[1])
+		lab.add_theme_font_size_override("font_size", l[2])
+		tip_box.add_child(lab)
+	tip.reset_size()
+	tip.visible = true
+	_place_tip()
+
+
+func hide_tip() -> void:
+	tip.visible = false
+
+
+func _place_tip() -> void:
+	var m := root.get_global_mouse_position() + Vector2(18, 18)
+	var vp := root.get_viewport_rect().size
+	if m.x + tip.size.x > vp.x - 8:
+		m.x -= tip.size.x + 36
+	m.y = minf(m.y, vp.y - tip.size.y - 8)
+	tip.position = m
 
 
 func refresh() -> void:
@@ -139,7 +191,9 @@ func refresh() -> void:
 	mana_orb.value = p.mana / p.s.max_mana
 	mana_orb.text = "%d / %d" % [floori(p.mana), p.s.max_mana]
 	xp_bar.value = float(p.xp) / Data.xp_need(p.level)
-	info.text = "深度 %d　Lv %d" % [main.floor_level, p.level]
+	info.text = "深度 %d　Lv %d　◆ %d" % [main.floor_level, p.level, p.cur.ember]
+	if tip.visible:
+		_place_tip()
 	potion.text = "回復薬 %d  [F]" % p.potions
 	if boss:
 		boss_bar.value = maxf(0.0, boss.life / boss.max_life)
@@ -277,6 +331,27 @@ class Overlay extends Control:
 			if not e.elite.is_empty():
 				draw_string_outline(Data.ui_font, Vector2(s.x - 150, s.y - 6), e.display_name, HORIZONTAL_ALIGNMENT_CENTER, 300, 13, 3, Color.BLACK)
 				draw_string(Data.ui_font, Vector2(s.x - 150, s.y - 6), e.display_name, HORIZONTAL_ALIGNMENT_CENTER, 300, 13, Color("#8fb4ff"))
+		for g in m.ground:
+			var d: float = g.pos.distance_to(m.player.pos)
+			if d > 25.0 or (g.item.rarity == 0 and d > 10.0):
+				continue
+			var s3 := Vector3(g.pos.x, 0.9, g.pos.y)
+			if cam.is_position_behind(s3):
+				continue
+			var sp := cam.unproject_position(s3)
+			var label: String = g.item.name
+			var w := Data.ui_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x + 12
+			draw_rect(Rect2(sp.x - w / 2, sp.y - 18, w, 19), Color(0, 0, 0, 0.75))
+			draw_string(Data.ui_font, Vector2(sp.x - w / 2, sp.y - 4), label, HORIZONTAL_ALIGNMENT_CENTER, w, 13, Data.RARITY[g.item.rarity].color)
+		for dr in m.drops:
+			if dr.k == "ember" or dr.pos.distance_to(m.player.pos) > 25.0:
+				continue
+			var sp := cam.unproject_position(Vector3(dr.pos.x, 0.8, dr.pos.y))
+			var c := Data.currency(dr.k)
+			var label: String = "%s %s" % [c.icon, c.name]
+			var w := Data.ui_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x + 12
+			draw_rect(Rect2(sp.x - w / 2, sp.y - 18, w, 19), Color(0, 0, 0, 0.75))
+			draw_string(Data.ui_font, Vector2(sp.x - w / 2, sp.y - 4), label, HORIZONTAL_ALIGNMENT_CENTER, w, 13, c.color)
 		for tx in m.texts:
 			var p3: Vector3 = tx.pos + Vector3(0, tx.z, 0)
 			if cam.is_position_behind(p3):
