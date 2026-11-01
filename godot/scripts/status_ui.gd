@@ -1,6 +1,6 @@
 class_name StatusUI
 extends BasePanel
-## Character status (C): level and experience, every derived stat, gear and skill bar at a glance.
+## Character status (C): the character picture, level and experience, every derived stat, gear and skill bar at a glance.
 
 var head_line := Label.new()
 var xp := Hud.Bar.new()
@@ -9,6 +9,7 @@ var res := HBoxContainer.new()
 var stats := GridContainer.new()
 var gear := GridContainer.new()
 var skills := GridContainer.new()
+var portrait := Portrait.new()
 
 
 func _title() -> String:
@@ -30,6 +31,7 @@ func _build() -> void:
 	var cols := HBoxContainer.new()
 	cols.add_theme_constant_override("separation", 30)
 	body.add_child(cols)
+	cols.add_child(portrait)
 	var left := VBoxContainer.new()
 	cols.add_child(left)
 	stats.columns = 2
@@ -71,6 +73,7 @@ func refresh() -> void:
 	var m = hud.main
 	var p: Player = m.player
 	var s := p.s
+	portrait.show_player(p)
 	head_line.text = "レベル %d　・　踏破 %d/%d" % [p.level, m.atlas.cleared.size(), Data.ATLAS_NODES.size()]
 	xp.value = float(p.xp) / Data.xp_need(p.level)
 	xp.queue_redraw()
