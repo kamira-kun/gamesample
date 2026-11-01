@@ -1,13 +1,14 @@
 'use strict';
 // ---- isometric projection: the world stays a flat 2D grid, only drawing is projected ----
 const ISO = 0.75;      // screen px per world px along each diagonal
-const WALL_ISO = 34;   // wall height in screen px
+const PITCH = 0.8;     // vertical squash = sin(camera elevation); 0.5 is classic 2:1 iso, 1 is straight down
+const WALL_ISO = 26;   // wall height in screen px (shorter when seen from higher up)
 const isoX = (x, y) => (x - y) * ISO;
-const isoY = (x, y) => (x + y) * ISO / 2;
+const isoY = (x, y) => (x + y) * ISO * PITCH;
 // screen-space offset -> world-space offset
-const screenToWorld = (dx, dy) => ({ x: (dx / 2 + dy) / ISO, y: (dy - dx / 2) / ISO });
+const screenToWorld = (dx, dy) => ({ x: (dx / ISO + dy / (ISO * PITCH)) / 2, y: (dy / (ISO * PITCH) - dx / ISO) / 2 });
 // direction of a world-space angle as seen on screen
-const isoAngle = a => Math.atan2((Math.cos(a) + Math.sin(a)) * 0.5, Math.cos(a) - Math.sin(a));
+const isoAngle = a => Math.atan2((Math.cos(a) + Math.sin(a)) * PITCH, Math.cos(a) - Math.sin(a));
 // world -> screen using the camera (no shake); used for mouse picking
 function worldToScreen(x, y) {
   return { x: isoX(x, y) - isoX(G.cam.x, G.cam.y) + G.vw / 2, y: isoY(x, y) - isoY(G.cam.x, G.cam.y) + G.vh / 2 };
@@ -33,7 +34,7 @@ const R = {
     this.canvas.style.width = G.vw + 'px'; this.canvas.style.height = G.vh + 'px';
   },
   // draw in world coordinates on the ground plane
-  ground(c) { const d = this.dpr; c.setTransform(d * ISO, d * ISO / 2, -d * ISO, d * ISO / 2, d * this.offX, d * this.offY); },
+  ground(c) { const d = this.dpr; c.setTransform(d * ISO, d * ISO * PITCH, -d * ISO, d * ISO * PITCH, d * this.offX, d * this.offY); },
   // draw in plain screen pixels
   screen(c) { c.setTransform(this.dpr, 0, 0, this.dpr, 0, 0); },
   S(x, y) { return { x: isoX(x, y) + this.offX, y: isoY(x, y) + this.offY }; },
@@ -620,7 +621,7 @@ function drawMinimap() {
   c.clearRect(0, 0, W, H);
   c.fillStyle = 'rgba(0,0,0,0.55)'; c.fillRect(0, 0, W, H);
   c.translate(W / 2, H / 2);
-  c.transform(0.7071, 0.3536, -0.7071, 0.3536, 0, 0);
+  c.transform(0.7071, 0.7071 * PITCH, -0.7071, 0.7071 * PITCH, 0, 0);
   c.scale(S * 1.4, S * 1.4);
   c.translate(-p.x / T, -p.y / T);
   const r = 40, cx = Math.floor(p.x / T), cy = Math.floor(p.y / T);
