@@ -47,6 +47,7 @@ var lmb := false
 var rmb := false
 var pressed := {}
 var oom_t := -10.0
+var force_crit := false     # "three strikes": the attack being resolved always crits
 
 
 func _ready() -> void:
@@ -74,7 +75,7 @@ func _ready() -> void:
 		hud.message("セーブデータを読み込みました", Color("#e8d8b0"))
 	else:
 		hud.message("WASDで移動、左クリックで斬撃、右クリックでファイアボール", Color("#e8d8b0"))
-	hud.message("I：インベントリ　K：スキル　T：タレント　C：ステータス　L：フィルタ　P：遠征パッシブ", Color("#b8a888"))
+	hud.message("I：インベントリ　K：スキル　T：タレント　U：アセンダンシー　C：ステータス　L：フィルタ　P：遠征パッシブ", Color("#b8a888"))
 	for x in args:
 		if x.begins_with("--view="):
 			var kind: String = x.trim_prefix("--view=")
@@ -85,10 +86,17 @@ func _ready() -> void:
 				player.gems.append_array(["multi", "totem"])
 				player.links[1] = ["totem", "multi"]
 				hud.skill_ui.open_slot(1)
-			elif kind in ["talents", "status", "filter", "passives"]:
+			elif kind in ["talents", "status", "filter", "passives", "ascend", "ascend_pick"]:
 				player.talent_pts = 3
 				atlas.cleared = ["ash", "bone"]
-				hud.toggle({"talents": hud.talent_ui, "status": hud.status_ui, "filter": hud.filter_ui, "passives": hud.passive_ui}[kind])
+				if kind == "ascend":
+					player.level = 14
+					player.asc = "storm"
+					player.asc_ranks = {"storm_elem": 3, "storm_sight": 2, "storm_step": 1}
+					player.asc_cores = ["shock", "crit_arc", ""]
+					player.recalc(true)
+				hud.toggle({"talents": hud.talent_ui, "status": hud.status_ui, "filter": hud.filter_ui, "passives": hud.passive_ui,
+					"ascend": hud.asc_ui, "ascend_pick": hud.asc_ui}[kind])
 			elif kind in ["colossus", "witch"]:   # a boss next to the player
 				enter_map("ash")
 				var b := _make_enemy(kind, player.pos + Vector2(5, -5), 999)
@@ -162,6 +170,21 @@ func _smoke_test() -> void:
 	hud.talent_ui._spend("might")
 	hud.talent_ui._spend("fireball")
 	print("SMOKE talents pts=%d inc_dmg+%d fireball=%d" % [p.talent_pts, p.s.inc_dmg - dmg0, p.talents.fireball])
+	# ascendancy: pick the fire lineage, open two core tiers, then start over
+	hud.toggle(hud.asc_ui)
+	var fire0: int = p.s.fire_dmg
+	var cost0 := slot_cost(1)
+	hud.asc_ui._choose("pyre")
+	for id in ["pyre_heat", "pyre_heat", "pyre_chant", "pyre_chant", "pyre_heat", "pyre_mantle"]:
+		hud.asc_ui._rank_up(id)
+	hud.asc_ui._pick_core(0, "fire_cost")
+	hud.asc_ui._pick_core(1, "kill_burst")
+	hud.asc_ui._pick_core(2, "inferno")
+	print("SMOKE ascend free=%d fire+%d cores=%s cost %d->%d" % [p.asc_free(), p.s.fire_dmg - fire0, p.asc_cores, cost0, slot_cost(1)])
+	hud.asc_ui._reset()
+	hud.asc_ui._reset()
+	print("SMOKE ascend reset asc='%s' free=%d" % [p.asc, p.asc_free()])
+	hud.close_panels()
 	hud.toggle(hud.filter_ui)
 	hud.filter_ui._set_rarity(0, "hide")
 	hud.filter_ui._set_rarity(1, "sell")
@@ -587,7 +610,7 @@ func _process(delta: float) -> void:
 	delta = minf(delta, 0.05)
 	_update_mouse()
 	for kp in [[KEY_I, hud.inventory], [KEY_TAB, hud.inventory], [KEY_K, hud.skill_ui], [KEY_T, hud.talent_ui],
-			[KEY_C, hud.status_ui], [KEY_L, hud.filter_ui], [KEY_P, hud.passive_ui]]:
+			[KEY_C, hud.status_ui], [KEY_L, hud.filter_ui], [KEY_P, hud.passive_ui], [KEY_U, hud.asc_ui]]:
 		if pressed.has(kp[0]):
 			hud.toggle(kp[1])
 	if pressed.has(KEY_ESCAPE):
@@ -664,6 +687,7 @@ func _update_player(delta: float) -> void:
 	p.mana = minf(s.max_mana, p.mana + s.mana_regen * delta)
 	for k in p.cds.keys():
 		p.cds[k] -= delta
+	p.tick_buffs(delta)
 	p.action_t -= delta
 	p.swing_t -= delta
 	p.invuln -= delta
@@ -717,7 +741,7 @@ func damage_player(amount: float) -> void:
 	var p := player
 	if p.dead or p.invuln > 0.0:
 		return
-	var d := maxi(1, roundi(amount * (1.0 - p.s.dr)))
+	var d := maxi(1, roundi(amount * (1.0 - p.s.dr) * (0.85 if p.effects.has("iron_stance") else 1.0)))
 	p.life -= d
 	p.hit_t = 0.15
 	add_text(p.pos, str(d), Color("#ff5050"), 18)
@@ -752,6 +776,8 @@ func gain_xp(v: int) -> void:
 		Fx.ring(level_root, to3(p.pos), 5.0, Color("#ffe27a"), 0.6, false)
 		Fx.burst(level_root, to3(p.pos, 1.0), 40, Color("#ffe27a"), 6.0)
 		hud.message("レベル %d に到達！ タレントポイント +1（T）" % p.level, Color("#ffe27a"))
+		if Data.asc_points(p.level) > Data.asc_points(p.level - 1):
+			hud.message("アセンダンシーポイント +1（U）", Data.ascendancy(p.asc).get("color", Color("#ffcf7a")))
 		if Data.link_sockets(p.level) > Data.link_sockets(p.level - 1):
 			hud.message("リンクソケットが %d 個に増えた！（K）" % Data.link_sockets(p.level), Data.GEM_COLOR)
 		for id in Data.SKILL_ORDER:
@@ -759,6 +785,7 @@ func gain_xp(v: int) -> void:
 				hud.message("新スキル「%s」を習得！（Kで付け替え）" % Data.SKILLS[id].name, Data.SKILLS[id].color)
 		hud.skill_ui.refresh()
 		hud.talent_ui.refresh()
+		hud.asc_ui.refresh()
 
 
 # =================== combat ===================
@@ -766,21 +793,38 @@ func roll_damage(coef: float, type: String, spell := false) -> Dictionary:
 	var s := player.s
 	var d: float = randf_range(s.dmg_min, s.dmg_max) * coef
 	var elem: float = {"fire": s.fire_dmg, "cold": s.cold_dmg, "light": s.light_dmg}.get(type, 0)
-	d *= (1.0 + (s.inc_dmg + (s.spell_dmg if spell else 0) + elem) / 100.0) * sup.dmg * (1.0 + 0.15 * player.talents.get(sup.skill, 0))
-	var crit: bool = randf() * 100.0 < s.crit
+	var ally: bool = sup.skill == "skeleton" or sup.totem > 0
+	var inc: float = s.inc_dmg + (s.spell_dmg if spell else s.atk_dmg) + elem + (s.ally_dmg if ally else 0)
+	if ally and player.effects.has("lich_lord"):
+		inc += 50
+	if player.low_life():
+		inc += 40
+	d *= (1.0 + inc / 100.0) * sup.dmg * (1.0 + 0.15 * player.talents.get(sup.skill, 0))
+	var crit: bool = force_crit or randf() * 100.0 < s.crit
 	if crit:
 		d *= s.crit_multi / 100.0
-	return {"dmg": maxi(1, roundi(d)), "crit": crit, "type": type}
+	return {"dmg": maxi(1, roundi(d)), "crit": crit, "type": type, "spell": spell}
 
 
 func hit_enemy(e: Enemy, hit: Dictionary, freeze := 0.0) -> void:
 	if e.dead:
 		return
+	var fx := player.effects
+	var mul := 1.0
+	if fx.has("executioner") and e.life <= e.max_life * 0.35:
+		mul += 0.8
+	if e.shock > 0.0:
+		mul += 0.2
+	if fx.has("frostbite") and e.frozen > 0.0:
+		mul += 0.25
+	if mul > 1.0:
+		hit = hit.merged({"dmg": roundi(hit.dmg * mul)}, true)
 	e.life -= hit.dmg
 	e.hit_t = 0.12
-	freeze = maxf(freeze, sup.freeze)
+	freeze = maxf(freeze, sup.freeze) * (1.5 if fx.has("frostbite") else 1.0)
 	if sup.leech > 0.0:
 		player.life = minf(player.s.max_life, player.life + hit.dmg * sup.leech)
+	_asc_on_hit(e, hit)
 	if not e.aggro:
 		_alert_pack(e)
 	add_text(e.pos, str(hit.dmg) + ("!" if hit.crit else ""), Color("#ffe040") if hit.crit else Data.DMG_COLORS[hit.type], 26 if hit.crit else 18)
@@ -790,7 +834,60 @@ func hit_enemy(e: Enemy, hit: Dictionary, freeze := 0.0) -> void:
 		else:
 			e.frozen = maxf(e.frozen, freeze)
 	if e.life <= 0.0:
+		_asc_on_kill(e, hit)
 		_kill_enemy(e)
+
+
+## core talents that react to a hit landing
+func _asc_on_hit(e: Enemy, hit: Dictionary) -> void:
+	var p := player
+	var fx := p.effects
+	var spell: bool = hit.get("spell", true)
+	if not spell and fx.has("blood_oath"):
+		p.life = minf(p.s.max_life, p.life + hit.dmg * 0.03)
+	if not spell and fx.has("fervor"):
+		p.add_buff("fervor", 15, 3.0)
+	if hit.type == "light" and fx.has("shock"):
+		e.shock = 4.0
+	if hit.type == "fire" and fx.has("ignite"):
+		# 40% of the hit over 3 seconds; a weaker hit refreshes the burn without lowering it
+		var dps: float = hit.dmg * 0.4 / 3.0
+		if e.burn_t <= 0.0 or dps >= e.burn_dps:
+			e.burn_dps = dps
+		e.burn_t = 3.0
+	if hit.crit and fx.has("crit_mana"):
+		p.mana = minf(p.s.max_mana, p.mana + 4.0)
+	if hit.crit and fx.has("crit_arc") and not hit.get("arc", false):
+		var o: Enemy = null
+		var bd := 9.0 * 9.0
+		for q in enemies:
+			var dq := q.pos.distance_squared_to(e.pos)
+			if q != e and not q.dead and dq < bd:
+				bd = dq
+				o = q
+		if o:
+			Fx.bolt(level_root, to3(e.pos, 1.0), to3(o.pos, 1.0), Color("#d9c2ff"), 0.15)
+			hit_enemy(o, {"dmg": maxi(1, roundi(hit.dmg * 0.5)), "crit": false, "type": "light", "spell": true, "arc": true})
+
+
+## core talents that react to an enemy dying from a hit
+func _asc_on_kill(e: Enemy, hit: Dictionary) -> void:
+	var fx := player.effects
+	if fx.has("spell_frenzy") and hit.get("spell", true):
+		player.add_buff("spell_frenzy", 8, 4.0)
+	var at := e.pos
+	var s := sup
+	if fx.has("kill_burst") and hit.type == "fire" and not hit.get("burst", false):
+		add_tele(at, 3.0, 0.15, false, func(): _with_sup(s, func():
+			_explosion(at, 3.0, Color("#ff6e28"))
+			for o in enemies_in_radius(at, 3.0):
+				hit_enemy(o, roll_damage(0.8, "fire", true).merged({"burst": true}, true))))
+	if fx.has("shatter") and e.frozen > 0.0 and not hit.get("shard", false):
+		add_tele(at, 3.5, 0.15, false, func(): _with_sup(s, func():
+			Fx.ring(level_root, to3(at), 3.5, Color("#aee8ff"), 0.35)
+			Fx.burst(level_root, to3(at, 0.6), 24, Color("#d8f6ff"), 9.0, 0.4, 0.0)
+			for o in enemies_in_radius(at, 3.5):
+				hit_enemy(o, roll_damage(1.0, "cold", true).merged({"shard": true}, true), 1.2)))
 
 
 func enemies_in_radius(c: Vector2, rad: float) -> Array[Enemy]:
@@ -807,6 +904,9 @@ func _kill_enemy(e: Enemy) -> void:
 	gain_xp(roundi(e.xp * mod_fx.xp))
 	p.life = minf(p.s.max_life, p.life + p.s.life_on_kill + (p.s.max_life * 0.03 if p.effects.has("kill_heal") else 0.0))
 	_drop_loot(e)
+	if p.effects.has("soul_feed"):
+		for a in _allies():
+			a.life = minf(a.max_life, a.life + a.max_life * 0.1)
 	p.potion_prog += 1
 	if p.potion_prog >= 14:
 		p.potion_prog = 0
@@ -889,12 +989,18 @@ func _with_sup(s: Dictionary, fn: Callable) -> void:
 
 func slot_sup(i: int) -> Dictionary:
 	var p := player
-	return Data.build_sup(p.slots[i], p.links[i].slice(0, Data.link_sockets(p.level)))
+	var s := Data.build_sup(p.slots[i], p.links[i].slice(0, Data.link_sockets(p.level)))
+	if p.effects.has("inferno") and "fire" in Data.SKILLS[p.slots[i]].tags:
+		s.aoe *= 1.3
+	return s
 
 
 func slot_cost(i: int) -> int:
 	var s := slot_sup(i)
-	return roundi(Data.SKILLS[player.slots[i]].mana * s.mana * (2.5 if s.totem else 1.0))
+	var id: String = player.slots[i]
+	var fx := player.effects
+	var m: float = (0.65 if fx.has("fire_cost") and "fire" in Data.SKILLS[id].tags else 1.0) * (0.7 if fx.has("bone_march") and id == "skeleton" else 1.0)
+	return roundi(Data.SKILLS[id].mana * s.mana * m * (2.5 if s.totem else 1.0))
 
 
 ## who is casting: the player, or a totem acting for them
@@ -937,14 +1043,18 @@ func _try_cast(i: int) -> void:
 	if sk.cd > 0.0:
 		p.cds[id] = sk.cd * (1.0 - p.s.cdr / 100.0)
 	if sk.get("attack", false):
-		p.action_t = 1.0 / p.s.attack_rate / s.speed
+		p.action_t = 1.0 / p.attack_rate_now() / s.speed
 	elif sk.has("cast"):
-		p.action_t = sk.cast / (1.0 + p.s.cast_spd / 100.0) / s.speed
+		p.action_t = sk.cast / p.cast_speed_now() / s.speed
 	if s.totem:
 		p.act("Spellcast_Raise", 2.0, p.action_t)
 		_place_totem(id, s, c)
 	else:
+		if sk.get("attack", false) and p.effects.has("third_strike"):
+			p.combo = (p.combo + 1) % 3
+			force_crit = p.combo == 0
 		_with_sup(s, func(): call("_cast_" + id, c))
+		force_crit = false
 
 
 func _cast_slash(c: Dictionary) -> void:
@@ -1104,7 +1214,9 @@ func _cast_storm(c: Dictionary) -> void:
 	light.omni_range = rad * 2.0
 	light.position.y = 4.0
 	root.add_child(light)
-	storms.append({"node": root, "light": light, "pos": at, "r": rad, "t": 0.0, "max": 3.0, "tick": 0.1, "sup": sup})
+	var eye := player.effects.has("storm_eye")
+	storms.append({"node": root, "light": light, "pos": at, "r": rad, "t": 0.0, "max": 6.0 if eye else 3.0, "tick": 0.1,
+		"every": 0.154 if eye else 0.22, "sup": sup})
 
 
 func _update_storms(delta: float) -> void:
@@ -1113,7 +1225,7 @@ func _update_storms(delta: float) -> void:
 		st.tick -= delta
 		st.light.light_energy = maxf(0.0, st.light.light_energy - delta * 20.0)
 		if st.tick <= 0.0:
-			st.tick = 0.22
+			st.tick = st.every
 			var near := enemies_in_radius(st.pos, st.r)
 			var tgt: Enemy = near.pick_random() if not near.is_empty() else null
 			var at: Vector2 = tgt.pos if tgt else st.pos + Vector2(randf_range(-1, 1), randf_range(-1, 1)) * st.r * 0.8
@@ -1184,8 +1296,8 @@ func _cast_skeleton(c: Dictionary) -> void:
 	var p := player
 	if c.player:
 		p.act("Spellcast_Raise", 2.0, p.action_t)
-	var most: int = 3 + sup.mcount
-	for i in 2:
+	var most: int = 3 + sup.mcount + (2 if p.effects.has("bone_legion") else 0)
+	for i in (3 if p.effects.has("bone_march") else 2):
 		if minions.size() >= most:
 			_kill_ally(minions[0])   # the oldest crumbles to make room
 			minions.remove_at(0)
@@ -1194,7 +1306,7 @@ func _cast_skeleton(c: Dictionary) -> void:
 			at = c.pos
 		var m := Ally.new()
 		level_root.add_child(m)
-		m.setup_minion(at, (50.0 + p.level * 12) * sup.mlife, sup)
+		m.setup_minion(at, (50.0 + p.level * 12) * sup.mlife * (1.0 + p.s.ally_life / 100.0), sup)
 		m.face = c.aim
 		m.sync_node(0.0, false)
 		minions.append(m)
@@ -1227,6 +1339,8 @@ func _add_hazard(at: Vector2, rad: float, dur: float, hostile_dmg := 0.0) -> voi
 	light.omni_range = rad * 2.0
 	light.position.y = 1.0
 	root.add_child(light)
+	if hostile_dmg <= 0.0 and player.effects.has("inferno"):
+		dur *= 2.0
 	hazards.append({"node": root, "pos": at, "r": rad, "t": 0.0, "max": dur, "tick": 0.0, "sup": sup, "hostile": hostile_dmg})
 
 
@@ -1297,11 +1411,11 @@ func _place_totem(id: String, s: Dictionary, c: Dictionary) -> void:
 			break
 		at -= back * 0.8
 	var mine := totems.filter(func(t): return t.skill == id)
-	if mine.size() >= TOTEM_MAX:
+	if mine.size() >= TOTEM_MAX + (1 if p.effects.has("twin_totems") else 0):
 		mine[0].life = 0.0
 	var t := Ally.new()
 	level_root.add_child(t)
-	t.setup_totem(at, id, 60.0 + p.level * 15, s)
+	t.setup_totem(at, id, (60.0 + p.level * 15) * (1.0 + p.s.ally_life / 100.0), s)
 	t.sync_node(0.0, false)
 	totems.append(t)
 	Fx.burst(level_root, to3(at, 1.0), 20, Data.SKILLS[id].color, 5.0)
@@ -1335,7 +1449,7 @@ func _update_totems(delta: float) -> void:
 			t.cast_t = 0.3
 			continue
 		var sk: Dictionary = Data.SKILLS[t.skill]
-		t.cast_t = maxf(0.45, sk.get("cast", 0.4) * 1.5 / t.sup.speed)
+		t.cast_t = maxf(0.45, sk.get("cast", 0.4) * 1.5 / t.sup.speed) / (1.25 if player.effects.has("lich_lord") else 1.0)
 		t.face = (best.pos - t.pos).angle()
 		var c := {"pos": t.pos, "aim": t.face, "to": best.pos, "player": false}
 		_with_sup(t.sup, func(): call("_cast_" + t.skill, c))
@@ -1372,7 +1486,7 @@ func _update_minions(delta: float) -> void:
 			if m.pos.distance_to(e.pos) < e.r + m.r + 0.5:
 				moving = false
 				if m.atk_cd <= 0.0:
-					m.atk_cd = 0.9 / m.sup.speed
+					m.atk_cd = 0.9 / m.sup.speed / (1.25 if p.effects.has("lich_lord") else 1.0)
 					m.swing_t = 0.3
 					_with_sup(m.sup, func(): hit_enemy(e, roll_damage(0.55, "phys", true)))
 		elif dp < 3.2:
@@ -1384,8 +1498,19 @@ func _update_minions(delta: float) -> void:
 		m.animate(delta, moving)
 	for m in minions:
 		if m.life <= 0.0:
+			if p.effects.has("death_pact"):
+				_death_pact(m)
 			_kill_ally(m)
 	minions = minions.filter(func(m): return m.life > 0.0)
+
+
+## "death pact": a fallen skeleton bursts
+func _death_pact(m: Ally) -> void:
+	var at := m.pos
+	_with_sup(m.sup, func():
+		_explosion(at, 3.2, Color("#c8b0f0"))
+		for e in enemies_in_radius(at, 3.2):
+			hit_enemy(e, roll_damage(1.0, "phys", true)))
 
 
 func _kill_ally(a: Ally) -> void:
@@ -1448,6 +1573,11 @@ func _update_enemy(e: Enemy, delta: float) -> void:
 	var p := player
 	e.atk_cd -= delta
 	e.slow -= delta
+	e.shock -= delta
+	if e.burn_t > 0.0:
+		_update_burn(e, delta)
+		if e.dead:
+			return
 	if e.frozen > 0.0:
 		e.frozen -= delta
 		return
@@ -1505,6 +1635,23 @@ func _update_enemy(e: Enemy, delta: float) -> void:
 	if move:
 		_chase(e, delta, tg)
 	e.face = (tg.pos - e.pos).angle()
+
+
+## "ignite": burning loses life over time, shown as one number every half second
+func _update_burn(e: Enemy, delta: float) -> void:
+	var d := e.burn_dps * minf(delta, e.burn_t)
+	e.burn_t -= delta
+	e.life -= d
+	e.burn_acc += d
+	e.burn_show -= delta
+	if e.burn_show <= 0.0 or e.burn_t <= 0.0:
+		e.burn_show = 0.5
+		if e.burn_acc >= 1.0:
+			add_text(e.pos, str(roundi(e.burn_acc)), Color("#ff9a50"), 14)
+			e.burn_acc = 0.0
+	if e.life <= 0.0:
+		_asc_on_kill(e, {"type": "fire", "spell": true})
+		_kill_enemy(e)
 
 
 func _chase(e: Enemy, delta: float, tg: Actor = null) -> void:
@@ -2108,7 +2255,8 @@ func save_game() -> void:
 	var p := player
 	var data := {"floor": floor_level, "level": p.level, "xp": p.xp, "potions": p.potions,
 		"equip": p.equip, "bag": p.bag, "cur": p.cur, "atlas": atlas.to_dict(), "shop": shop,
-		"slots": p.slots, "links": p.links, "gems": p.gems, "talent_pts": p.talent_pts, "talents": p.talents, "filter": p.filter}
+		"slots": p.slots, "links": p.links, "gems": p.gems, "talent_pts": p.talent_pts, "talents": p.talents, "filter": p.filter,
+		"asc": p.asc, "asc_ranks": p.asc_ranks, "asc_cores": p.asc_cores}
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(data))
@@ -2142,6 +2290,17 @@ func load_game() -> bool:
 	var tl: Dictionary = data.get("talents", {})
 	for t in Data.talents():
 		p.talents[t.k] = clampi(int(tl.get(t.k, 0)), 0, t.max)
+	var a := Data.ascendancy(str(data.get("asc", "")))
+	if not a.is_empty():
+		p.asc = a.k
+		var ar: Dictionary = data.get("asc_ranks", {})
+		for n in a.minors:
+			if ar.has(n.id):
+				p.asc_ranks[n.id] = clampi(int(ar[n.id]), 0, n.max)
+		var ac: Array = data.get("asc_cores", [])
+		for i in mini(ac.size(), a.cores.size()):
+			if a.cores[i].any(func(c): return c.id == ac[i]):
+				p.asc_cores[i] = ac[i]
 	var fl: Dictionary = data.get("filter", {})
 	var fr: Array = fl.get("rarity", [])
 	if fr.size() == Data.RARITY.size() and fr.all(func(v): return v in ["pick", "sell", "hide"]):

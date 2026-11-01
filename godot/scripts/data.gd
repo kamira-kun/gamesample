@@ -141,6 +141,84 @@ static func talents() -> Array:
 			_talents.append({"k": id, "name": SKILLS[id].name, "desc": "このスキルのダメージ +15%", "max": 10, "skill": true})
 	return _talents
 
+# ascendancy: pick one lineage, spend the points levels give on its minor nodes; points spent there
+# unlock its core tiers, and in each unlocked tier one of two core talents is chosen (and can be swapped freely)
+const ASC_CORE_REQ := [2, 5, 8]
+const ASCENDANCIES := [
+	{"k": "pyre", "name": "焔王", "icon": "♨", "color": Color("#ff8a3a"), "desc": "炎の呪文で戦場を焼き尽くす王。火炎スペルと詠唱速度に特化。",
+		"minors": [
+			{"id": "pyre_heat", "name": "焦熱", "fmt": "火炎ダメージ +{v}%", "max": 3, "stats": {"fire_dmg": 8}},
+			{"id": "pyre_chant", "name": "速詠", "fmt": "詠唱速度 +{v}%", "max": 3, "stats": {"cast_spd": 5}},
+			{"id": "pyre_furnace", "name": "魔力炉", "fmt": "最大マナ +{v}", "max": 3, "stats": {"mana": 15, "mana_regen": 0.6}},
+			{"id": "pyre_mantle", "name": "灼熱の衣", "fmt": "最大ライフ +{v}", "max": 3, "stats": {"life": 18}},
+		],
+		"cores": [
+			[{"id": "ignite", "name": "燃焼の刻印", "desc": "火炎ヒットが敵を燃焼させ、3秒かけてヒットの40%のダメージを与える"},
+				{"id": "fire_cost", "name": "焔の循環", "desc": "火炎スキルのマナコスト -35%"}],
+			[{"id": "kill_burst", "name": "紅蓮の余波", "desc": "火炎ダメージで倒した敵が爆発し、周囲に火炎ダメージを与える"},
+				{"id": "spell_frenzy", "name": "熾火の高揚", "desc": "スペルで敵を倒すたび4秒間 詠唱速度 +5%（最大8重）"}],
+			[{"id": "inferno", "name": "劫火", "desc": "火炎スキルの範囲 +30%、燃える地面の持続 2倍"},
+				{"id": "chant_power", "name": "烈火の詠唱", "desc": "詠唱速度のボーナスと同じだけスペルダメージが増加する"}],
+		]},
+	{"k": "blade", "name": "剣聖", "icon": "⚔", "color": Color("#e8c870"), "desc": "鍛え抜いた剣技で敵を斬り伏せる達人。攻撃スキルと耐久に特化。",
+		"minors": [
+			{"id": "blade_art", "name": "剣技", "fmt": "攻撃ダメージ +{v}%", "max": 3, "stats": {"atk_dmg": 8}},
+			{"id": "blade_gale", "name": "疾風", "fmt": "攻撃速度 +{v}%", "max": 3, "stats": {"atk_spd": 5}},
+			{"id": "blade_body", "name": "鋼の肉体", "fmt": "最大ライフ +{v}", "max": 3, "stats": {"life": 20}},
+			{"id": "blade_guard", "name": "堅守", "fmt": "アーマー +{v}", "max": 3, "stats": {"armor": 15}},
+		],
+		"cores": [
+			[{"id": "blood_oath", "name": "血の誓い", "desc": "攻撃ダメージの3%をライフとして吸収する"},
+				{"id": "third_strike", "name": "三連の型", "desc": "攻撃スキル3回目ごとに、その攻撃が必ずクリティカルになる"}],
+			[{"id": "fervor", "name": "戦意高揚", "desc": "攻撃が命中するたび3秒間 攻撃速度 +2%（最大15重）"},
+				{"id": "iron_stance", "name": "不動の構え", "desc": "受けるダメージ -15%"}],
+			[{"id": "deathline", "name": "死線", "desc": "ライフ50%以下の間、ダメージ +40%・攻撃速度 +20%"},
+				{"id": "executioner", "name": "処刑人", "desc": "ライフ35%以下の敵へのダメージ +80%"}],
+		]},
+	{"k": "storm", "name": "霜雷の巫女", "icon": "☈", "color": Color("#9fd8ff"), "desc": "氷と雷を操り、敵を縛り砕く巫女。冷気・雷とクリティカルに特化。",
+		"minors": [
+			{"id": "storm_elem", "name": "霜雷", "fmt": "冷気・雷ダメージ +{v}%", "max": 3, "stats": {"cold_dmg": 7, "light_dmg": 7}},
+			{"id": "storm_sight", "name": "鋭眼", "fmt": "クリティカル率 +{v}%", "max": 3, "stats": {"crit": 1.5}},
+			{"id": "storm_step", "name": "疾駆", "fmt": "移動速度 +{v}%", "max": 3, "stats": {"move_spd": 4}},
+			{"id": "storm_well", "name": "魔力の泉", "fmt": "マナ回復 +{v}/秒", "max": 3, "stats": {"mana_regen": 1.0}},
+		],
+		"cores": [
+			[{"id": "shock", "name": "感電", "desc": "雷ヒットが敵を4秒間感電させる。感電した敵が受けるダメージ +20%"},
+				{"id": "frostbite", "name": "凍傷", "desc": "凍結・減速の持続 +50%、凍結中の敵へのダメージ +25%"}],
+			[{"id": "crit_arc", "name": "雷鳴の連鎖", "desc": "クリティカル時、近くの別の敵に雷が走り、そのヒットの50%の雷ダメージを与える"},
+				{"id": "crit_mana", "name": "静電の奔流", "desc": "クリティカル時にマナを4回復する"}],
+			[{"id": "storm_eye", "name": "嵐の目", "desc": "サンダーストームの持続 2倍、落雷の間隔 -30%"},
+				{"id": "shatter", "name": "絶対零度", "desc": "凍結した敵を倒すと砕け散り、周囲の敵に冷気ダメージを与えて凍結させる"}],
+		]},
+	{"k": "necro", "name": "冥導師", "icon": "☠", "color": Color("#c8b0f0"), "desc": "死者とトーテムを従えて戦う導師。ミニオンとトーテムに特化。",
+		"minors": [
+			{"id": "necro_bond", "name": "従属の絆", "fmt": "ミニオン・トーテムのダメージ +{v}%", "max": 3, "stats": {"ally_dmg": 12}},
+			{"id": "necro_shell", "name": "堅牢な僕", "fmt": "ミニオン・トーテムのライフ +{v}%", "max": 3, "stats": {"ally_life": 15}},
+			{"id": "necro_lore", "name": "死霊術", "fmt": "スペルダメージ +{v}%", "max": 3, "stats": {"spell_dmg": 6}},
+			{"id": "necro_bone", "name": "骨の鎧", "fmt": "最大ライフ +{v}", "max": 3, "stats": {"life": 18}},
+		],
+		"cores": [
+			[{"id": "bone_legion", "name": "骨の軍勢", "desc": "骸骨の最大数 +2"},
+				{"id": "twin_totems", "name": "双塔の守護", "desc": "トーテムの最大数 +1"}],
+			[{"id": "death_pact", "name": "死の契約", "desc": "ミニオンが倒れると爆発し、周囲の敵に物理ダメージを与える"},
+				{"id": "soul_feed", "name": "魂の供物", "desc": "敵を倒すたび、すべてのミニオンとトーテムのライフを10%回復する"}],
+			[{"id": "lich_lord", "name": "冥王の権能", "desc": "ミニオン・トーテムのダメージ +50%、攻撃・詠唱の頻度 +25%"},
+				{"id": "bone_march", "name": "死者の行進", "desc": "骸骨召喚で呼ぶ骸骨 +1体、そのマナコスト -30%"}],
+		]},
+]
+
+
+static func ascendancy(k: String) -> Dictionary:
+	for a in ASCENDANCIES:
+		if a.k == k:
+			return a
+	return {}
+
+
+## points for the ascendancy: one every two character levels
+static func asc_points(level: int) -> int:
+	return floori(level / 2.0)
+
 const ELITE_AFFIXES := [
 	{"k": "swift", "name": "俊足"}, {"k": "armored", "name": "鉄壁"},
 	{"k": "volatile", "name": "爆裂"}, {"k": "frenzied", "name": "狂乱"},

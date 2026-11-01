@@ -27,6 +27,7 @@ var talent_ui := TalentUI.new()
 var status_ui := StatusUI.new()
 var filter_ui := FilterUI.new()
 var passive_ui := PassiveUI.new()
+var asc_ui := AscUI.new()
 var pause_ui := PauseUI.new()
 var talent_hint := Label.new()
 var tip := PanelContainer.new()
@@ -125,7 +126,7 @@ func _ready() -> void:
 	root.add_child(atlas_ui)
 	skill_ui.hud = self
 	root.add_child(skill_ui)
-	for pnl in [talent_ui, status_ui, filter_ui, passive_ui, pause_ui]:
+	for pnl in [talent_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui]:
 		pnl.hud = self
 		root.add_child(pnl)
 	var tsb := StyleBoxFlat.new()
@@ -187,7 +188,7 @@ static func panel_box() -> StyleBoxFlat:
 
 
 func panels() -> Array:
-	return [inventory, shop_ui, atlas_ui, skill_ui, talent_ui, status_ui, filter_ui, passive_ui, pause_ui]
+	return [inventory, shop_ui, atlas_ui, skill_ui, talent_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui]
 
 
 func any_open() -> bool:
@@ -266,7 +267,13 @@ func refresh() -> void:
 	if tip.visible:
 		_place_tip()
 	potion.text = "回復薬 %d/%d  [F]" % [p.potions, p.max_potions()]
-	talent_hint.visible = p.talent_pts > 0
+	var hints := []
+	if p.talent_pts > 0:
+		hints.append("タレントポイントがあります [T]")
+	if p.asc_free() > 0 or (p.asc == "" and p.level >= 2):
+		hints.append("アセンダンシーポイントがあります [U]" if p.asc != "" else "アセンダンシーを選べます [U]")
+	talent_hint.text = "\n".join(PackedStringArray(hints))
+	talent_hint.visible = not hints.is_empty()
 	if boss:
 		boss_bar.value = maxf(0.0, boss.life / boss.max_life)
 	for sl in slots:

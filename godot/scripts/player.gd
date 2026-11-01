@@ -5,6 +5,12 @@ var level := 1
 var xp := 0
 var talent_pts := 0
 var talents := {}            # talent key -> rank
+# ascendancy: the chosen lineage, ranks of its minor nodes, the core talent picked in each tier
+var asc := ""
+var asc_ranks := {}
+var asc_cores: Array = ["", "", ""]
+var buffs := {}              # stacking timed buffs from core talents: key -> {"n", "t"}
+var combo := 0               # attack skills used, for "three strikes"
 var atlas: Atlas             # for the atlas passives that change stats
 var chill := 0.0             # slowed by the witch's frost
 var life := 100.0
@@ -87,6 +93,7 @@ func recalc(full := false) -> void:
 		"dmg_min": 2.0 + L, "dmg_max": 4.0 + L * 2, "aps": 1.3, "crit": 5.0, "crit_multi": 150.0,
 		"inc_dmg": 0, "flat_dmg": 0, "atk_spd": 0, "cast_spd": 0, "move_spd": 0, "armor": 0, "fire_dmg": 0, "cold_dmg": 0,
 		"light_dmg": 0, "spell_dmg": 0, "life_on_kill": 0, "cdr": 0, "life": 0, "mana": 0,
+		"atk_dmg": 0, "ally_dmg": 0, "ally_life": 0,
 	}
 	effects = {}
 	for slot in equip:
@@ -101,6 +108,14 @@ func recalc(full := false) -> void:
 				st[k] = st.get(k, 0) + src[k]
 		if it.has("effect"):
 			effects[it.effect] = true
+	var a := Data.ascendancy(asc)
+	if not a.is_empty():
+		for n in a.minors:
+			for k in n.stats:
+				st[k] = st.get(k, 0) + n.stats[k] * asc_rank(n.id)
+		for k in asc_cores:
+			if k != "":
+				effects[k] = true
 	st.dmg_min += st.flat_dmg
 	st.dmg_max += st.flat_dmg
 	var tl := talents
@@ -113,6 +128,8 @@ func recalc(full := false) -> void:
 	st.atk_spd += tl.swift * 3
 	st.crit += tl.precision * 1.5
 	st.crit_multi += tl.precision * 8
+	if effects.has("chant_power"):
+		st.spell_dmg += st.cast_spd
 	st.move_speed = 8.5 * (1.0 + st.move_spd / 100.0)
 	st.attack_rate = st.aps * (1.0 + st.atk_spd / 100.0)
 	st.dr = minf(0.75, st.armor / (st.armor + 60.0 + L * 10.0))
@@ -120,6 +137,57 @@ func recalc(full := false) -> void:
 	s = st
 	life = s.max_life if full else s.max_life * old_l
 	mana = s.max_mana if full else s.max_mana * old_m
+
+
+# ---- ascendancy ----
+func asc_rank(id: String) -> int:
+	return int(asc_ranks.get(id, 0))
+
+
+func asc_spent() -> int:
+	var n := 0
+	for id in asc_ranks:
+		n += int(asc_ranks[id])
+	return n
+
+
+func asc_free() -> int:
+	return Data.asc_points(level) - asc_spent()
+
+
+func asc_reset_price() -> int:
+	return asc_spent() * 25
+
+
+func add_buff(k: String, max_n: int, dur: float) -> void:
+	var b: Dictionary = buffs.get(k, {"n": 0, "t": 0.0})
+	b.n = mini(max_n, b.n + 1)
+	b.t = dur
+	buffs[k] = b
+
+
+func buff(k: String) -> int:
+	return int(buffs[k].n) if buffs.has(k) else 0
+
+
+func tick_buffs(delta: float) -> void:
+	for k in buffs.keys():
+		buffs[k].t -= delta
+		if buffs[k].t <= 0.0:
+			buffs.erase(k)
+
+
+func low_life() -> bool:
+	return effects.has("deathline") and life <= s.max_life * 0.5
+
+
+## attacks per second right now, with the core talents' temporary boosts
+func attack_rate_now() -> float:
+	return s.aps * (1.0 + (s.atk_spd + buff("fervor") * 2 + (20 if low_life() else 0)) / 100.0)
+
+
+func cast_speed_now() -> float:
+	return 1.0 + (s.cast_spd + buff("spell_frenzy") * 5) / 100.0
 
 
 ## play an attack/cast clip that holds for `hold` seconds before locomotion resumes

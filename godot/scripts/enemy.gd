@@ -14,6 +14,11 @@ var windup := 0.0
 var pending: Callable
 var frozen := 0.0
 var slow := 0.0
+var shock := 0.0            # ascendancy "shock": takes more damage while > 0
+var burn_t := 0.0           # ascendancy "ignite": seconds of burning left
+var burn_dps := 0.0
+var burn_acc := 0.0         # burn damage not yet shown as a number
+var burn_show := 0.0
 var aggro := false
 var sees := false
 var los_t := 0.0
