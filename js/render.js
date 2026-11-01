@@ -132,7 +132,7 @@ function render(dt) {
   }
 
   // entities on screen, with shadows on the ground
-  const ents = [...G.enemies, p];
+  const ents = [...G.enemies, ...G.minions, ...G.totems, p];
   if (G.merchant) ents.push(G.merchant);
   if (G.pet) ents.push(G.pet);
   const vis = ents.filter(e => { const s = R.S(e.x, e.y); return onScreen(s.x, s.y, 100); });
@@ -163,6 +163,8 @@ function render(dt) {
     if (e === p) drawPlayer(ctx, p, s.x, s.y);
     else if (e.merchant) drawMerchant(ctx, e, s.x, s.y);
     else if (e.pet) drawPet(ctx, e, s.x, s.y);
+    else if (e.minion) drawMinion(ctx, e, s.x, s.y);
+    else if (e.totem) drawTotem(ctx, e, s.x, s.y);
     else drawEnemy(ctx, e, s.x, s.y);
   }
 
@@ -184,6 +186,7 @@ function render(dt) {
   if (G.portal) lights.push([G.portal.x, G.portal.y, 240, 0.9]);
   if (G.merchant) lights.push([G.merchant.x, G.merchant.y, 200, 0.85]);
   if (G.pet) lights.push([G.pet.x, G.pet.y, 120, 0.6]);
+  for (const t of G.totems) lights.push([t.x, t.y, 150, 0.7]);
   for (const st of G.storms) lights.push([st.x, st.y, st.r * 1.3, 0.5]);
   for (const g of G.ground) if (g.item.rarity >= 2) lights.push([g.x, g.y, 70, 0.4]);
   for (const g of G.drops) if (g.k !== 'ember') lights.push([g.x, g.y, 60, 0.4]);
@@ -243,6 +246,13 @@ function render(dt) {
   for (const e of vis) {
     if (e === p || e.merchant || e.pet) continue;
     const s = R.S(e.x, e.y);
+    if (e.ally) {
+      const w = 26, y = s.y - (e.totem ? 58 : 36);
+      ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(s.x - w / 2 - 1, y - 1, w + 2, 5);
+      ctx.fillStyle = '#5ac85a'; ctx.fillRect(s.x - w / 2, y, w * Math.max(0, e.life / e.maxLife), 3);
+      if (e.totem) { ctx.fillStyle = '#d8a060'; ctx.fillRect(s.x - w / 2, y + 4, w * (1 - e.t / e.max), 2); }
+      continue;
+    }
     if (e.life < e.maxLife || e.elite) {
       const w = Math.max(30, e.r * 2.4), y = s.y - e.r * 2 - 18 - (e.boss ? 14 : 0);
       ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(s.x - w / 2 - 1, y - 1, w + 2, 6);
@@ -262,7 +272,7 @@ function render(dt) {
   ctx.font = '12px sans-serif';
   for (const g of G.drops) {
     if (g.k === 'ember' || dist2(g.x, g.y, p.x, p.y) > 520 * 520) continue;
-    const s = R.S(g.x, g.y), c = CUR_BY_KEY[g.k], label = `${c.icon} ${c.name}`, w = ctx.measureText(label).width + 10;
+    const s = R.S(g.x, g.y), c = CUR_BY_KEY[g.k], label = g.gem ? `${c.icon} ${SUPPORT_BY_ID[g.gem].name}のジェム` : `${c.icon} ${c.name}`, w = ctx.measureText(label).width + 10;
     ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillRect(s.x - w / 2, s.y - 28, w, 17);
     ctx.fillStyle = c.color; ctx.fillText(label, s.x, s.y - 15);
   }
@@ -438,6 +448,38 @@ function drawPet(ctx, pet, sx, sy) {
   ctx.beginPath(); ctx.arc(hx + dir * 6, hy + 1.5, 1.2, 0, TAU); ctx.fill();
 }
 
+function drawMinion(ctx, m, sx, sy) {
+  const f = isoAngle(m.face), bob = Math.abs(Math.sin(m.walkT * 12)) * 2, x = sx, y = sy - 12 - bob;
+  ctx.fillStyle = m.hitT > 0 ? '#fff' : '#d8d0b8'; ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 1.5;
+  // ribcage body and skull
+  ctx.beginPath(); ctx.ellipse(x, y, 7, 9, 0, 0, TAU); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = 'rgba(60,50,40,0.6)'; ctx.lineWidth = 1;
+  for (const k of [-3, 0, 3]) { ctx.beginPath(); ctx.moveTo(x - 5, y + k); ctx.lineTo(x + 5, y + k); ctx.stroke(); }
+  ctx.fillStyle = '#e8e0c8'; ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+  ctx.beginPath(); ctx.arc(x + Math.cos(f) * 1.5, y - 13, 6, 0, TAU); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#7fe0ff';
+  if (Math.sin(f) > -0.3) for (const s of [-2.2, 2.2]) { ctx.beginPath(); ctx.arc(x + Math.cos(f) * 2 + s, y - 13, 1.3, 0, TAU); ctx.fill(); }
+  // rusty sword
+  let wa = f; if (m.swingT > 0) wa = f - 1 + (1 - m.swingT / 0.2) * 2;
+  ctx.strokeStyle = '#a8a090'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x + Math.cos(wa) * 6, y + Math.sin(wa) * 4); ctx.lineTo(x + Math.cos(wa) * 22, y + Math.sin(wa) * 12 - 4); ctx.stroke();
+}
+
+function drawTotem(ctx, t, sx, sy) {
+  const col = SKILLS[t.skill].color, x = sx, y = sy, h = 40, pulse = 0.6 + Math.sin(G.time * 6) * 0.3;
+  // carved wooden pole
+  ctx.fillStyle = t.hitT > 0 ? '#fff' : '#6a4a2a'; ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 2;
+  ctx.fillRect(x - 7, y - h, 14, h); ctx.strokeRect(x - 7, y - h, 14, h);
+  ctx.fillStyle = '#4a3018';
+  for (const k of [10, 22]) ctx.fillRect(x - 9, y - h + k, 18, 4);
+  // glowing rune head in the skill's color
+  const g = ctx.createRadialGradient(x, y - h - 6, 0, x, y - h - 6, 16);
+  g.addColorStop(0, col); g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.globalAlpha = pulse; ctx.fillStyle = g; ctx.fillRect(x - 16, y - h - 22, 32, 32); ctx.globalAlpha = 1;
+  ctx.fillStyle = col; ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText(SKILLS[t.skill].icon, x, y - h - 1);
+}
+
 function drawMerchant(ctx, m, sx, sy) {
   const x = sx, y = sy - 12, sway = Math.sin(G.time * 2) * 1.5;
   // pack on the back
@@ -593,5 +635,6 @@ function drawMinimap() {
   for (const e of G.enemies) if (m.explored[m.idx(Math.floor(e.x / T), Math.floor(e.y / T))] && dist2(e.x, e.y, p.x, p.y) < 500 * 500) dot(e.x, e.y, e.elite ? '#6af' : '#d33', e.boss ? 1.4 : 0.55);
   if (G.boss && m.explored[m.idx(Math.floor(G.boss.x / T), Math.floor(G.boss.y / T))]) dot(G.boss.x, G.boss.y, '#f40', 1.4);
   if (G.portal) dot(G.portal.x, G.portal.y, '#b9f', 1.6);
+  for (const a of [...G.minions, ...G.totems]) dot(a.x, a.y, '#6d6', 0.6);
   dot(p.x, p.y, '#fff', 1);
 }

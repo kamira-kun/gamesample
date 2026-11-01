@@ -142,7 +142,7 @@ const Atlas = {
   },
   show() {
     G.state = 'atlas';
-    Object.assign(G, { enemies: [], projs: [], eprojs: [], tele: [], hazards: [], storms: [], ground: [], drops: [], portal: null, boss: null, merchant: null, pet: null });
+    Object.assign(G, { enemies: [], projs: [], eprojs: [], tele: [], hazards: [], storms: [], minions: [], totems: [], ground: [], drops: [], portal: null, boss: null, merchant: null, pet: null });
     if (UI.open) UI.toggle(UI.open);
     UI.setBoss(null);
     $('death').classList.add('hidden');

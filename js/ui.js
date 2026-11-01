@@ -77,12 +77,14 @@ const UI = {
     const bar = $('skillbar'), p = G.player;
     bar.innerHTML = '';
     this.slotEls = SKILL_SLOTS.map((slot, i) => {
-      const id = p.slots[i], sk = SKILLS[id];
+      const id = p.slots[i], sk = SKILLS[id], sup = slotSup(i);
       const el = document.createElement('div');
       el.className = 'skill';
       el.style.setProperty('--c', sk.color);
-      el.innerHTML = `<span class="icon">${sk.icon}</span><span class="cd"></span><span class="key">${slot.short}</span>${sk.mana ? `<span class="cost">${sk.mana}</span>` : ''}`;
-      el.addEventListener('mouseenter', ev => this.showTip(ev, this.skillTip(id, slot.label)));
+      const pips = sup.ids.map(g => `<i style="background:${SUPPORT_BY_ID[g].color}"></i>`).join('');
+      el.innerHTML = `<span class="icon">${sk.icon}</span><span class="cd"></span><span class="key">${slot.short}</span>` +
+        `${sk.mana ? `<span class="cost">${Math.round(sk.mana * sup.mana * (sup.totem ? 2.5 : 1))}</span>` : ''}<span class="pips">${pips}</span>`;
+      el.addEventListener('mouseenter', ev => this.showTip(ev, this.skillTip(id, slot.label, i)));
       el.addEventListener('mouseleave', () => this.hideTip());
       el.addEventListener('click', () => { this.selSlot = i; if (this.open !== 'skills') this.toggle('skills'); else this.refresh(); });
       bar.appendChild(el);
@@ -90,28 +92,49 @@ const UI = {
     });
   },
 
-  skillTip(id, keyLabel) {
-    const sk = SKILLS[id];
-    return [
+  skillTip(id, keyLabel, slot = null) {
+    const sk = SKILLS[id], lines = [
       { t: sk.name, c: sk.color, big: true },
+      { t: SKILL_TAGS[id].map(t => TAG_NAMES[t]).join('・'), c: '#9a9080' },
       { t: (keyLabel ? keyLabel + '　' : '') + `マナ ${sk.mana}` + (sk.cd ? `　CD ${sk.cd}秒` : ''), c: '#9a9080' },
       { t: sk.desc, c: '#ddd' },
       { t: `タレントランク ${G.player.talents[id]}`, c: '#8fb4ff' },
     ];
+    if (slot !== null) {
+      const sup = slotSup(slot);
+      if (sup.ids.length) lines.push({ sep: true }, ...sup.ids.map(g => ({ t: `◆ ${SUPPORT_BY_ID[g].name}：${SUPPORT_BY_ID[g].desc}`, c: SUPPORT_BY_ID[g].color })));
+    }
+    return lines;
+  },
+
+  gemTip(g) {
+    return [{ t: g.name, c: g.color, big: true }, { t: 'サポートジェム', c: '#9a9080' }, { t: g.desc, c: '#ddd' },
+      { t: '対象：' + g.tags.map(t => TAG_NAMES[t]).join('・') + (g.not ? `（${g.not.map(t => TAG_NAMES[t]).join('・')}を除く）` : ''), c: '#8fb4ff' }];
   },
 
   renderSkills() {
-    const p = G.player;
+    const p = G.player, sockets = linkSockets(p.level);
     const row = $('slotRow');
     row.innerHTML = '';
     SKILL_SLOTS.forEach((slot, i) => {
-      const sk = SKILLS[p.slots[i]];
+      const id = p.slots[i], sk = SKILLS[id], links = p.links[i];
       const el = document.createElement('div');
       el.className = 'slotcard' + (i === this.selSlot ? ' sel' : '');
-      el.innerHTML = `<div class="k">${slot.label}</div><div class="i" style="color:${sk.color}">${sk.icon}</div><div class="n">${sk.name}</div>`;
+      el.innerHTML = `<div class="k">${slot.label}</div><div class="i" style="color:${sk.color}">${sk.icon}</div><div class="n">${sk.name}</div><div class="sockets"></div>`;
+      const sockEl = el.querySelector('.sockets');
+      for (let k = 0; k < LINK_MAX; k++) {
+        const g = SUPPORT_BY_ID[links[k]], s = document.createElement('span');
+        const locked = k >= sockets, fits = g && supportFits(g, id);
+        s.className = 'sock' + (locked ? ' locked' : '') + (g ? ' full' : '') + (g && !fits ? ' bad' : '');
+        if (g) s.style.background = g.color;
+        s.title = locked ? `Lv ${[1, 5, 10][k]} で開放` : g ? `${g.name}（クリックで外す）${fits ? '' : '：このスキルには無効'}` : '空きソケット';
+        if (g) s.addEventListener('click', ev => { ev.stopPropagation(); links.splice(k, 1); this.linksChanged(); });
+        sockEl.appendChild(s);
+      }
       el.addEventListener('click', () => { this.selSlot = i; this.refresh(); });
       row.appendChild(el);
     });
+
     const pool = $('skillPool');
     pool.innerHTML = '';
     for (const id of SKILL_LIST) {
@@ -121,17 +144,43 @@ const UI = {
       const tag = locked ? `Lv ${sk.lvl} で習得` : at >= 0 ? `装備中：${SKILL_SLOTS[at].label}` : '';
       el.innerHTML = `<div class="i" style="color:${sk.color}">${sk.icon}</div>
         <div class="n"><span style="color:${sk.color}">${sk.name}</span><span class="tag">${tag}</span></div>
-        <div class="m">マナ ${sk.mana}${sk.cd ? `　CD ${sk.cd}秒` : ''}${sk.attack ? '　攻撃' : '　スキル'}</div>
+        <div class="m">マナ ${sk.mana}${sk.cd ? `　CD ${sk.cd}秒` : ''}　${SKILL_TAGS[id].map(t => TAG_NAMES[t]).join('・')}</div>
         <div class="d">${sk.desc}</div>`;
       if (!locked) el.addEventListener('click', () => {
-        const sel = this.selSlot, prev = p.slots[sel];
-        if (at >= 0) p.slots[at] = prev;
-        p.slots[sel] = id;
-        this.buildSkillbar();
-        this.refresh();
+        const sel = this.selSlot;
+        if (at >= 0) { [p.slots[at], p.slots[sel]] = [p.slots[sel], p.slots[at]]; [p.links[at], p.links[sel]] = [p.links[sel], p.links[at]]; }
+        else p.slots[sel] = id;
+        this.linksChanged();
       });
       pool.appendChild(el);
     }
+
+    const gems = $('gemPool'), selId = p.slots[this.selSlot], selLinks = p.links[this.selSlot];
+    $('gemHint').textContent = `「${SKILLS[selId].name}」に${sockets}個までリンクできます（Lv5・Lv10でソケット追加）`;
+    gems.innerHTML = '';
+    for (const g of SUPPORTS) {
+      const owned = p.gems.includes(g.id), fits = supportFits(g, selId), linked = selLinks.includes(g.id);
+      const el = document.createElement('div');
+      el.className = 'gemcard' + (owned ? '' : ' locked') + (owned && !fits ? ' nofit' : '') + (linked ? ' linked' : '');
+      el.style.setProperty('--c', g.color);
+      el.innerHTML = `<div class="gn"><span>◇ ${g.name}</span><span class="tag">${!owned ? '未入手' : linked ? 'リンク中' : fits ? '' : '対象外'}</span></div><div class="d">${g.desc}</div>`;
+      el.addEventListener('mouseenter', ev => this.showTip(ev, this.gemTip(g)));
+      el.addEventListener('mouseleave', () => this.hideTip());
+      el.addEventListener('click', () => {
+        if (!owned) return;
+        if (linked) { selLinks.splice(selLinks.indexOf(g.id), 1); this.linksChanged(); return; }
+        if (!fits) return showMsg(`${g.name}は「${SKILLS[selId].name}」に使えない`, '#ff8080');
+        if (selLinks.length >= sockets) return showMsg('空きソケットがない', '#ff8080');
+        selLinks.push(g.id);
+        this.linksChanged();
+      });
+      gems.appendChild(el);
+    }
+  },
+  linksChanged() {
+    this.buildSkillbar();
+    saveGame();
+    this.refresh();
   },
 
   renderShop() {
@@ -191,6 +240,19 @@ const UI = {
         this.refresh();
       });
       ex.appendChild(b);
+    }
+    const gs = $('shopGems');
+    gs.innerHTML = '';
+    const missing = SUPPORTS.filter(g => !p.gems.includes(g.id));
+    if (!missing.length) gs.innerHTML = '<div class="hint2">すべて入手済み</div>';
+    for (const g of missing) {
+      const cost = Math.round(300 * discount()), b = document.createElement('button');
+      b.className = 'sbtn'; b.disabled = p.cur.ember < cost;
+      b.innerHTML = `<span style="color:${g.color}">◇</span> ${g.name} <span style="float:right;color:#ffb35a">◆${cost}</span>`;
+      b.addEventListener('mouseenter', ev => this.showTip(ev, this.gemTip(g)));
+      b.addEventListener('mouseleave', () => this.hideTip());
+      b.addEventListener('click', () => { if (p.cur.ember < cost) return; p.cur.ember -= cost; unlockGem(g.id); this.hideTip(); this.refresh(); });
+      gs.appendChild(b);
     }
   },
 

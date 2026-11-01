@@ -41,6 +41,8 @@ canvas#game { position: fixed; inset: 0; display: block; cursor: crosshair; }
 .skill .cd { position: absolute; inset: 0; }
 .skill .key { position: absolute; bottom: 1px; left: 3px; font-size: 10px; color: #ddd; text-shadow: 0 1px 1px #000; }
 .skill .cost { position: absolute; top: 1px; right: 3px; font-size: 10px; color: #8fb4ff; text-shadow: 0 1px 1px #000; }
+.skill .pips { position: absolute; bottom: 2px; right: 3px; display: flex; gap: 2px; }
+.skill .pips i { width: 5px; height: 5px; border-radius: 50%; box-shadow: 0 0 3px #000; }
 .skill.oom { filter: grayscale(.8) brightness(.6); }
 #xpbar { width: 100%; height: 6px; background: #1a1610; border: 1px solid #4a3a26; }
 #xpFill { height: 100%; background: linear-gradient(90deg, #c08a2a, #ffd36a); width: 0; }
@@ -110,6 +112,25 @@ canvas#game { position: fixed; inset: 0; display: block; cursor: crosshair; }
 .slotcard .k { font-size: 11px; color: #998a70; }
 .slotcard .i { font-size: 28px; line-height: 1.3; }
 .slotcard .n { font-size: 11px; color: #e8dcc4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sk-h { font-size: 13px; color: #b8a888; font-weight: normal; letter-spacing: .1em; margin: 12px 0 6px; }
+.sk-h span { font-size: 11px; color: #7a6e5a; letter-spacing: 0; margin-left: 8px; }
+.sockets { display: flex; justify-content: center; gap: 5px; margin-top: 6px; }
+.sock { width: 12px; height: 12px; border-radius: 50%; border: 1px solid #6a5434; background: #0c0a08; cursor: default; }
+.sock.full { cursor: pointer; border-color: #000; box-shadow: 0 0 5px rgba(255,255,255,.25); }
+.sock.bad { opacity: .35; }
+.sock.locked { background: repeating-linear-gradient(45deg, #2a2018 0 2px, #0c0a08 2px 4px); }
+#gemPool { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 6px; }
+.gemcard { padding: 6px 8px; border: 1px solid #3a3024; border-left: 3px solid var(--c); border-radius: 4px; background: #0e0b08; cursor: pointer; }
+.gemcard:hover { border-color: #a08040; border-left-color: var(--c); }
+.gemcard .gn { display: flex; justify-content: space-between; font-size: 13px; color: var(--c); }
+.gemcard .tag { font-size: 11px; color: #ffd36a; }
+.gemcard .d { font-size: 11px; color: #a89a80; margin-top: 2px; line-height: 1.45; }
+.gemcard.linked { background: #1e180c; box-shadow: inset 0 0 0 1px var(--c); }
+.gemcard.nofit { opacity: .5; }
+.gemcard.locked { opacity: .3; cursor: default; }
+.slotcard { width: 104px; }
+#shopGems { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; width: 272px; }
+#shopGems .sbtn { font-size: 12px; padding: 5px 6px; text-align: left; }
 #skillPool { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
 .skillcard { display: grid; grid-template-columns: 44px 1fr; gap: 4px 10px; padding: 8px; border: 1px solid #3a3024;
   border-radius: 6px; background: #0e0b08; cursor: pointer; }

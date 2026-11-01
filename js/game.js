@@ -1,7 +1,7 @@
 'use strict';
 const G = {
   state: 'title', floor: 1, time: 0, shake: 0, cam: { x: 0, y: 0 },
-  enemies: [], projs: [], eprojs: [], particles: [], texts: [], effects: [], hazards: [], tele: [], storms: [],
+  enemies: [], projs: [], eprojs: [], particles: [], texts: [], effects: [], hazards: [], tele: [], storms: [], minions: [], totems: [],
   ground: [], drops: [], portal: null, boss: null, flowT: 0, merchant: null, shop: null,
 };
 const BAG_SIZE = 30;
@@ -15,6 +15,7 @@ class Player {
     this.talents = Object.fromEntries(TALENTS.map(t => [t.k, 0]));
     this.equip = {}; this.bag = []; this.slots = [...DEFAULT_SLOTS];
     this.filter = defaultFilter();
+    this.links = SKILL_SLOTS.map(() => []); this.gems = [...DEFAULT_GEMS];
     this.cur = Object.fromEntries(CURRENCIES.map(c => [c.k, 0])); this.potions = 3; this.potionProg = 0;
     this.cds = {}; this.actionT = 0; this.swingT = 0; this.aim = 0;
     this.invuln = 0; this.hitFlash = 0; this.walkT = 0; this.dash = null; this.dead = false;
@@ -69,6 +70,8 @@ class Player {
       G.effects.push({ kind: 'ring', x: this.x, y: this.y, r0: 10, r1: 120, t: 0, max: 0.6, color: '255,226,122' });
       burst(this.x, this.y, 40, '#ffe27a', 260, true);
       showMsg(`レベル ${this.level} に到達！ タレントポイント +1（Tキー）`, '#ffe27a');
+      if (linkSockets(this.level) > linkSockets(this.level - 1)) showMsg(`リンクソケットが ${linkSockets(this.level)} 個に増えた！（K）`, '#7fe0a0');
+      UI.buildSkillbar();
       for (const id of SKILL_LIST) if (SKILLS[id].lvl === this.level) showMsg(`新スキル「${SKILLS[id].name}」を習得！（Kで付け替え）`, SKILLS[id].color);
       UI.refresh();
     }
@@ -109,7 +112,7 @@ function updatePlayer(dt) {
     UI.toggle('shop');
     return;
   }
-  SKILL_SLOTS.forEach((slot, i) => { if (slot.on()) tryCast(p.slots[i]); });
+  SKILL_SLOTS.forEach((slot, i) => { if (slot.on()) tryCast(i); });
   if (Input.pressed.KeyF) usePotion();
   G.map.reveal(p.x, p.y);
 }
@@ -144,7 +147,7 @@ function rollDamage(coef, type, spell, skill) {
   const p = G.player, s = p.s;
   let d = rand(s.dmgMin, s.dmgMax) * coef;
   const elem = type === 'fire' ? s.fireDmg : type === 'cold' ? s.coldDmg : type === 'light' ? s.lightDmg : 0;
-  d *= (1 + (s.incDmg + (spell ? s.spellDmg : 0) + elem) / 100) * (1 + 0.15 * (p.talents[skill] || 0));
+  d *= (1 + (s.incDmg + (spell ? s.spellDmg : 0) + elem) / 100) * (1 + 0.15 * (p.talents[skill] || 0)) * SUP.dmg;
   const crit = Math.random() * 100 < s.crit;
   if (crit) d *= s.critMulti / 100;
   return { dmg: Math.max(1, Math.round(d)), crit, type };
@@ -154,6 +157,8 @@ const DMG_COLORS = { phys: '#ffffff', fire: '#ff9a40', cold: '#8fdcff', light: '
 function hitEnemy(e, hit, freeze = 0) {
   if (e.dead) return;
   e.life -= hit.dmg; e.hitT = 0.12;
+  freeze = Math.max(freeze, SUP.freeze);
+  if (SUP.leech) { const p = G.player; p.life = Math.min(p.s.maxLife, p.life + hit.dmg * SUP.leech); }
   if (!e.aggro) alertPack(e);
   addText(e.x + rand(-12, 12), e.y - e.r - 12, hit.dmg + (hit.crit ? '!' : ''), hit.crit ? '#ffe040' : DMG_COLORS[hit.type], hit.crit ? 22 : 15);
   if (freeze && !e.boss) e.frozen = Math.max(e.frozen, freeze);
@@ -191,11 +196,12 @@ function killEnemy(e) {
   // crafting currencies
   let cn = e.boss ? randi(3, 5) : e.elite ? (Math.random() < 0.5 ? randi(1, 2) : 0) : Math.random() < 0.035 * fx.quantity ? 1 : 0;
   for (let i = 0; i < cn; i++) dropCurrency(weighted(DROP_CURRENCIES).k, 1, e.x, e.y);
+  if (Math.random() < (e.boss ? 0.6 : e.elite ? 0.15 : 0.004)) dropGem(e.x, e.y);
 
   if (e.elite && e.elite.k === 'volatile') {
     addTele(e.x, e.y, 90, 0.8, true, () => {
       explosionFx(e.x, e.y, 90, '255,120,60');
-      if (dist(e.x, e.y, p.x, p.y) < 90 + p.r) damagePlayer(e.dmg * 1.5);
+      damageArea(e.x, e.y, 90, e.dmg * 1.5);
     });
   }
   if (e.boss) {
@@ -213,6 +219,21 @@ function dropCurrency(k, n, x, y) {
   let cx = x + Math.cos(a) * d, cy = y + Math.sin(a) * d;
   if (G.map.solidAt(cx, cy)) { cx = x; cy = y; }
   G.drops.push({ x: cx, y: cy, k, n, t: 0 });
+}
+function pickDrop(g) {
+  if (g.k === 'gem') unlockGem(g.gem);
+  else gainCurrency(g.k, g.n);
+}
+function unlockGem(id) {
+  const p = G.player;
+  if (p.gems.includes(id)) { gainCurrency('ember', 40 * G.floor); return; }
+  p.gems.push(id);
+  showMsg(`サポートジェム「${SUPPORT_BY_ID[id].name}」を入手！（Kでリンク）`, SUPPORT_BY_ID[id].color);
+}
+function dropGem(x, y) {
+  const missing = SUPPORTS.filter(g => !G.player.gems.includes(g.id));
+  if (!missing.length) return;
+  G.drops.push({ x: x + rand(-25, 25), y: y + rand(-25, 25), k: 'gem', n: 1, gem: pick(missing).id, t: 0 });
 }
 function gainCurrency(k, n) {
   const p = G.player;
@@ -237,7 +258,7 @@ const isHidden = it => itemAction(it) === 'hide';
 function collectNearbyLoot(radius) {
   const p = G.player;
   let n = 0, cur = 0;
-  for (const g of G.drops) if (dist2(g.x, g.y, p.x, p.y) < radius * radius) { g.dead = true; gainCurrency(g.k, g.n); cur++; }
+  for (const g of G.drops) if (dist2(g.x, g.y, p.x, p.y) < radius * radius) { g.dead = true; pickDrop(g); cur++; }
   for (const g of G.ground) {
     if (isHidden(g.item) || dist2(g.x, g.y, p.x, p.y) > radius * radius) continue;
     if (!pickupItem(g.item, g.x, g.y, false, true)) continue;
@@ -298,80 +319,109 @@ function explosionFx(x, y, r, rgb) {
   G.shake = Math.max(G.shake, r / 12);
 }
 
-// =================== skills ===================
-function tryCast(id) {
-  const p = G.player, sk = SKILLS[id];
+/// =================== skills ===================
+// support gem modifiers that apply while a skill (or a totem or minion using it) resolves
+function buildSup(skillId, ids) {
+  const s = { dmg: 1, mana: 1, speed: 1, proj: 0, aoe: 1, chain: 0, leech: 0, freeze: 0, totem: false, mlife: 1, mcount: 0, ids: [] };
+  if (!skillId) return s;
+  for (const id of ids) {
+    const g = SUPPORT_BY_ID[id];
+    if (!g || !supportFits(g, skillId)) continue;
+    g.apply(s); s.ids.push(id);
+  }
+  return s;
+}
+const NO_SUP = buildSup(null, []);
+let SUP = NO_SUP;
+function withSup(s, fn) { const prev = SUP; SUP = s || NO_SUP; try { return fn(); } finally { SUP = prev; } }
+function slotSup(i) { const p = G.player; return buildSup(p.slots[i], (p.links[i] || []).slice(0, linkSockets(p.level))); }
+const fan = (n, step) => Array.from({ length: n }, (_, i) => (i - (n - 1) / 2) * step);
+
+// who is casting: the player, or a totem acting for them
+function playerCaster() { const p = G.player, wm = worldMouse(); return { x: p.x, y: p.y, aim: p.aim, tx: wm.x, ty: wm.y }; }
+
+function tryCast(i) {
+  const p = G.player, id = p.slots[i], sk = SKILLS[id], sup = slotSup(i);
   if (p.actionT > 0 && id !== 'dash') return;
   if ((p.cds[id] || 0) > 0) return;
-  if (p.mana < sk.mana) { if (!G.oomT || G.time - G.oomT > 1.2) { G.oomT = G.time; showMsg('マナが足りない', '#7fa8ff'); } return; }
-  if (id === 'chain' && !findChainTarget()) return;
-  p.mana -= sk.mana;
-  if (sk.cd) p.cds[id] = sk.cd * (1 - p.s.cdr / 100);
-  if (sk.attack) p.actionT = 1 / p.s.attackRate;
-  else if (sk.cast) p.actionT = sk.cast / (1 + p.s.castSpd / 100);
-  CAST[id](p);
+  const cost = Math.round(sk.mana * sup.mana * (sup.totem ? 2.5 : 1));
+  if (p.mana < cost) { if (!G.oomT || G.time - G.oomT > 1.2) { G.oomT = G.time; showMsg('マナが足りない', '#7fa8ff'); } return; }
+  const c = playerCaster();
+  if (!sup.totem && id === 'chain' && !findChainTarget(c)) return;
+  p.mana -= cost;
+  const cd = sup.totem ? Math.max(sk.cd || 0, 1.5) : sk.cd;
+  if (cd) p.cds[id] = cd * (1 - p.s.cdr / 100);
+  if (sk.attack) p.actionT = 1 / p.s.attackRate / sup.speed;
+  else if (sk.cast) p.actionT = sk.cast / (1 + p.s.castSpd / 100) / sup.speed;
+  if (sup.totem) placeTotem(id, sup, c);
+  else withSup(sup, () => CAST[id](c));
 }
 
-function findChainTarget() {
-  const p = G.player, wm = worldMouse();
+function findChainTarget(c) {
   let best = null, bd = Infinity;
   for (const e of G.enemies) {
-    if (e.dead || dist2(p.x, p.y, e.x, e.y) > 450 * 450) continue;
-    const d = dist2(wm.x, wm.y, e.x, e.y);
-    if (d < bd && G.map.los(p.x, p.y, e.x, e.y)) { bd = d; best = e; }
+    if (e.dead || dist2(c.x, c.y, e.x, e.y) > 450 * 450) continue;
+    const d = dist2(c.tx, c.ty, e.x, e.y);
+    if (d < bd && G.map.los(c.x, c.y, e.x, e.y)) { bd = d; best = e; }
   }
   return best;
 }
+// a point toward the target, no farther than `max`
+function aimPoint(c, max) {
+  const a = Math.atan2(c.ty - c.y, c.tx - c.x), d = Math.min(max, dist(c.x, c.y, c.tx, c.ty));
+  return { x: c.x + Math.cos(a) * d, y: c.y + Math.sin(a) * d };
+}
 
 const CAST = {
-  slash(p) {
-    p.swingT = 0.2; p.swingDir = p.aim;
-    const range = 78;
+  slash(c) {
+    const p = G.player, range = 78;
+    p.swingT = 0.2; p.swingDir = c.aim;
     for (const e of G.enemies) {
       if (e.dead) continue;
-      const d = dist(p.x, p.y, e.x, e.y);
+      const d = dist(c.x, c.y, e.x, e.y);
       if (d > range + e.r) continue;
-      if (Math.abs(angleDiff(p.aim, Math.atan2(e.y - p.y, e.x - p.x))) > 1.15 && d > e.r + p.r) continue;
+      if (Math.abs(angleDiff(c.aim, Math.atan2(e.y - c.y, e.x - c.x))) > 1.15 && d > e.r + p.r) continue;
       hitEnemy(e, rollDamage(1.0, 'phys', false, 'slash'));
     }
-    G.effects.push({ kind: 'arc', x: p.x, y: p.y, a: p.aim, r: range, t: 0, max: 0.18 });
+    G.effects.push({ kind: 'arc', x: c.x, y: c.y, a: c.aim, r: range, t: 0, max: 0.18 });
     if (p.s.effects.has('slashWave')) {
-      G.projs.push({ kind: 'wave', x: p.x, y: p.y, vx: Math.cos(p.aim) * 650, vy: Math.sin(p.aim) * 650, r: 22, t: 0, max: 0.55, hit: new Set(), a: p.aim });
+      G.projs.push({ kind: 'wave', x: c.x, y: c.y, vx: Math.cos(c.aim) * 650, vy: Math.sin(c.aim) * 650, r: 22, t: 0, max: 0.55, hit: new Set(), a: c.aim, sup: SUP });
     }
   },
-  whirl(p) {
-    const R = 105;
-    for (const e of enemiesInRadius(p.x, p.y, R)) hitEnemy(e, rollDamage(0.85, 'phys', false, 'whirl'));
-    G.effects.push({ kind: 'spin', x: p.x, y: p.y, a: p.aim, r: R, t: 0, max: 0.22 });
-    p.swingT = 0.2; p.swingDir = p.aim;
+  whirl(c) {
+    const p = G.player, R = 105 * SUP.aoe;
+    for (const e of enemiesInRadius(c.x, c.y, R)) hitEnemy(e, rollDamage(0.85, 'phys', false, 'whirl'));
+    G.effects.push({ kind: 'spin', x: c.x, y: c.y, a: c.aim, r: R, t: 0, max: 0.22 });
+    p.swingT = 0.2; p.swingDir = c.aim;
   },
-  iceSpear(p) {
-    const a = p.aim;
-    G.projs.push({ kind: 'spear', x: p.x + Math.cos(a) * 16, y: p.y + Math.sin(a) * 16, vx: Math.cos(a) * 820, vy: Math.sin(a) * 820, r: 9, t: 0, max: 0.8, hit: new Set(), a });
-  },
-  storm(p) {
-    const wm = worldMouse();
-    const a = Math.atan2(wm.y - p.y, wm.x - p.x), d = Math.min(480, dist(p.x, p.y, wm.x, wm.y));
-    G.storms.push({ x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d, r: 170, t: 0, max: 3, tick: 0.1 });
-  },
-  fireball(p) {
-    const angles = p.s.effects.has('fireballMulti') ? [-0.22, 0, 0.22] : [0];
-    for (const da of angles) {
-      const a = p.aim + da;
-      G.projs.push({ kind: 'fireball', x: p.x + Math.cos(a) * 16, y: p.y + Math.sin(a) * 16, vx: Math.cos(a) * 620, vy: Math.sin(a) * 620, r: 8, t: 0, max: 1.4 });
+  iceSpear(c) {
+    for (const da of fan(1 + SUP.proj, 0.14)) {
+      const a = c.aim + da;
+      G.projs.push({ kind: 'spear', x: c.x + Math.cos(a) * 16, y: c.y + Math.sin(a) * 16, vx: Math.cos(a) * 820, vy: Math.sin(a) * 820, r: 9, t: 0, max: 0.8, hit: new Set(), a, sup: SUP });
     }
   },
-  nova(p, free = false) {
-    const R = 185;
-    G.effects.push({ kind: 'ring', x: p.x, y: p.y, r0: 20, r1: R, t: 0, max: 0.4, color: '140,220,255', fill: true });
-    burst(p.x, p.y, 50, '#aee8ff', 520, true);
-    for (const e of enemiesInRadius(p.x, p.y, R)) hitEnemy(e, rollDamage(free ? 0.8 : 1.3, 'cold', true, 'nova'), 1.8);
+  storm(c) {
+    const q = aimPoint(c, 480);
+    G.storms.push({ x: q.x, y: q.y, r: 170 * SUP.aoe, t: 0, max: 3, tick: 0.1, sup: SUP });
   },
-  chain(p) {
-    let target = findChainTarget();
+  fireball(c) {
+    const base = G.player.s.effects.has('fireballMulti') ? 3 : 1;
+    for (const da of fan(base + SUP.proj, 0.2)) {
+      const a = c.aim + da;
+      G.projs.push({ kind: 'fireball', x: c.x + Math.cos(a) * 16, y: c.y + Math.sin(a) * 16, vx: Math.cos(a) * 620, vy: Math.sin(a) * 620, r: 8, t: 0, max: 1.4, sup: SUP, boom: 70 * SUP.aoe });
+    }
+  },
+  nova(c, free = false) {
+    const R = 185 * SUP.aoe;
+    G.effects.push({ kind: 'ring', x: c.x, y: c.y, r0: 20, r1: R, t: 0, max: 0.4, color: '140,220,255', fill: true });
+    burst(c.x, c.y, 50, '#aee8ff', 520, true);
+    for (const e of enemiesInRadius(c.x, c.y, R)) hitEnemy(e, rollDamage(free ? 0.8 : 1.3, 'cold', true, 'nova'), 1.8);
+  },
+  chain(c) {
+    let target = findChainTarget(c);
     const hit = new Set();
-    let sx = p.x, sy = p.y;
-    let n = 5 + (p.s.effects.has('chainPlus') ? 4 : 0);
+    let sx = c.x, sy = c.y;
+    let n = 5 + (G.player.s.effects.has('chainPlus') ? 4 : 0) + SUP.chain;
     while (target && n-- > 0) {
       hit.add(target);
       G.effects.push({ kind: 'bolt', x0: sx, y0: sy, x1: target.x, y1: target.y, t: 0, max: 0.22 });
@@ -387,26 +437,35 @@ const CAST = {
       target = next;
     }
   },
-  meteor(p) {
-    const wm = worldMouse();
-    const a = Math.atan2(wm.y - p.y, wm.x - p.x), d = Math.min(520, dist(p.x, p.y, wm.x, wm.y));
-    const tx = p.x + Math.cos(a) * d, ty = p.y + Math.sin(a) * d;
-    const drop = (x, y, delay) => addTele(x, y, 115, delay, false, () => {
-      explosionFx(x, y, 115, '255,110,40');
-      for (const e of enemiesInRadius(x, y, 115)) hitEnemy(e, rollDamage(3.6, 'fire', true, 'meteor'));
-      G.hazards.push({ x, y, r: 95, t: 0, max: 3.5, tick: 0 });
-    });
-    drop(tx, ty, 0.75);
-    if (p.s.effects.has('meteorShower')) {
-      drop(tx + rand(-130, 130), ty + rand(-130, 130), 1.0);
-      drop(tx + rand(-130, 130), ty + rand(-130, 130), 1.25);
+  meteor(c) {
+    const q = aimPoint(c, 520), sup = SUP, R = 115 * sup.aoe;
+    const drop = (x, y, delay) => addTele(x, y, R, delay, false, () => withSup(sup, () => {
+      explosionFx(x, y, R, '255,110,40');
+      for (const e of enemiesInRadius(x, y, R)) hitEnemy(e, rollDamage(3.6, 'fire', true, 'meteor'));
+      G.hazards.push({ x, y, r: R * 0.83, t: 0, max: 3.5, tick: 0, sup });
+    }));
+    drop(q.x, q.y, 0.75);
+    if (G.player.s.effects.has('meteorShower')) {
+      drop(q.x + rand(-130, 130), q.y + rand(-130, 130), 1.0);
+      drop(q.x + rand(-130, 130), q.y + rand(-130, 130), 1.25);
     }
   },
-  dash(p) {
-    const wm = worldMouse();
-    const a = Math.atan2(wm.y - p.y, wm.x - p.x);
-    p.dash = { dx: Math.cos(a), dy: Math.sin(a), left: Math.min(280, Math.max(120, dist(p.x, p.y, wm.x, wm.y))), hit: new Set() };
+  dash(c) {
+    const p = G.player, a = Math.atan2(c.ty - c.y, c.tx - c.x);
+    p.dash = { dx: Math.cos(a), dy: Math.sin(a), left: Math.min(280, Math.max(120, dist(c.x, c.y, c.tx, c.ty))), hit: new Set(), sup: SUP };
     p.invuln = 0.3;
+  },
+  skeleton(c) {
+    const p = G.player, max = 3 + SUP.mcount;
+    for (let i = 0; i < 2; i++) {
+      if (G.minions.length >= max) G.minions.shift(); // the oldest crumbles to make room
+      const a = rand(0, TAU);
+      let x = c.x + Math.cos(a) * 40, y = c.y + Math.sin(a) * 40;
+      if (circleHits(G.map, x, y, 11)) { x = c.x; y = c.y; }
+      const life = (50 + p.level * 12) * SUP.mlife;
+      G.minions.push({ x, y, r: 11, life, maxLife: life, sup: SUP, atkCd: 0.4, swingT: 0, face: c.aim, walkT: 0, target: null, scanT: 0, hitT: 0, ally: true, minion: true });
+      burst(x, y, 14, '#e8e0c8', 140, true);
+    }
   },
 };
 
@@ -421,15 +480,110 @@ function updateDash(p, dt) {
     if (Math.abs(p.x - ox) + Math.abs(p.y - oy) < 0.5) { d.left = 0; break; }
   }
   G.particles.push({ x: p.x, y: p.y, vx: 0, vy: 0, t: 0, max: 0.3, size: 11, color: 'rgba(140,120,255,0.5)', glow: true });
-  for (const e of G.enemies) {
-    if (e.dead || d.hit.has(e) || dist2(p.x, p.y, e.x, e.y) > (e.r + p.r + 14) ** 2) continue;
-    d.hit.add(e);
-    hitEnemy(e, rollDamage(0.9, 'phys', false, 'dash'));
-  }
+  withSup(d.sup, () => {
+    for (const e of G.enemies) {
+      if (e.dead || d.hit.has(e) || dist2(p.x, p.y, e.x, e.y) > (e.r + p.r + 14) ** 2) continue;
+      d.hit.add(e);
+      hitEnemy(e, rollDamage(0.9, 'phys', false, 'dash'));
+    }
+  });
   if (d.left <= 0) {
     p.dash = null;
     if (p.s.effects.has('dashNova')) CAST.nova(p, true);
   }
+}
+
+// =================== totems and minions ===================
+const TOTEM_MAX = 2;
+function placeTotem(id, sup, c) {
+  const p = G.player, q = aimPoint(c, 380), a = Math.atan2(q.y - p.y, q.x - p.x);
+  let { x, y } = q;
+  for (let k = 0; k < 20 && circleHits(G.map, x, y, 12); k++) { x -= Math.cos(a) * 20; y -= Math.sin(a) * 20; }
+  const mine = G.totems.filter(t => t.skill === id);
+  if (mine.length >= TOTEM_MAX) mine[0].dead = true;
+  const life = 60 + p.level * 15;
+  G.totems.push({ x, y, r: 12, skill: id, sup, t: 0, max: 10, castT: 0.4, life, maxLife: life, hitT: 0, aim: 0, ally: true, totem: true });
+  burst(x, y, 20, SKILLS[id].color, 160, true);
+}
+
+function updateTotems(dt) {
+  for (const t of G.totems) {
+    t.t += dt; t.castT -= dt; t.hitT -= dt;
+    if (t.dead || t.t >= t.max || t.life <= 0) { t.dead = true; burst(t.x, t.y, 16, '#8a6a3a', 120, false); continue; }
+    if (t.castT > 0) continue;
+    let best = null, bd = 520 * 520;
+    for (const e of G.enemies) {
+      if (e.dead) continue;
+      const d = dist2(t.x, t.y, e.x, e.y);
+      if (d < bd && G.map.los(t.x, t.y, e.x, e.y)) { bd = d; best = e; }
+    }
+    if (!best) { t.castT = 0.3; continue; }
+    const sk = SKILLS[t.skill];
+    t.castT = Math.max(0.45, (sk.cast || 0.4) * 1.5 / t.sup.speed, (sk.cd || 0) * 0.7);
+    t.aim = Math.atan2(best.y - t.y, best.x - t.x);
+    withSup(t.sup, () => CAST[t.skill]({ x: t.x, y: t.y, aim: t.aim, tx: best.x, ty: best.y }));
+  }
+  G.totems = G.totems.filter(t => !t.dead);
+}
+
+function updateMinions(dt) {
+  const p = G.player;
+  for (const m of G.minions) {
+    if (m.life <= 0) { m.dead = true; burst(m.x, m.y, 16, '#d8d0b8', 150, false); continue; }
+    m.atkCd -= dt; m.swingT -= dt; m.scanT -= dt; m.hitT -= dt;
+    const dp = dist(m.x, m.y, p.x, p.y);
+    if (dp > 700) { m.x = p.x; m.y = p.y; m.target = null; }
+    if (m.target && m.target.dead) m.target = null;
+    if (m.scanT <= 0) {
+      m.scanT = 0.3;
+      let best = null, bd = 420 * 420;
+      for (const e of G.enemies) {
+        if (e.dead || dist2(e.x, e.y, p.x, p.y) > 500 * 500) continue;
+        const d = dist2(m.x, m.y, e.x, e.y);
+        if (d < bd && G.map.los(m.x, m.y, e.x, e.y)) { bd = d; best = e; }
+      }
+      m.target = best;
+    }
+    let tx = p.x, ty = p.y, sp = dp > 250 ? 300 : 210;
+    if (m.target) {
+      const e = m.target;
+      m.face = Math.atan2(e.y - m.y, e.x - m.x);
+      if (dist(m.x, m.y, e.x, e.y) < e.r + m.r + 12) {
+        if (m.atkCd <= 0) {
+          m.atkCd = 0.9 / m.sup.speed; m.swingT = 0.2;
+          withSup(m.sup, () => hitEnemy(e, rollDamage(0.55, 'phys', true, 'skeleton')));
+        }
+        continue;
+      }
+      tx = e.x; ty = e.y; sp = 220;
+    } else if (dp < 80) continue;
+    const dx = tx - m.x, dy = ty - m.y, l = Math.hypot(dx, dy) || 1;
+    moveCircle(m, dx / l * sp * dt, dy / l * sp * dt);
+    m.face = Math.atan2(dy, dx); m.walkT += dt;
+  }
+  G.minions = G.minions.filter(m => !m.dead);
+}
+
+// enemies also attack minions and totems
+const allies = () => [...G.minions, ...G.totems];
+function damageAlly(a, amount) {
+  if (a === G.player) { damagePlayer(amount); return; }
+  a.life -= amount; a.hitT = 0.12;
+  addText(a.x, a.y, Math.round(amount), '#b0b0b0', 13);
+}
+function damageArea(x, y, r, amount) {
+  const p = G.player;
+  if (dist(x, y, p.x, p.y) < r + p.r) damagePlayer(amount);
+  for (const a of allies()) if (dist(x, y, a.x, a.y) < r + a.r) damageAlly(a, amount);
+}
+function pickTarget(e) {
+  const p = G.player;
+  let best = p, bd = dist(e.x, e.y, p.x, p.y) * 0.85; // a slight preference for the player
+  for (const a of allies()) {
+    const d = dist(e.x, e.y, a.x, a.y);
+    if (d < bd && d < 400) { bd = d; best = a; }
+  }
+  return best;
 }
 
 // =================== enemies ===================
@@ -465,11 +619,11 @@ function updateEnemy(e, dt) {
   const p = G.player;
   e.hitT -= dt; e.atkCd -= dt; e.slow -= dt;
   if (e.frozen > 0) { e.frozen -= dt; return; }
-  const d = dist(e.x, e.y, p.x, p.y);
+  const dp = dist(e.x, e.y, p.x, p.y);
   e.losT -= dt;
-  if (e.losT <= 0) { e.losT = 0.2 + Math.random() * 0.1; e.los = d < 750 && G.map.los(e.x, e.y, p.x, p.y); }
+  if (e.losT <= 0) { e.losT = 0.2 + Math.random() * 0.1; e.los = dp < 750 && G.map.los(e.x, e.y, p.x, p.y); }
   if (!e.aggro) {
-    if ((d < 380 && e.los) || (e.boss && d < 500 && e.los)) {
+    if ((dp < 380 && e.los) || (e.boss && dp < 500 && e.los)) {
       alertPack(e);
     } else {
       e.wanderT -= dt;
@@ -484,61 +638,65 @@ function updateEnemy(e, dt) {
     if (e.windup <= 0 && e.pending) { const fn = e.pending; e.pending = null; fn(); }
     return;
   }
-  if (e.boss) { updateBoss(e, dt, d); return; }
+  if (e.boss) { updateBoss(e, dt, dp); return; }
 
+  // regular monsters go for whoever is closest: the player, a minion or a totem
+  e.tgtT = (e.tgtT || 0) - dt;
+  if (e.tgtT <= 0 || !e.tgt || e.tgt.dead) { e.tgtT = 0.5; e.tgt = pickTarget(e); }
+  const tg = e.tgt, d = dist(e.x, e.y, tg.x, tg.y);
+  const sees = tg === p ? e.los : d < 500;
   const t = e.t;
   let move = true;
   if (t.ranged || t.caster) {
-    if (d < t.range && e.los) {
+    if (d < t.range && sees) {
       move = false;
-      if (t.ranged && d < 150) moveCircle(e, -(p.x - e.x) / d * e.speed * 0.7 * dt, -(p.y - e.y) / d * e.speed * 0.7 * dt);
-      if (e.atkCd <= 0) startAttack(e);
+      if (t.ranged && d < 150) moveCircle(e, -(tg.x - e.x) / d * e.speed * 0.7 * dt, -(tg.y - e.y) / d * e.speed * 0.7 * dt);
+      if (e.atkCd <= 0) startAttack(e, tg);
     }
-  } else if (d < t.atkRange + e.r + p.r) {
+  } else if (d < t.atkRange + e.r + tg.r) {
     move = false;
-    if (e.atkCd <= 0) startAttack(e);
+    if (e.atkCd <= 0) startAttack(e, tg);
   }
-  if (move) chase(e, dt);
-  e.face = Math.atan2(p.y - e.y, p.x - e.x);
+  if (move) chase(e, dt, tg);
+  e.face = Math.atan2(tg.y - e.y, tg.x - e.x);
 }
 
-function chase(e, dt) {
-  const p = G.player;
-  let tx = p.x, ty = p.y;
-  if (!e.los) { const n = G.map.flowNext(e.x, e.y); if (!n) return; tx = n.x; ty = n.y; }
+function chase(e, dt, tg = G.player) {
+  let tx = tg.x, ty = tg.y;
+  if (tg === G.player && !e.los) { const n = G.map.flowNext(e.x, e.y); if (!n) return; tx = n.x; ty = n.y; }
   const dx = tx - e.x, dy = ty - e.y, l = Math.hypot(dx, dy) || 1;
   const sp = e.speed * (e.slow > 0 ? 0.5 : 1);
   moveCircle(e, dx / l * sp * dt, dy / l * sp * dt);
 }
 
-function startAttack(e) {
-  const p = G.player, t = e.t;
+function startAttack(e, tg) {
+  const t = e.t;
   e.atkCd = t.atkCd * e.atkCdMul;
   e.windup = t.windup;
   if (t.ranged) {
     e.pending = () => {
       if (e.dead) return;
-      const a = Math.atan2(p.y - e.y, p.x - e.x);
+      const a = Math.atan2(tg.y - e.y, tg.x - e.x);
       G.eprojs.push({ x: e.x, y: e.y, vx: Math.cos(a) * 360, vy: Math.sin(a) * 360, r: 5, dmg: e.dmg, t: 0, max: 2, color: '#e8e0b0' });
     };
   } else if (t.caster) {
-    const tx = p.x, ty = p.y;
+    const tx = tg.x, ty = tg.y;
     addTele(tx, ty, 65, t.windup + 0.15, true, () => {
       explosionFx(tx, ty, 65, '90,220,240');
-      if (dist(tx, ty, p.x, p.y) < 65 + p.r) damagePlayer(e.dmg);
+      damageArea(tx, ty, 65, e.dmg);
     });
     e.pending = () => {};
   } else if (t.aoe) {
     addTele(e.x, e.y, t.aoe, t.windup, true, () => {
       if (e.dead || e.frozen > 0) return;
       explosionFx(e.x, e.y, t.aoe, '200,140,255');
-      if (dist(e.x, e.y, p.x, p.y) < t.aoe + p.r) damagePlayer(e.dmg);
+      damageArea(e.x, e.y, t.aoe, e.dmg);
     });
     e.pending = () => {};
   } else {
     e.lunge = 0.15;
     e.pending = () => {
-      if (dist(e.x, e.y, p.x, p.y) < t.atkRange + e.r + p.r + 12) damagePlayer(e.dmg);
+      if (!tg.dead && dist(e.x, e.y, tg.x, tg.y) < t.atkRange + e.r + tg.r + 12) damageAlly(tg, e.dmg);
     };
   }
 }
@@ -604,7 +762,7 @@ const BOSS_AI = {
       addTele(e.x, e.y, 175, 1.0, true, () => {
         if (e.dead) return;
         explosionFx(e.x, e.y, 175, '255,70,50');
-        if (dist(e.x, e.y, p.x, p.y) < 175 + p.r) damagePlayer(e.dmg * 1.7);
+        damageArea(e.x, e.y, 175, e.dmg * 1.7);
       });
     } else if (r < 0.8) {
       e.windup = 0.7;
@@ -636,7 +794,7 @@ const BOSS_AI = {
         const x = p.x + (i ? rand(-230, 230) : 0), y = p.y + (i ? rand(-230, 230) : 0);
         addTele(x, y, 75, 1.0 + i * 0.15, true, () => {
           explosionFx(x, y, 75, '255,110,40');
-          if (dist(x, y, p.x, p.y) < 75 + p.r) damagePlayer(e.dmg * 1.1);
+          damageArea(x, y, 75, e.dmg * 1.1);
           G.hazards.push({ x, y, r: 60, t: 0, max: 2.5, tick: 0.4, hostile: true, dmg: e.dmg * 0.3 });
         });
       }
@@ -648,7 +806,7 @@ const BOSS_AI = {
       addTele(e.x, e.y, 165, 0.9, true, () => {
         if (e.dead) return;
         explosionFx(e.x, e.y, 165, '255,90,30');
-        if (dist(e.x, e.y, p.x, p.y) < 165 + p.r) damagePlayer(e.dmg * 1.5);
+        damageArea(e.x, e.y, 165, e.dmg * 1.5);
         const n = enraged ? 16 : 10, off = rand(0, TAU);
         for (let i = 0; i < n; i++) enemyShot(e, off + i / n * TAU, 300, e.dmg * 0.6, '255,120,40');
       });
@@ -727,7 +885,7 @@ function separateEnemies() {
 
 // =================== floor setup ===================
 function spawnFloor() {
-  Object.assign(G, { enemies: [], projs: [], eprojs: [], particles: [], texts: [], effects: [], hazards: [], tele: [], storms: [], ground: [], drops: [], portal: null, boss: null });
+  Object.assign(G, { enemies: [], projs: [], eprojs: [], particles: [], texts: [], effects: [], hazards: [], tele: [], storms: [], minions: [], totems: [], ground: [], drops: [], portal: null, boss: null });
   G.area = G.area || ATLAS_NODES[0];
   G.modFx = G.modFx || modEffects([]);
   G.map = new Dungeon(72, 72, G.floor);
@@ -836,7 +994,7 @@ function updatePet(dt) {
   if (g && dist2(g.x, g.y, pet.x, pet.y) < 16 * 16) {
     if (g.item) {
       if (!pickupItem(g.item, pet.x, pet.y, true)) { pet.target = null; return; }
-    } else gainCurrency(g.k, g.n);
+    } else pickDrop(g);
     g.dead = true; pet.target = null;
     burst(pet.x, pet.y, 8, '#ffe8a0', 90, true);
   }
@@ -859,6 +1017,8 @@ function updateWorld(dt) {
   G.time += dt;
   updatePlayer(dt);
   updatePet(dt);
+  updateMinions(dt);
+  updateTotems(dt);
 
   G.flowT -= dt;
   if (G.flowT <= 0) { G.flowT = 0.25; G.map.computeFlow(p.x, p.y); }
@@ -868,6 +1028,7 @@ function updateWorld(dt) {
 
   // player projectiles
   for (const pr of G.projs) {
+    SUP = pr.sup || NO_SUP;
     pr.t += dt; pr.x += pr.vx * dt; pr.y += pr.vy * dt;
     if (pr.kind === 'fireball') {
       G.particles.push({ x: pr.x, y: pr.y, vx: rand(-30, 30), vy: rand(-30, 30), t: 0, max: 0.3, size: rand(3, 6), color: pick(['#ff9a30', '#ffcc50', '#ff5a20']), glow: true });
@@ -875,8 +1036,8 @@ function updateWorld(dt) {
       if (!boom) for (const e of G.enemies) if (!e.dead && dist2(pr.x, pr.y, e.x, e.y) < (e.r + pr.r) ** 2) { boom = true; break; }
       if (boom) {
         pr.dead = true;
-        explosionFx(pr.x, pr.y, 70, '255,140,50');
-        for (const e of enemiesInRadius(pr.x, pr.y, 70)) hitEnemy(e, rollDamage(1.5, 'fire', true, 'fireball'));
+        explosionFx(pr.x, pr.y, pr.boom, '255,140,50');
+        for (const e of enemiesInRadius(pr.x, pr.y, pr.boom)) hitEnemy(e, rollDamage(1.5, 'fire', true, 'fireball'));
       }
     } else if (pr.kind === 'wave') {
       if (pr.t > pr.max || G.map.solidAt(pr.x, pr.y)) { pr.dead = true; continue; }
@@ -893,6 +1054,7 @@ function updateWorld(dt) {
       }
     }
   }
+  SUP = NO_SUP;
   G.projs = G.projs.filter(pr => !pr.dead);
 
   // enemy projectiles
@@ -902,7 +1064,9 @@ function updateWorld(dt) {
     if (!p.dead && dist2(pr.x, pr.y, p.x, p.y) < (pr.r + p.r) ** 2 && p.invuln <= 0) {
       pr.dead = true; damagePlayer(pr.dmg);
       if (pr.chill) p.chill = 2;
+      continue;
     }
+    for (const a of allies()) if (dist2(pr.x, pr.y, a.x, a.y) < (pr.r + a.r) ** 2) { pr.dead = true; damageAlly(a, pr.dmg); break; }
   }
   G.eprojs = G.eprojs.filter(pr => !pr.dead);
 
@@ -914,8 +1078,8 @@ function updateWorld(dt) {
     if (Math.random() < 0.6) G.particles.push({ x: h.x + rand(-h.r, h.r) * 0.8, y: h.y + rand(-h.r, h.r) * 0.8, vx: 0, vy: 0, vz: rand(30, 80), t: 0, max: 0.6, size: rand(3, 6), color: pick(['#ff6a20', '#ffb040']), glow: true });
     if (h.tick > 0) continue;
     h.tick = 0.5;
-    if (h.hostile) { if (dist(h.x, h.y, p.x, p.y) < h.r + p.r * 0.5) damagePlayer(h.dmg); }
-    else for (const e of enemiesInRadius(h.x, h.y, h.r)) hitEnemy(e, rollDamage(0.35, 'fire', true, 'meteor'));
+    if (h.hostile) damageArea(h.x, h.y, h.r - 6, h.dmg);
+    else for (const e of enemiesInRadius(h.x, h.y, h.r)) withSup(h.sup, () => hitEnemy(e, rollDamage(0.35, 'fire', true, 'meteor')));
   }
   G.hazards = G.hazards.filter(h => h.t < h.max);
 
@@ -928,7 +1092,7 @@ function updateWorld(dt) {
     const x = tgt ? tgt.x : st.x + rand(-st.r, st.r) * 0.8, y = tgt ? tgt.y : st.y + rand(-st.r, st.r) * 0.8;
     G.effects.push({ kind: 'bolt', sky: true, x1: x, y1: y, t: 0, max: 0.18 });
     burst(x, y, 8, '#d9c2ff', 160, true);
-    if (tgt) hitEnemy(tgt, rollDamage(0.9, 'light', true, 'storm'));
+    if (tgt) withSup(st.sup, () => hitEnemy(tgt, rollDamage(0.9, 'light', true, 'storm')));
   }
   G.storms = G.storms.filter(s => s.t < s.max);
 
@@ -956,7 +1120,7 @@ function updateWorld(dt) {
     for (const g of G.drops) {
       const d2 = dist2(g.x, g.y, p.x, p.y);
       if (d2 < 110 * 110) { const d = Math.sqrt(d2) || 1; g.x += (p.x - g.x) / d * 400 * dt; g.y += (p.y - g.y) / d * 400 * dt; }
-      if (d2 < 20 * 20) { g.dead = true; gainCurrency(g.k, g.n); }
+      if (d2 < 20 * 20) { g.dead = true; pickDrop(g); }
     }
     G.drops = G.drops.filter(g => !g.dead);
   }
@@ -978,7 +1142,7 @@ function saveGame() {
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify({
       floor: G.floor, level: p.level, xp: p.xp, talentPts: p.talentPts, talents: p.talents,
-      equip: p.equip, bag: p.bag, cur: p.cur, potions: p.potions, slots: p.slots, shop: G.shop, filter: p.filter, atlas: G.atlas,
+      equip: p.equip, bag: p.bag, cur: p.cur, potions: p.potions, slots: p.slots, links: p.links, gems: p.gems, shop: G.shop, filter: p.filter, atlas: G.atlas,
     }));
   } catch (e) { /* storage unavailable */ }
 }
@@ -991,6 +1155,8 @@ function applySave(d) {
   p.cur = { ...p.cur, ...(d.cur || {}) };
   if (!d.cur && d.gold) p.cur.ember = d.gold; // gold from older saves becomes ember shards
   p.talents = { ...p.talents, ...d.talents };
+  if (Array.isArray(d.links) && d.links.length === SKILL_SLOTS.length) p.links = d.links.map(l => l.filter(id => SUPPORT_BY_ID[id]));
+  if (Array.isArray(d.gems)) p.gems = [...new Set([...DEFAULT_GEMS, ...d.gems.filter(id => SUPPORT_BY_ID[id])])];
   if (Array.isArray(d.slots) && d.slots.length === SKILL_SLOTS.length && d.slots.every(id => SKILLS[id])) p.slots = d.slots;
   if (d.filter && Array.isArray(d.filter.rarity)) p.filter = { rarity: d.filter.rarity, slots: { ...defaultFilter().slots, ...d.filter.slots } };
   else if (Array.isArray(d.autoSell)) p.filter.rarity = d.autoSell.map(s => (s ? 'sell' : 'pick')); // older auto-sell setting

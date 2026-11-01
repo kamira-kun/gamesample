@@ -19,6 +19,7 @@ const CURRENCIES = [
   { k: 'compass', name: '羅針の欠片', icon: '✧', color: '#7fd4ff', w: 10, value: 12, desc: '遠征図でマップ効果を振り直す。' },
 ];
 const CUR_BY_KEY = Object.fromEntries(CURRENCIES.map(c => [c.k, c]));
+CUR_BY_KEY.gem = { k: 'gem', name: 'サポートジェム', icon: '◇', color: '#7fe0a0' }; // drop-only, not held as currency
 const DROP_CURRENCIES = CURRENCIES.filter(c => c.w);
 
 const SLOTS = ['weapon', 'helm', 'armor', 'gloves', 'boots', 'ring', 'amulet'];
@@ -100,8 +101,48 @@ const SKILLS = {
     desc: 'カーソル位置に隕石を落とし、地面を燃やす。' },
   dash: { name: 'シャドウダッシュ', icon: '➤', mana: 8, cd: 2.5, color: '#9a8cff', lvl: 1,
     desc: 'カーソル方向へ駆け抜け、通過した敵を切り裂く。移動中は無敵。' },
+  skeleton: { name: '骸骨召喚', icon: '☠', mana: 20, cd: 0.8, cast: 0.5, color: '#e8e0c8', lvl: 2,
+    desc: '戦う骸骨の戦士を2体呼び出す（最大3体）。骸骨は近くの敵に斬りかかる。' },
 };
 const SKILL_LIST = Object.keys(SKILLS);
+const SKILL_TAGS = {
+  slash: ['attack', 'melee'], whirl: ['attack', 'melee', 'aoe'], fireball: ['spell', 'projectile', 'aoe', 'fire'],
+  iceSpear: ['spell', 'projectile', 'cold'], nova: ['spell', 'aoe', 'cold'], chain: ['spell', 'chain', 'lightning'],
+  storm: ['spell', 'aoe', 'lightning'], meteor: ['spell', 'aoe', 'fire'], dash: ['attack', 'movement'], skeleton: ['spell', 'minion'],
+};
+const TAG_NAMES = { attack: '攻撃', melee: '近接', spell: 'スペル', projectile: '投射', aoe: '範囲', fire: '火炎', cold: '冷気',
+  lightning: '雷', chain: '連鎖', movement: '移動', minion: 'ミニオン' };
+
+// ---- support gems: linked to a skill slot to change how that skill behaves ----
+// `tags`: the skill needs at least one of them; `not`: the skill must have none of them
+const SUPPORTS = [
+  { id: 'power', name: '威力増幅', color: '#ff9a6a', tags: ['attack', 'spell'], desc: 'ダメージ +30%（ミニオンにも有効）／マナコスト +30%',
+    apply: s => { s.dmg *= 1.3; s.mana *= 1.3; } },
+  { id: 'haste', name: '加速', color: '#8fd18f', tags: ['attack', 'spell'], desc: '攻撃・詠唱速度 +25%（トーテム・ミニオンにも有効）',
+    apply: s => { s.speed *= 1.25; s.mana *= 1.1; } },
+  { id: 'multi', name: '多重投射', color: '#9fd8ff', tags: ['projectile'], desc: '投射物 +2／ダメージ -20%',
+    apply: s => { s.proj += 2; s.dmg *= 0.8; s.mana *= 1.2; } },
+  { id: 'aoe', name: '範囲拡大', color: '#ffd36a', tags: ['aoe'], desc: '効果範囲 +35%',
+    apply: s => { s.aoe *= 1.35; s.mana *= 1.15; } },
+  { id: 'chainS', name: '連鎖増幅', color: '#c9a8ff', tags: ['chain'], desc: '連鎖回数 +3',
+    apply: s => { s.chain += 3; s.mana *= 1.2; } },
+  { id: 'leech', name: '生命吸収', color: '#ff6a6a', tags: ['attack', 'spell'], desc: '与えたダメージの3%をライフとして回復',
+    apply: s => { s.leech += 0.03; } },
+  { id: 'frostbite', name: '凍結付与', color: '#bff4ff', tags: ['attack', 'spell'], desc: '命中した敵を0.4秒凍結させる',
+    apply: s => { s.freeze = Math.max(s.freeze, 0.4); s.mana *= 1.1; } },
+  { id: 'totem', name: 'トーテム化', color: '#d8a060', tags: ['spell'], not: ['minion', 'movement'],
+    desc: 'スキルの代わりにカーソル位置へトーテムを設置。トーテムが10秒間スキルを自動で放つ（最大2本）／ダメージ -15%',
+    apply: s => { s.totem = true; s.dmg *= 0.85; } },
+  { id: 'minionPower', name: 'ミニオン強化', color: '#e8e0c8', tags: ['minion'], desc: 'ミニオンのライフ +50%、ダメージ +30%',
+    apply: s => { s.mlife *= 1.5; s.dmg *= 1.3; } },
+  { id: 'swarm', name: '軍勢', color: '#b8b0a0', tags: ['minion'], desc: 'ミニオンの最大数 +2',
+    apply: s => { s.mcount += 2; s.mana *= 1.2; } },
+];
+const SUPPORT_BY_ID = Object.fromEntries(SUPPORTS.map(g => [g.id, g]));
+const DEFAULT_GEMS = ['power', 'haste'];
+const LINK_MAX = 3;
+const linkSockets = level => (level >= 10 ? 3 : level >= 5 ? 2 : 1);
+const supportFits = (g, skillId) => g.tags.some(t => SKILL_TAGS[skillId].includes(t)) && !(g.not || []).some(t => SKILL_TAGS[skillId].includes(t));
 const DEFAULT_SLOTS = ['slash', 'fireball', 'nova', 'chain', 'meteor', 'dash'];
 const SKILL_SLOTS = [
   { short: 'LMB', label: '左クリック', on: () => Input.mdown[0] },
