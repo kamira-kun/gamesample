@@ -43,6 +43,7 @@ var slots: Array = Data.DEFAULT_SLOTS.duplicate()
 var skills: Array = Data.DEFAULT_SLOTS.duplicate()
 var links: Array = [[], [], [], [], [], []]
 var gems: Array = Data.DEFAULT_GEMS.duplicate()
+var tablets: Array = []      # rune tablets owned, on the 6x6 board or not (Tablets)
 # the weapon in hand per weapon base: a mesh already on the Knight rig or a KayKit glTF; two-handers drop the shield
 const WEAPON_MODELS := {
 	"片手剣": {"rig": "1H_Sword"}, "戦斧": {"gltf": "axe_1handed"}, "大槌": {"gltf": "axe_2handed", "two": true},
@@ -114,7 +115,7 @@ func max_potions() -> int:
 	return BASE_POTIONS + (roundi(atlas.val("flask")) if atlas else 0)
 
 
-## derived stats from level, the passive tree and gear
+## derived stats from level, the passive tree, the tablet board and gear
 func recalc(full := false) -> void:
 	var L := level
 	var old_l: float = life / s.max_life if s else 1.0
@@ -138,7 +139,7 @@ func recalc(full := false) -> void:
 			st.dmg_max += it.max
 			st.aps = it.aps
 		st.armor += it.get("armor", 0)
-		for src in [it.implicit, it.mods]:
+		for src in [it.implicit, it.mods, Items.special_stats(it)]:
 			for k in src:
 				st[k] = st.get(k, 0) + src[k]
 		if it.has("effect"):
@@ -146,6 +147,9 @@ func recalc(full := false) -> void:
 	var ts := PassiveTree.stats(tree)
 	for k in ts:
 		st[k] = st.get(k, 0) + ts[k]
+	var tb := Tablets.stats(tablets)
+	for k in tb:
+		st[k] = st.get(k, 0) + tb[k]
 	var a := Data.ascendancy(asc)
 	if not a.is_empty():
 		for n in a.minors:
