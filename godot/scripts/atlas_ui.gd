@@ -77,8 +77,7 @@ func refresh() -> void:
 	info.text = "Lv %d　◆ %d　✧ %d　踏破 %d/%d    " % [p.level, p.cur.ember, p.cur.compass, at.cleared.size(), Data.ATLAS_NODES.size()]
 	var pts := at.points_free()
 	passive_btn.text = "  遠征パッシブ [%s]%s  " % [Keybinds.text("passives"), "（%d）" % pts if pts > 0 else ""]
-	for c in detail.get_children():
-		c.free()
+	BasePanel.clear(detail)
 	var n := Data.atlas_node(at.sel)
 	if n.is_empty():
 		n = Data.ATLAS_NODES[0]

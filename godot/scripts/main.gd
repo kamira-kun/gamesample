@@ -32,6 +32,7 @@ var talents_refunded := false   # the loaded save still had talents; they came b
 var smoke := false
 var smoke_checks := 0            # `--smoke`: expectations tested so far, and the names of those that failed
 var smoke_failed: Array = []
+var smoke_log: SmokeLogger      # `--smoke`: catches "locked object" frees (a node freed mid-signal) for the checks
 var portal: Dictionary = {}
 var atlas := Atlas.new()
 var area: Dictionary = Data.HIDEOUT   # current atlas node, or the hideout
@@ -410,6 +411,49 @@ func _smoke_gems() -> void:
 	p.gems = keep[3]
 	p.skills = keep[4]
 	p.cur.ember = keep[5]
+	p.recalc(true)
+
+
+## the skill panel driven through its own buttons (issue #47): each press rebuilds the panel from inside the
+## pressed button's signal, which must not free that button while it is still emitting
+func _smoke_skill_ui() -> void:
+	var p := player
+	var keep := [p.level, p.slots.duplicate(), p.links.duplicate(true), p.gems.duplicate(), p.skills.duplicate()]
+	var ui: SkillUI = hud.skill_ui
+	var errs0 := smoke_log.count()
+	p.level = 10
+	learn_skill("whirl")
+	ui.open_slot(0)
+	var find := func(box: Node, text: String) -> Button:
+		for c in box.get_children():
+			if c is Button and c.text.begins_with(text):
+				return c
+		return null
+	var b: Button = find.call(ui.skill_grid, Data.SKILLS.whirl.name)
+	b.pressed.emit()
+	var assigned: bool = p.slots[0] == "whirl" and b.get_parent() == null
+	(ui.slot_row.get_child(1).get_child(0) as Button).pressed.emit()
+	var picked_slot := ui.sel == 1
+	(ui.tag_row.get_child(1) as Button).pressed.emit()
+	var filtered := ui.tag_sel != ""
+	(ui.tag_row.get_child(0) as Button).pressed.emit()
+	var g: Dictionary = Data.SUPPORTS.filter(func(x): return x.lvl == 1 and Data.support_fits(x, p.slots[1]))[0]
+	unlock_gem(g.id)
+	ui.refresh()
+	(find.call(ui.gem_grid, g.name) as Button).pressed.emit()
+	var linked: bool = p.links[1] == [g.id]
+	(ui.slot_row.get_child(1).get_child(1).get_child(0) as Button).pressed.emit()
+	var unlinked: bool = p.links[1].is_empty()
+	var errs := smoke_log.count() - errs0
+	print("SMOKE skill_ui assigned=%s slot=%s filter=%s linked=%s unlinked=%s locked_errors=%d" % [assigned, picked_slot, filtered, linked, unlinked, errs])
+	_expect("skill_ui", {"assigned": assigned, "slot": picked_slot, "filter": filtered and ui.tag_sel == "", "linked": linked, "unlinked": unlinked,
+		"no_locked_free": errs == 0})
+	hud.close_panels()
+	p.level = keep[0]
+	p.slots = keep[1]
+	p.links = keep[2]
+	p.gems = keep[3]
+	p.skills = keep[4]
 	p.recalc(true)
 
 
@@ -1822,6 +1866,8 @@ func _smoke_chars() -> void:
 
 ## automated run used during development: `godot -- --smoke`
 func _smoke_test() -> void:
+	smoke_log = SmokeLogger.new()
+	OS.add_logger(smoke_log)
 	var p := player
 	p.invuln = 1e9
 	# hideout: merchant and atlas
@@ -1848,6 +1894,7 @@ func _smoke_test() -> void:
 	_smoke_seasons()
 	_smoke_classes()
 	_smoke_gems()
+	_smoke_skill_ui()
 	_smoke_docs()
 	_smoke_unique_tiers()
 	_smoke_market()
@@ -2141,6 +2188,9 @@ func _smoke_test() -> void:
 	_smoke_save()
 	_smoke_dungeon()
 	_smoke_chars()
+	print("SMOKE errors locked=%d %s" % [smoke_log.count(), smoke_log.locked])
+	_expect("errors", {"no_locked_free": smoke_log.count() == 0})
+	OS.remove_logger(smoke_log)
 	print("SMOKE RESULT checks=%d failed=%d %s" % [smoke_checks, smoke_failed.size(), smoke_failed])
 	get_tree().quit(1 if smoke_failed.size() > 0 else 0)
 

@@ -111,8 +111,7 @@ func refresh() -> void:
 	if not visible:
 		return
 	var p: Player = hud.main.player
-	for c in equip_grid.get_children():
-		c.free()
+	BasePanel.clear(equip_grid)
 	for slot in EQUIP_LAYOUT:
 		if slot == "":
 			var gap := Control.new()
@@ -128,8 +127,7 @@ func refresh() -> void:
 		sl.clicked.connect(_on_equipped_click.bind(slot))
 		sl.right_clicked.connect(_cancel_craft)
 		equip_grid.add_child(sl)
-	for c in bag_grid.get_children():
-		c.free()
+	BasePanel.clear(bag_grid)
 	for i in Player.BAG_SIZE:
 		var sl := ItemSlot.new()
 		sl.custom_minimum_size = Vector2(52, 52)
@@ -141,8 +139,7 @@ func refresh() -> void:
 		sl.right_clicked.connect(_on_bag_right.bind(i))
 		bag_grid.add_child(sl)
 	bag_count.text = "所持品 %d / %d" % [p.bag.size(), Player.BAG_SIZE]
-	for c in cur_grid.get_children():
-		c.free()
+	BasePanel.clear(cur_grid)
 	for cdef in Data.CURRENCIES:
 		var b := Button.new()
 		var craftable: bool = cdef.k not in ["ember", "compass"]
