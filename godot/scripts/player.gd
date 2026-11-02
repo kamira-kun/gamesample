@@ -38,7 +38,9 @@ var bag: Array = []
 var cur := {}                # currency key -> count
 var effects := {}            # legendary effects granted by gear
 # skills: the skill in each skill bar slot, the support gems linked to each slot, and the gems owned
+# (`skills`: the skill gems owned; a skill or gem goes on the bar only once `level` reaches its `lvl`)
 var slots: Array = Data.DEFAULT_SLOTS.duplicate()
+var skills: Array = Data.DEFAULT_SLOTS.duplicate()
 var links: Array = [[], [], [], [], [], []]
 var gems: Array = Data.DEFAULT_GEMS.duplicate()
 # the weapon in hand per weapon base: a mesh already on the Knight rig or a KayKit glTF; two-handers drop the shield
@@ -86,6 +88,7 @@ func set_class(k: String, kit := false) -> void:
 			"implicit": b.get("implicit", {}).duplicate()}, true)
 		equip = {"weapon": w}
 		slots = bc.slots.duplicate()
+		skills = bc.slots.duplicate()
 		links = [[], [], [], [], [], []]
 		gems = bc.gems.duplicate()
 	if rig:
@@ -221,6 +224,16 @@ func refresh_gear() -> void:
 			mi.material_overlay = rig_meshes[0].material_overlay if not rig_meshes.is_empty() else null
 			rig_meshes.append(mi)
 		_held = att
+
+
+# ---- gems ----
+## a skill this character owns and is high enough level for
+func can_use_skill(id: String) -> bool:
+	return id in skills and level >= Data.SKILLS[id].lvl
+
+
+func can_use_gem(gid: String) -> bool:
+	return gid in gems and level >= Data.support(gid).get("lvl", 1)
 
 
 # ---- support gem energy ----

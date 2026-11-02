@@ -131,7 +131,7 @@ func _ready() -> void:
 			if kind == "exchange":
 				hud.exchange_ui.select("divine")
 			elif kind == "skills":
-				player.level = 6
+				player.level = 8   # totem needs Lv 8
 				player.gems.append_array(["multi", "totem"])
 				player.links[1] = ["totem", "multi"]
 				hud.skill_ui.open_slot(1)
@@ -195,11 +195,87 @@ func _ready() -> void:
 		_smoke_test()
 
 
+## skill gems: a new character owns only the class's starting bar, other skills are found or bought, skills
+## and support gems wait for their level, drops follow the area level, and older saves keep what their level taught
+func _smoke_gems() -> void:
+	var p := player
+	var keep := [p.level, p.slots.duplicate(), p.links.duplicate(true), p.gems.duplicate(), p.skills.duplicate(), p.cur.ember, p.cls]
+	p.set_class("sigil", true)
+	p.level = 1
+	var lv1 := Data.SKILL_ORDER.filter(func(id): return Data.SKILLS[id].lvl == 1)
+	print("SMOKE gems kit owned=%s kit_ok=%s lv1_skills=%d all_kits_lv1=%s gem_lvls=%s" % [p.skills.size(), p.skills == Data.base_class("sigil").slots,
+		lv1.size(), Data.CLASSES.all(func(c): return c.slots.all(func(id): return Data.SKILLS[id].lvl == 1) and c.gems.all(func(g): return Data.support(g).lvl == 1)),
+		Data.SUPPORTS.all(func(g): return g.lvl >= 1 and g.lvl <= 18)])
+	# the panel refuses a skill gem not owned, then one owned but above the level, until the level is reached
+	hud.skill_ui.open_slot(0)
+	hud.skill_ui._assign("whirl")   # Lv 4
+	var unowned_refused: bool = p.slots[0] == "firebolt"
+	learn_skill("whirl")
+	hud.skill_ui._assign("whirl")
+	var low_refused: bool = p.slots[0] == "firebolt"
+	p.level = 4
+	hud.skill_ui._assign("whirl")
+	print("SMOKE gems skill unowned_refused=%s low_refused=%s at_level=%s" % [unowned_refused, low_refused, p.slots[0]])
+	# support gems: owned but under-levelled is refused, then links at its level
+	unlock_gem("echo")   # Lv 10
+	hud.skill_ui._toggle_gem("echo")
+	var gem_low: bool = p.links[0].is_empty()
+	p.level = 10
+	p.recalc()
+	hud.skill_ui._toggle_gem("echo")
+	print("SMOKE gems support low_refused=%s at_level=%s" % [gem_low, p.links[0]])
+	hud.close_panels()
+	# drops: a gem the player lacks, needing at most the area level + GEM_DROP_AHEAD; picking it up owns it
+	var lvls := []
+	var got := 0
+	for i in 30:
+		_drop_gem(p.pos, 3)
+		var dr: Dictionary = drops[-1]
+		lvls.append((Data.SKILLS[dr.gem] if dr.skill else Data.support(dr.gem)).lvl)
+		var had: bool = dr.gem in (p.skills if dr.skill else p.gems)
+		_take(dr)
+		drops.erase(dr)
+		if not had and dr.gem in (p.skills if dr.skill else p.gems):
+			got += 1
+	print("SMOKE gems drop n=30 max_lvl=%d new=%d skills=%d gems=%d" % [lvls.max(), got, p.skills.size(), p.gems.size()])
+	# the merchant: only gems up to level + GEM_AHEAD, priced by level, bought into the owned list
+	p.level = 2
+	p.cur.ember = 5000
+	open_interact("merchant")
+	var listed := Data.missing_gems(p.skills, p.gems, p.level + ShopUI.GEM_AHEAD)
+	var want: String = listed.filter(func(g): return g.skill)[0].id
+	hud.shop_ui._buy_skill(want)
+	print("SMOKE gems shop listed_max=%d buttons=%d bought=%s paid=%d price_lv1=%d price_lv10=%d" % [listed.map(func(g): return Data.gem_info(g.skill, g.id).lvl).max(),
+		hud.shop_ui.gem_grid.get_child_count(), want in p.skills, 5000 - p.cur.ember, Items.gem_price(1), Items.gem_price(10)])
+	hud.close_panels()
+	# saves: skills round-trip; a save from before skill gems keeps every skill its level taught,
+	# and links above the level come off (the gems stay owned)
+	p.level = 10
+	var sd := save_data()
+	apply_save(JSON.parse_string(JSON.stringify(sd)))
+	var round_ok: bool = p.skills == sd.skills
+	sd = save_data()
+	sd.erase("skills")
+	sd.level = 7
+	sd.links = [["echo", "power"], [], [], [], [], []]
+	apply_save(sd)
+	print("SMOKE gems save round=%s migrated=%d expected=%d whirl=%s links0=%s echo_owned=%s" % [round_ok, p.skills.size(),
+		Data.SKILL_ORDER.filter(func(id): return Data.SKILLS[id].lvl <= 7).size(), "whirl" in p.skills, p.links[0], "echo" in p.gems])
+	p.set_class(keep[6])
+	p.level = keep[0]
+	p.slots = keep[1]
+	p.links = keep[2]
+	p.gems = keep[3]
+	p.skills = keep[4]
+	p.cur.ember = keep[5]
+	p.recalc(true)
+
+
 ## base classes: three ascendancies each, every ascendancy in exactly one class, the starting kit, only the
 ## class's own lineages can be taken, and characters from before classes get one from their ascendancy
 func _smoke_classes() -> void:
 	var p := player
-	var keep := [p.level, p.equip, p.slots, p.links, p.gems]
+	var keep := [p.level, p.equip, p.slots, p.links, p.gems, p.skills]
 	var owned := {}
 	for bc in Data.CLASSES:
 		for k in bc.ascs:
@@ -265,6 +341,7 @@ func _smoke_classes() -> void:
 	p.slots = keep[2]
 	p.links = keep[3]
 	p.gems = keep[4]
+	p.skills = keep[5]
 	p.set_class(Data.DEFAULT_CLASS)
 
 
@@ -724,6 +801,7 @@ func _smoke_test() -> void:
 	await _smoke_exchange()
 	_smoke_seasons()
 	_smoke_classes()
+	_smoke_gems()
 	_smoke_market()
 	await _smoke_keys()
 	open_interact("device")
@@ -739,6 +817,7 @@ func _smoke_test() -> void:
 	p.level = 10
 	p.recalc(true)
 	p.gems = Data.SUPPORTS.map(func(g): return g.id)
+	p.skills = Data.SKILL_ORDER.duplicate()
 	for id in Data.SKILL_ORDER:
 		p.slots[0] = id
 		p.action_t = 0.0
@@ -1475,9 +1554,12 @@ func gain_xp(v: int) -> void:
 		if Data.asc_points(p.level) > Data.asc_points(p.level - 1):
 			hud.message("アセンダンシーポイント +1（%s）" % Keybinds.text("ascendancy"), Data.ascendancy(p.asc).get("color", Color("#ffcf7a")))
 		hud.message("エネルギー上限 +1（%d）" % p.energy_max(), Data.GEM_COLOR)
-		for id in Data.SKILL_ORDER:
+		for id in p.skills:
 			if Data.SKILLS[id].lvl == p.level:
-				hud.message("新スキル「%s」を習得！（%sで付け替え）" % [Data.SKILLS[id].name, Keybinds.text("skills")], Data.SKILLS[id].color)
+				hud.message("スキル「%s」が使えるようになった（%sで付け替え）" % [Data.SKILLS[id].name, Keybinds.text("skills")], Data.SKILLS[id].color)
+		for gid in p.gems:
+			if Data.support(gid).lvl == p.level:
+				hud.message("サポートジェム「%s」をリンクできるようになった" % Data.support(gid).name, Data.support(gid).color)
 		hud.skill_ui.refresh()
 		hud.tree_ui.refresh()
 		hud.asc_ui.refresh()
@@ -3442,19 +3524,26 @@ func _drop_loot(e: Enemy) -> void:
 	var cn := randi_range(3, 5) if e.boss else (randi_range(1, 2) if not e.elite.is_empty() and randf() < 0.5 else (1 if randf() < 0.035 else 0))
 	for i in cn:
 		_drop_currency(_weighted(Data.CURRENCIES.filter(func(c): return c.w > 0.0)).k, 1, e.pos)
-	if randf() < (0.8 if e.boss else (0.25 if not e.elite.is_empty() else 0.01)):
-		_drop_gem(e.pos)
+	if randf() < (0.8 if e.boss else (0.3 if not e.elite.is_empty() else 0.02)):
+		_drop_gem(e.pos, ilvl)
 
 
-## a support gem the player doesn't own yet
-func _drop_gem(at: Vector2) -> void:
-	var missing := Data.SUPPORTS.filter(func(g): return not g.id in player.gems)
+## a skill gem or support gem the player doesn't own yet, mostly ones the area level is close to
+## (up to GEM_DROP_AHEAD levels past it); once those are all owned, any missing one
+const GEM_DROP_AHEAD := 2
+func _drop_gem(at: Vector2, ilvl: int) -> void:
+	var missing := Data.missing_gems(player.skills, player.gems, ilvl + GEM_DROP_AHEAD)
+	if missing.is_empty():
+		missing = Data.missing_gems(player.skills, player.gems)
 	if missing.is_empty():
 		return
+	var pick: Dictionary = missing.pick_random()
 	var pos := _scatter(at)
-	var node := Fx.mesh(level_root, Fx.box(Vector3(0.3, 0.3, 0.3)), Fx.mat(Data.GEM_COLOR, 4.0), to3(pos, 0.35))
+	# skill gems are larger and glow in the skill's own color; support gems are the green cube
+	var col: Color = Data.SKILLS[pick.id].color if pick.skill else Data.GEM_COLOR
+	var node := Fx.mesh(level_root, Fx.box(Vector3.ONE * (0.4 if pick.skill else 0.3)), Fx.mat(col, 4.0), to3(pos, 0.35))
 	node.rotation = Vector3(0.7, 0.0, 0.7)
-	drops.append({"k": "gem", "n": 1, "gem": missing.pick_random().id, "pos": pos, "node": node})
+	drops.append({"k": "gem", "n": 1, "gem": pick.id, "skill": pick.skill, "pos": pos, "node": node})
 
 
 func unlock_gem(id: String) -> void:
@@ -3464,7 +3553,21 @@ func unlock_gem(id: String) -> void:
 		return
 	p.gems.append(id)
 	var g := Data.support(id)
-	hud.message("サポートジェム「%s」を入手！（%sでリンク）" % [g.name, Keybinds.text("skills")], g.color)
+	var when := "%sでリンク" % Keybinds.text("skills") if p.level >= g.lvl else "Lv %d からリンクできる" % g.lvl
+	hud.message("サポートジェム「%s」を入手！（%s）" % [g.name, when], g.color)
+	hud.skill_ui.refresh()
+
+
+## a skill gem: the skill joins the list the bar can take from (a duplicate turns into ember shards)
+func learn_skill(id: String) -> void:
+	var p := player
+	if id in p.skills:
+		p.cur.ember += 40 * floor_level
+		return
+	p.skills.append(id)
+	var sk: Dictionary = Data.SKILLS[id]
+	var when := "%sで付け替え" % Keybinds.text("skills") if p.level >= sk.lvl else "Lv %d から使える" % sk.lvl
+	hud.message("スキルジェム「%s」を入手！（%s）" % [sk.name, when], sk.color)
 	hud.skill_ui.refresh()
 
 
@@ -3565,7 +3668,10 @@ func _take(g: Dictionary) -> void:
 	if g.has("item"):
 		return
 	if g.k == "gem":
-		unlock_gem(g.gem)
+		if g.get("skill", false):
+			learn_skill(g.gem)
+		else:
+			unlock_gem(g.gem)
 		return
 	if g.k == Farm.KEY:   # cinder crystals belong to the league, not the character
 		Farm.state(league()).cinder += g.n
@@ -3742,7 +3848,7 @@ func save_data() -> Dictionary:
 	var p := player
 	return {"floor": floor_level, "level": p.level, "xp": p.xp, "potions": p.potions,
 		"equip": p.equip, "bag": p.bag, "cur": p.cur, "atlas": atlas.to_dict(), "shop": shop,
-		"slots": p.slots, "links": p.links, "gems": p.gems, "tree": p.tree, "filter": p.filter,
+		"slots": p.slots, "links": p.links, "gems": p.gems, "skills": p.skills, "tree": p.tree, "filter": p.filter,
 		"cls": p.cls, "asc": p.asc, "asc_ranks": p.asc_ranks, "asc_cores": p.asc_cores, "auras": p.auras}
 
 
@@ -3773,6 +3879,16 @@ func apply_save(data: Dictionary) -> void:
 	if ln.size() == Data.SLOT_COUNT:
 		p.links = ln.map(func(l): return Array(l).filter(func(id): return not Data.support(id).is_empty()))
 	p.gems = Array(data.get("gems", Data.DEFAULT_GEMS)).filter(func(id): return not Data.support(id).is_empty())
+	# skill gems: characters from before skill gems keep every skill their level had taught them
+	if data.has("skills"):
+		p.skills = Array(data.skills).filter(func(id): return Data.SKILLS.has(id))
+	else:
+		p.skills = Data.SKILL_ORDER.filter(func(id): return Data.SKILLS[id].lvl <= p.level)
+	for id in p.slots:
+		if not id in p.skills:
+			p.skills.append(id)
+	# links that need more level than the character has come off (the gems stay owned)
+	p.links = p.links.map(func(l): return l.filter(func(id): return p.level >= Data.support(id).lvl))
 	# talents came before the passive tree: their points come back as passive points
 	p.tree = PassiveTree.sanitize(data.get("tree", []), p.cls, p.tree_points())
 	var tl = data.get("talents", {})

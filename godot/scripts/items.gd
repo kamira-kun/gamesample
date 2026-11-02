@@ -154,8 +154,9 @@ static func currency_price(c: Dictionary, league: String) -> int:
 	return roundi(Market.price(league, c.k) * EMBER_PER_CHAOS * discount)
 
 
-static func gem_price() -> int:
-	return roundi(300 * discount)
+## a skill gem or support gem from the merchant: dearer the more level it needs
+static func gem_price(lvl: int) -> int:
+	return roundi((200 + 30 * lvl) * discount)
 
 
 ## the merchant's stock: eight magic-or-better items a level above the hideout

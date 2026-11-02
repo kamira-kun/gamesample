@@ -3,7 +3,8 @@ extends Node
 
 var ui_font: SystemFont
 
-# every skill, in the order the skill panel lists them; `lvl` is the character level that teaches it
+# every skill, in the order the skill panel lists them; `lvl` is the character level a skill gem needs before it
+# goes on the bar. beyond a base class's starting bar, skill gems are found (enemy drops) or bought (the merchant)
 const SKILL_ORDER := ["slash", "fireball", "nova", "chain", "meteor", "dash", "throw_knives", "firebolt",
 	"skeleton", "heavy_strike", "thrust", "frost_bolt", "sparks",
 	"ice_spear", "wide_cleave", "double_slash", "flame_nova",
@@ -36,14 +37,14 @@ const SKILLS := {
 		"tags": ["spell", "aoe", "fire", "duration"], "desc": "カーソル位置に隕石を落とし、地面を燃やす。"},
 	"dash": {"name": "シャドウダッシュ", "icon": "➤", "mana": 8, "cd": 2.5, "color": Color("#9a8cff"), "lvl": 1,
 		"tags": ["attack", "movement"], "kinds": ["move"], "desc": "カーソル方向へ駆け抜け、通過した敵を切り裂く。移動中は無敵。"},
-	"skeleton": {"name": "骸骨召喚", "icon": "☠", "mana": 20, "cd": 0.0, "cast": 0.6, "color": Color("#e8e0c8"), "lvl": 2,
+	"skeleton": {"name": "骸骨召喚", "icon": "☠", "mana": 20, "cd": 0.0, "cast": 0.6, "color": Color("#e8e0c8"), "lvl": 1,
 		"tags": ["spell", "minion"], "desc": "戦う骸骨の戦士を2体呼び出す（最大3体）。骸骨は近くの敵に斬りかかる。"},
 	# ---- skills built from effect blocks (`fx`); main.gd resolves each block by its `k` ----
 	# arc: swing in front / slam: circle in front / line: lane toward the cursor / nova: circle around the caster
 	# area: telegraphed circles at the cursor / proj: projectiles / chain: jumping bolt / zone: ticking area
 	# buff: timed self buff / curse: marks enemies / summon: minions / move: dash with an optional landing
 	# `sup` on a skill adds built-in support modifiers (ailment chances, knockback)
-	"heavy_strike": {"name": "重撃", "icon": "⚒", "mana": 3, "cd": 0.0, "attack": true, "color": Color("#d8b888"), "lvl": 2,
+	"heavy_strike": {"name": "重撃", "icon": "⚒", "mana": 3, "cd": 0.0, "attack": true, "color": Color("#d8b888"), "lvl": 1,
 		"tags": ["attack", "melee"], "desc": "正面の狭い範囲に重い一撃を叩き込む。",
 		"anim": ["2H_Melee_Attack_Chop", 1.8], "fx": [{"k": "arc", "reach": 3.0, "half": 0.6, "coef": 1.7, "type": "phys"}]},
 	"wide_cleave": {"name": "大薙ぎ", "icon": "☾", "mana": 4, "cd": 0.0, "attack": true, "color": Color("#e0c890"), "lvl": 3,
@@ -233,88 +234,89 @@ const DEFAULT_SLOTS := ["slash", "fireball", "nova", "chain", "meteor", "dash"]
 # support gems are linked to a skill slot and change how that skill behaves while it resolves.
 # every linked gem costs `energy` out of the player's pool, so links are spread across the bar as the player likes.
 # `tags`: the skill needs one of them; `not`: it must have none. `mul`/`add`/`max` adjust the support modifiers.
+# `lvl`: the character level the gem needs before it can be linked
 const SUPPORTS := [
-	{"id": "power", "name": "威力増幅", "color": Color("#ff9a6a"), "energy": 3, "tags": ["attack", "spell"], "desc": "ダメージ +30%（ミニオンにも有効）／マナコスト +30%",
+	{"id": "power", "name": "威力増幅", "color": Color("#ff9a6a"), "energy": 3, "lvl": 1, "tags": ["attack", "spell"], "desc": "ダメージ +30%（ミニオンにも有効）／マナコスト +30%",
 		"mul": {"dmg": 1.3, "mana": 1.3}},
-	{"id": "haste", "name": "加速", "color": Color("#8fd18f"), "energy": 3, "tags": ["attack", "spell"], "desc": "攻撃・詠唱速度 +25%（トーテム・ミニオンにも有効）",
+	{"id": "haste", "name": "加速", "color": Color("#8fd18f"), "energy": 3, "lvl": 1, "tags": ["attack", "spell"], "desc": "攻撃・詠唱速度 +25%（トーテム・ミニオンにも有効）",
 		"mul": {"speed": 1.25, "mana": 1.1}},
-	{"id": "multi", "name": "多重投射", "color": Color("#9fd8ff"), "energy": 3, "tags": ["projectile"], "desc": "投射物 +2／ダメージ -20%",
+	{"id": "multi", "name": "多重投射", "color": Color("#9fd8ff"), "energy": 3, "lvl": 1, "tags": ["projectile"], "desc": "投射物 +2／ダメージ -20%",
 		"add": {"proj": 2}, "mul": {"dmg": 0.8, "mana": 1.2}},
-	{"id": "aoe", "name": "範囲拡大", "color": Color("#ffd36a"), "energy": 2, "tags": ["aoe"], "desc": "効果範囲 +35%",
+	{"id": "aoe", "name": "範囲拡大", "color": Color("#ffd36a"), "energy": 2, "lvl": 2, "tags": ["aoe"], "desc": "効果範囲 +35%",
 		"mul": {"aoe": 1.35, "mana": 1.15}},
-	{"id": "chain_s", "name": "連鎖増幅", "color": Color("#c9a8ff"), "energy": 3, "tags": ["chain"], "desc": "連鎖回数 +3",
+	{"id": "chain_s", "name": "連鎖増幅", "color": Color("#c9a8ff"), "energy": 3, "lvl": 4, "tags": ["chain"], "desc": "連鎖回数 +3",
 		"add": {"chain": 3}, "mul": {"mana": 1.2}},
-	{"id": "leech", "name": "生命吸収", "color": Color("#ff6a6a"), "energy": 1, "tags": ["attack", "spell"], "desc": "与えたダメージの3%をライフとして回復",
+	{"id": "leech", "name": "生命吸収", "color": Color("#ff6a6a"), "energy": 1, "lvl": 1, "tags": ["attack", "spell"], "desc": "与えたダメージの3%をライフとして回復",
 		"add": {"leech": 0.03}},
-	{"id": "frostbite", "name": "凍結付与", "color": Color("#bff4ff"), "energy": 1, "tags": ["attack", "spell"], "desc": "命中した敵を0.4秒凍結させる",
+	{"id": "frostbite", "name": "凍結付与", "color": Color("#bff4ff"), "energy": 1, "lvl": 3, "tags": ["attack", "spell"], "desc": "命中した敵を0.4秒凍結させる",
 		"max": {"freeze": 0.4}, "mul": {"mana": 1.1}},
-	{"id": "totem", "name": "トーテム化", "color": Color("#d8a060"), "energy": 3, "tags": ["spell"], "not": ["minion", "movement", "buff"],
+	{"id": "totem", "name": "トーテム化", "color": Color("#d8a060"), "energy": 3, "lvl": 8, "tags": ["spell"], "not": ["minion", "movement", "buff"],
 		"desc": "スキルの代わりにカーソル位置へトーテムを設置。トーテムが10秒間スキルを自動で放つ（最大2本）／ダメージ -15%",
 		"add": {"totem": 1}, "mul": {"dmg": 0.85}},
-	{"id": "minion_power", "name": "ミニオン強化", "color": Color("#e8e0c8"), "energy": 3, "tags": ["minion"], "desc": "ミニオンのライフ +50%、ダメージ +30%",
+	{"id": "minion_power", "name": "ミニオン強化", "color": Color("#e8e0c8"), "energy": 3, "lvl": 2, "tags": ["minion"], "desc": "ミニオンのライフ +50%、ダメージ +30%",
 		"mul": {"mlife": 1.5, "dmg": 1.3}},
-	{"id": "swarm", "name": "軍勢", "color": Color("#b8b0a0"), "energy": 3, "tags": ["minion"], "desc": "ミニオンの最大数 +2",
+	{"id": "swarm", "name": "軍勢", "color": Color("#b8b0a0"), "energy": 3, "lvl": 6, "tags": ["minion"], "desc": "ミニオンの最大数 +2",
 		"add": {"mcount": 2}, "mul": {"mana": 1.2}},
 	# damage by type and conversion
-	{"id": "brutal", "name": "残虐", "color": Color("#e8d8c0"), "energy": 2, "tags": ["attack", "spell", "buff"], "desc": "物理ダメージ +40%", "mul": {"m_phys": 1.4, "mana": 1.15}},
-	{"id": "fire_amp", "name": "火炎増幅", "color": Color("#ff8a40"), "energy": 2, "tags": ["attack", "spell", "buff"], "desc": "火炎ダメージ +35%", "mul": {"m_fire": 1.35, "mana": 1.15}},
-	{"id": "cold_amp", "name": "冷気増幅", "color": Color("#8fdcff"), "energy": 2, "tags": ["attack", "spell", "buff"], "desc": "冷気ダメージ +35%", "mul": {"m_cold": 1.35, "mana": 1.15}},
-	{"id": "light_amp", "name": "雷撃増幅", "color": Color("#d9b8ff"), "energy": 2, "tags": ["attack", "spell", "buff"], "desc": "雷ダメージ +35%", "mul": {"m_light": 1.35, "mana": 1.15}},
-	{"id": "chaos_amp", "name": "混沌増幅", "color": Color("#90d060"), "energy": 2, "tags": ["attack", "spell", "buff"], "desc": "混沌ダメージ +35%", "mul": {"m_chaos": 1.35, "mana": 1.15}},
-	{"id": "conv_fire", "name": "灼熱変換", "color": Color("#ff7030"), "energy": 2, "tags": ["attack", "spell"], "desc": "物理ダメージを火炎ダメージに変換し、ダメージ +10%", "set": {"conv": "fire"}, "mul": {"dmg": 1.1}},
-	{"id": "conv_cold", "name": "氷結変換", "color": Color("#80d0ff"), "energy": 2, "tags": ["attack", "spell"], "desc": "物理ダメージを冷気ダメージに変換し、ダメージ +10%", "set": {"conv": "cold"}, "mul": {"dmg": 1.1}},
-	{"id": "conv_light", "name": "雷電変換", "color": Color("#c8a8ff"), "energy": 2, "tags": ["attack", "spell"], "desc": "物理ダメージを雷ダメージに変換し、ダメージ +10%", "set": {"conv": "light"}, "mul": {"dmg": 1.1}},
-	{"id": "conv_chaos", "name": "虚無変換", "color": Color("#9060c0"), "energy": 3, "tags": ["attack", "spell"], "desc": "すべてのダメージを混沌ダメージに変換し、ダメージ +15%", "set": {"conv": "chaos"}, "mul": {"dmg": 1.15, "mana": 1.1}},
+	{"id": "brutal", "name": "残虐", "color": Color("#e8d8c0"), "energy": 2, "lvl": 3, "tags": ["attack", "spell", "buff"], "desc": "物理ダメージ +40%", "mul": {"m_phys": 1.4, "mana": 1.15}},
+	{"id": "fire_amp", "name": "火炎増幅", "color": Color("#ff8a40"), "energy": 2, "lvl": 3, "tags": ["attack", "spell", "buff"], "desc": "火炎ダメージ +35%", "mul": {"m_fire": 1.35, "mana": 1.15}},
+	{"id": "cold_amp", "name": "冷気増幅", "color": Color("#8fdcff"), "energy": 2, "lvl": 3, "tags": ["attack", "spell", "buff"], "desc": "冷気ダメージ +35%", "mul": {"m_cold": 1.35, "mana": 1.15}},
+	{"id": "light_amp", "name": "雷撃増幅", "color": Color("#d9b8ff"), "energy": 2, "lvl": 3, "tags": ["attack", "spell", "buff"], "desc": "雷ダメージ +35%", "mul": {"m_light": 1.35, "mana": 1.15}},
+	{"id": "chaos_amp", "name": "混沌増幅", "color": Color("#90d060"), "energy": 2, "lvl": 8, "tags": ["attack", "spell", "buff"], "desc": "混沌ダメージ +35%", "mul": {"m_chaos": 1.35, "mana": 1.15}},
+	{"id": "conv_fire", "name": "灼熱変換", "color": Color("#ff7030"), "energy": 2, "lvl": 10, "tags": ["attack", "spell"], "desc": "物理ダメージを火炎ダメージに変換し、ダメージ +10%", "set": {"conv": "fire"}, "mul": {"dmg": 1.1}},
+	{"id": "conv_cold", "name": "氷結変換", "color": Color("#80d0ff"), "energy": 2, "lvl": 10, "tags": ["attack", "spell"], "desc": "物理ダメージを冷気ダメージに変換し、ダメージ +10%", "set": {"conv": "cold"}, "mul": {"dmg": 1.1}},
+	{"id": "conv_light", "name": "雷電変換", "color": Color("#c8a8ff"), "energy": 2, "lvl": 10, "tags": ["attack", "spell"], "desc": "物理ダメージを雷ダメージに変換し、ダメージ +10%", "set": {"conv": "light"}, "mul": {"dmg": 1.1}},
+	{"id": "conv_chaos", "name": "虚無変換", "color": Color("#9060c0"), "energy": 3, "lvl": 16, "tags": ["attack", "spell"], "desc": "すべてのダメージを混沌ダメージに変換し、ダメージ +15%", "set": {"conv": "chaos"}, "mul": {"dmg": 1.15, "mana": 1.1}},
 	# critical strikes
-	{"id": "crit_chance", "name": "急所狙い", "color": Color("#ffe060"), "energy": 2, "tags": ["attack", "spell"], "desc": "クリティカル率 +8%", "add": {"crit": 8.0}, "mul": {"mana": 1.1}},
-	{"id": "crit_dmg", "name": "会心増幅", "color": Color("#ffc040"), "energy": 3, "tags": ["attack", "spell"], "desc": "クリティカルダメージ +45%", "add": {"critm": 45.0}, "mul": {"mana": 1.1}},
+	{"id": "crit_chance", "name": "急所狙い", "color": Color("#ffe060"), "energy": 2, "lvl": 5, "tags": ["attack", "spell"], "desc": "クリティカル率 +8%", "add": {"crit": 8.0}, "mul": {"mana": 1.1}},
+	{"id": "crit_dmg", "name": "会心増幅", "color": Color("#ffc040"), "energy": 3, "lvl": 12, "tags": ["attack", "spell"], "desc": "クリティカルダメージ +45%", "add": {"critm": 45.0}, "mul": {"mana": 1.1}},
 	# projectiles (need a skill that fires projectiles from an effect block)
-	{"id": "pspeed", "name": "高速投射", "color": Color("#a0e0ff"), "energy": 1, "tags": ["projectile"], "need": ["proj"], "desc": "投射物の速度 +60%、ダメージ +10%", "mul": {"pspeed": 1.6, "dmg": 1.1}},
-	{"id": "pierce", "name": "貫通", "color": Color("#c0e8ff"), "energy": 1, "tags": ["projectile"], "need": ["proj"], "desc": "投射物が敵を貫通する／ダメージ -10%", "add": {"pierce": 1}, "mul": {"dmg": 0.9}},
-	{"id": "homing", "name": "追尾", "color": Color("#b0c8ff"), "energy": 1, "tags": ["projectile"], "need": ["proj"], "desc": "投射物が近くの敵を追いかける", "add": {"homing": 4.0}, "mul": {"mana": 1.1}},
-	{"id": "fork", "name": "分岐", "color": Color("#90e0d0"), "energy": 3, "tags": ["projectile"], "need": ["proj"], "desc": "投射物が最初に命中したとき、左右2つに分かれる", "add": {"fork": 1}, "mul": {"mana": 1.15}},
-	{"id": "pchain", "name": "跳弾", "color": Color("#c0b0ff"), "energy": 3, "tags": ["projectile"], "need": ["proj"], "desc": "投射物が命中後、別の敵へ2回まで跳ね返る／ダメージ -10%", "add": {"pchain": 2}, "mul": {"dmg": 0.9, "mana": 1.15}},
-	{"id": "volley", "name": "弾幕", "color": Color("#8fd8ff"), "energy": 3, "tags": ["projectile"], "desc": "投射物 +4／ダメージ -35%", "add": {"proj": 4}, "mul": {"dmg": 0.65, "mana": 1.3}},
+	{"id": "pspeed", "name": "高速投射", "color": Color("#a0e0ff"), "energy": 1, "lvl": 2, "tags": ["projectile"], "need": ["proj"], "desc": "投射物の速度 +60%、ダメージ +10%", "mul": {"pspeed": 1.6, "dmg": 1.1}},
+	{"id": "pierce", "name": "貫通", "color": Color("#c0e8ff"), "energy": 1, "lvl": 4, "tags": ["projectile"], "need": ["proj"], "desc": "投射物が敵を貫通する／ダメージ -10%", "add": {"pierce": 1}, "mul": {"dmg": 0.9}},
+	{"id": "homing", "name": "追尾", "color": Color("#b0c8ff"), "energy": 1, "lvl": 5, "tags": ["projectile"], "need": ["proj"], "desc": "投射物が近くの敵を追いかける", "add": {"homing": 4.0}, "mul": {"mana": 1.1}},
+	{"id": "fork", "name": "分岐", "color": Color("#90e0d0"), "energy": 3, "lvl": 9, "tags": ["projectile"], "need": ["proj"], "desc": "投射物が最初に命中したとき、左右2つに分かれる", "add": {"fork": 1}, "mul": {"mana": 1.15}},
+	{"id": "pchain", "name": "跳弾", "color": Color("#c0b0ff"), "energy": 3, "lvl": 10, "tags": ["projectile"], "need": ["proj"], "desc": "投射物が命中後、別の敵へ2回まで跳ね返る／ダメージ -10%", "add": {"pchain": 2}, "mul": {"dmg": 0.9, "mana": 1.15}},
+	{"id": "volley", "name": "弾幕", "color": Color("#8fd8ff"), "energy": 3, "lvl": 14, "tags": ["projectile"], "desc": "投射物 +4／ダメージ -35%", "add": {"proj": 4}, "mul": {"dmg": 0.65, "mana": 1.3}},
 	# area and duration
-	{"id": "conc", "name": "集中", "color": Color("#ffc870"), "energy": 3, "tags": ["aoe"], "desc": "効果範囲 -25%、ダメージ +35%", "mul": {"aoe": 0.75, "dmg": 1.35, "mana": 1.15}},
-	{"id": "wide", "name": "広域", "color": Color("#ffe090"), "energy": 3, "tags": ["aoe"], "desc": "効果範囲 +60%／ダメージ -15%", "mul": {"aoe": 1.6, "dmg": 0.85, "mana": 1.2}},
-	{"id": "dur_long", "name": "持続延長", "color": Color("#a0d8a0"), "energy": 1, "tags": ["duration"], "desc": "効果時間 +50%", "mul": {"dur": 1.5, "mana": 1.15}},
-	{"id": "dur_short", "name": "瞬間集中", "color": Color("#d8e0a0"), "energy": 2, "tags": ["duration"], "desc": "効果時間 -30%、ダメージ +30%", "mul": {"dur": 0.7, "dmg": 1.3, "mana": 1.1}},
-	{"id": "aftershock", "name": "余波", "color": Color("#e8b070"), "energy": 3, "tags": ["aoe"], "need": ["area", "nova", "slam"], "desc": "範囲攻撃の0.5秒後、同じ場所に小さな余波（範囲70%・ダメージ50%）が起きる", "add": {"after": 1}, "mul": {"mana": 1.2}},
-	{"id": "extra", "name": "増殖", "color": Color("#f0c880"), "energy": 3, "tags": ["aoe"], "need": ["area", "zone"], "desc": "設置・落下する範囲の数 +1／ダメージ -10%", "add": {"extra": 1}, "mul": {"dmg": 0.9, "mana": 1.25}},
+	{"id": "conc", "name": "集中", "color": Color("#ffc870"), "energy": 3, "lvl": 6, "tags": ["aoe"], "desc": "効果範囲 -25%、ダメージ +35%", "mul": {"aoe": 0.75, "dmg": 1.35, "mana": 1.15}},
+	{"id": "wide", "name": "広域", "color": Color("#ffe090"), "energy": 3, "lvl": 9, "tags": ["aoe"], "desc": "効果範囲 +60%／ダメージ -15%", "mul": {"aoe": 1.6, "dmg": 0.85, "mana": 1.2}},
+	{"id": "dur_long", "name": "持続延長", "color": Color("#a0d8a0"), "energy": 1, "lvl": 3, "tags": ["duration"], "desc": "効果時間 +50%", "mul": {"dur": 1.5, "mana": 1.15}},
+	{"id": "dur_short", "name": "瞬間集中", "color": Color("#d8e0a0"), "energy": 2, "lvl": 7, "tags": ["duration"], "desc": "効果時間 -30%、ダメージ +30%", "mul": {"dur": 0.7, "dmg": 1.3, "mana": 1.1}},
+	{"id": "aftershock", "name": "余波", "color": Color("#e8b070"), "energy": 3, "lvl": 11, "tags": ["aoe"], "need": ["area", "nova", "slam"], "desc": "範囲攻撃の0.5秒後、同じ場所に小さな余波（範囲70%・ダメージ50%）が起きる", "add": {"after": 1}, "mul": {"mana": 1.2}},
+	{"id": "extra", "name": "増殖", "color": Color("#f0c880"), "energy": 3, "lvl": 13, "tags": ["aoe"], "need": ["area", "zone"], "desc": "設置・落下する範囲の数 +1／ダメージ -10%", "add": {"extra": 1}, "mul": {"dmg": 0.9, "mana": 1.25}},
 	# ailments
-	{"id": "ignite_s", "name": "燃焼付与", "color": Color("#ff9050"), "energy": 2, "tags": ["attack", "spell"], "desc": "命中時30%で燃焼させ、3秒かけてヒットの50%の火炎ダメージ", "add": {"burn": 0.3}, "mul": {"mana": 1.1}},
-	{"id": "shock_s", "name": "感電付与", "color": Color("#d0b8ff"), "energy": 2, "tags": ["attack", "spell"], "desc": "命中時35%で4秒間感電させる（受けるダメージ +20%）", "add": {"shock": 0.35}, "mul": {"mana": 1.1}},
-	{"id": "chill_s", "name": "冷気付与", "color": Color("#a8e0ff"), "energy": 1, "tags": ["attack", "spell"], "desc": "命中した敵を1.5秒間減速させる", "max": {"chill": 1.5}, "mul": {"mana": 1.05}},
-	{"id": "bleed_s", "name": "出血付与", "color": Color("#d04040"), "energy": 2, "tags": ["attack"], "desc": "命中時35%で出血させ、4秒かけてヒットの60%の物理ダメージ", "add": {"bleed": 0.35}, "mul": {"mana": 1.1}},
-	{"id": "poison_s", "name": "毒付与", "color": Color("#80c050"), "energy": 2, "tags": ["attack", "spell"], "desc": "命中時40%で毒を与え、3秒かけてヒットの30%の混沌ダメージ（重複する）", "add": {"poison": 0.4}, "mul": {"mana": 1.1}},
-	{"id": "stun_s", "name": "衝撃", "color": Color("#e0d0a0"), "energy": 1, "tags": ["attack"], "desc": "命中時25%で敵を0.4秒行動不能にする", "add": {"stun": 0.25}},
+	{"id": "ignite_s", "name": "燃焼付与", "color": Color("#ff9050"), "energy": 2, "lvl": 4, "tags": ["attack", "spell"], "desc": "命中時30%で燃焼させ、3秒かけてヒットの50%の火炎ダメージ", "add": {"burn": 0.3}, "mul": {"mana": 1.1}},
+	{"id": "shock_s", "name": "感電付与", "color": Color("#d0b8ff"), "energy": 2, "lvl": 4, "tags": ["attack", "spell"], "desc": "命中時35%で4秒間感電させる（受けるダメージ +20%）", "add": {"shock": 0.35}, "mul": {"mana": 1.1}},
+	{"id": "chill_s", "name": "冷気付与", "color": Color("#a8e0ff"), "energy": 1, "lvl": 1, "tags": ["attack", "spell"], "desc": "命中した敵を1.5秒間減速させる", "max": {"chill": 1.5}, "mul": {"mana": 1.05}},
+	{"id": "bleed_s", "name": "出血付与", "color": Color("#d04040"), "energy": 2, "lvl": 4, "tags": ["attack"], "desc": "命中時35%で出血させ、4秒かけてヒットの60%の物理ダメージ", "add": {"bleed": 0.35}, "mul": {"mana": 1.1}},
+	{"id": "poison_s", "name": "毒付与", "color": Color("#80c050"), "energy": 2, "lvl": 6, "tags": ["attack", "spell"], "desc": "命中時40%で毒を与え、3秒かけてヒットの30%の混沌ダメージ（重複する）", "add": {"poison": 0.4}, "mul": {"mana": 1.1}},
+	{"id": "stun_s", "name": "衝撃", "color": Color("#e0d0a0"), "energy": 1, "lvl": 2, "tags": ["attack"], "desc": "命中時25%で敵を0.4秒行動不能にする", "add": {"stun": 0.25}},
 	# on hit / on kill
-	{"id": "cull", "name": "処刑", "color": Color("#c0a0a0"), "energy": 1, "tags": ["attack", "spell"], "desc": "ボス以外のライフ12%以下の敵を即座に倒す", "max": {"cull": 0.12}, "mul": {"mana": 1.1}},
-	{"id": "knock", "name": "吹き飛ばし", "color": Color("#d8d0b0"), "energy": 1, "tags": ["attack", "spell", "buff"], "desc": "命中した敵（ボス以外）を押し返す", "add": {"knock": 2.0}},
-	{"id": "kboom", "name": "誘爆", "color": Color("#ff7050"), "energy": 3, "tags": ["attack", "spell"], "desc": "このスキルで倒した敵が爆発し、周囲にダメージを与える", "add": {"kboom": 1}, "mul": {"mana": 1.2}},
-	{"id": "mleech", "name": "魔力吸収", "color": Color("#7aa8ff"), "energy": 1, "tags": ["attack", "spell"], "desc": "与えたダメージの2%をマナとして回復", "add": {"mleech": 0.02}},
-	{"id": "loh", "name": "生命の刻印", "color": Color("#ff8080"), "energy": 1, "tags": ["attack", "spell"], "desc": "敵に命中するたびライフを4回復", "add": {"loh": 4.0}},
-	{"id": "hexhit", "name": "呪詛の刃", "color": Color("#c080c0"), "energy": 1, "tags": ["attack", "spell"], "desc": "命中した敵を3秒間呪い、受けるダメージ +15%", "max": {"hex": 0.15}, "mul": {"mana": 1.1}},
+	{"id": "cull", "name": "処刑", "color": Color("#c0a0a0"), "energy": 1, "lvl": 8, "tags": ["attack", "spell"], "desc": "ボス以外のライフ12%以下の敵を即座に倒す", "max": {"cull": 0.12}, "mul": {"mana": 1.1}},
+	{"id": "knock", "name": "吹き飛ばし", "color": Color("#d8d0b0"), "energy": 1, "lvl": 1, "tags": ["attack", "spell", "buff"], "desc": "命中した敵（ボス以外）を押し返す", "add": {"knock": 2.0}},
+	{"id": "kboom", "name": "誘爆", "color": Color("#ff7050"), "energy": 3, "lvl": 11, "tags": ["attack", "spell"], "desc": "このスキルで倒した敵が爆発し、周囲にダメージを与える", "add": {"kboom": 1}, "mul": {"mana": 1.2}},
+	{"id": "mleech", "name": "魔力吸収", "color": Color("#7aa8ff"), "energy": 1, "lvl": 5, "tags": ["attack", "spell"], "desc": "与えたダメージの2%をマナとして回復", "add": {"mleech": 0.02}},
+	{"id": "loh", "name": "生命の刻印", "color": Color("#ff8080"), "energy": 1, "lvl": 1, "tags": ["attack", "spell"], "desc": "敵に命中するたびライフを4回復", "add": {"loh": 4.0}},
+	{"id": "hexhit", "name": "呪詛の刃", "color": Color("#c080c0"), "energy": 1, "lvl": 6, "tags": ["attack", "spell"], "desc": "命中した敵を3秒間呪い、受けるダメージ +15%", "max": {"hex": 0.15}, "mul": {"mana": 1.1}},
 	# conditional damage
-	{"id": "lowlife", "name": "背水", "color": Color("#ff6060"), "energy": 2, "tags": ["attack", "spell"], "desc": "ライフ50%以下の間、ダメージ +60%", "add": {"lowlife": 0.6}},
-	{"id": "elite", "name": "狩人の印", "color": Color("#ffb070"), "energy": 2, "tags": ["attack", "spell"], "desc": "エリートとボスへのダメージ +40%", "add": {"elite": 0.4}},
-	{"id": "close", "name": "肉薄", "color": Color("#f0b080"), "energy": 2, "tags": ["attack", "spell"], "desc": "4.5m以内の敵へのダメージ +35%", "add": {"close": 0.35}},
-	{"id": "vsfrozen", "name": "砕氷", "color": Color("#b8f0ff"), "energy": 2, "tags": ["attack", "spell"], "desc": "凍結・減速中の敵へのダメージ +45%", "add": {"vsfrozen": 0.45}},
+	{"id": "lowlife", "name": "背水", "color": Color("#ff6060"), "energy": 2, "lvl": 9, "tags": ["attack", "spell"], "desc": "ライフ50%以下の間、ダメージ +60%", "add": {"lowlife": 0.6}},
+	{"id": "elite", "name": "狩人の印", "color": Color("#ffb070"), "energy": 2, "lvl": 7, "tags": ["attack", "spell"], "desc": "エリートとボスへのダメージ +40%", "add": {"elite": 0.4}},
+	{"id": "close", "name": "肉薄", "color": Color("#f0b080"), "energy": 2, "lvl": 5, "tags": ["attack", "spell"], "desc": "4.5m以内の敵へのダメージ +35%", "add": {"close": 0.35}},
+	{"id": "vsfrozen", "name": "砕氷", "color": Color("#b8f0ff"), "energy": 2, "lvl": 8, "tags": ["attack", "spell"], "desc": "凍結・減速中の敵へのダメージ +45%", "add": {"vsfrozen": 0.45}},
 	# speed and cost
-	{"id": "efficient", "name": "効率化", "color": Color("#90b8ff"), "energy": 1, "tags": ["attack", "spell", "buff", "aura"], "desc": "マナコスト・オーラのリザーブ -40%／ダメージ -10%", "mul": {"mana": 0.6, "dmg": 0.9}},
-	{"id": "heavy", "name": "渾身", "color": Color("#e09060"), "energy": 3, "tags": ["attack", "spell"], "desc": "ダメージ +50%／攻撃・詠唱速度 -20%", "mul": {"dmg": 1.5, "speed": 0.8, "mana": 1.2}},
-	{"id": "rapid", "name": "連打", "color": Color("#a0e0a0"), "energy": 2, "tags": ["attack", "spell"], "not": ["movement"], "desc": "攻撃・詠唱速度 +40%／ダメージ -20%", "mul": {"speed": 1.4, "dmg": 0.8, "mana": 1.1}},
-	{"id": "echo", "name": "残響", "color": Color("#c0d0ff"), "energy": 3, "tags": ["attack", "spell"], "not": ["minion", "movement", "buff"], "desc": "0.25秒後にもう一度発動する（2回目のダメージ -30%）", "add": {"echo": 1}, "mul": {"mana": 1.4}},
-	{"id": "trap", "name": "罠化", "color": Color("#c8a070"), "energy": 3, "tags": ["attack", "spell"], "not": ["minion", "movement", "buff"],
+	{"id": "efficient", "name": "効率化", "color": Color("#90b8ff"), "energy": 1, "lvl": 2, "tags": ["attack", "spell", "buff", "aura"], "desc": "マナコスト・オーラのリザーブ -40%／ダメージ -10%", "mul": {"mana": 0.6, "dmg": 0.9}},
+	{"id": "heavy", "name": "渾身", "color": Color("#e09060"), "energy": 3, "lvl": 9, "tags": ["attack", "spell"], "desc": "ダメージ +50%／攻撃・詠唱速度 -20%", "mul": {"dmg": 1.5, "speed": 0.8, "mana": 1.2}},
+	{"id": "rapid", "name": "連打", "color": Color("#a0e0a0"), "energy": 2, "lvl": 7, "tags": ["attack", "spell"], "not": ["movement"], "desc": "攻撃・詠唱速度 +40%／ダメージ -20%", "mul": {"speed": 1.4, "dmg": 0.8, "mana": 1.1}},
+	{"id": "echo", "name": "残響", "color": Color("#c0d0ff"), "energy": 3, "lvl": 10, "tags": ["attack", "spell"], "not": ["minion", "movement", "buff"], "desc": "0.25秒後にもう一度発動する（2回目のダメージ -30%）", "add": {"echo": 1}, "mul": {"mana": 1.4}},
+	{"id": "trap", "name": "罠化", "color": Color("#c8a070"), "energy": 3, "lvl": 10, "tags": ["attack", "spell"], "not": ["minion", "movement", "buff"],
 		"desc": "スキルの代わりにカーソル位置へ罠を設置。敵が近づくとスキルを1回発動する（最大3個、12秒）", "add": {"trap": 1}, "mul": {"dmg": 1.2}},
 	# minions, curses, buffs, movement
-	{"id": "minion_speed", "name": "迅速の僕", "color": Color("#d0e8c0"), "energy": 1, "tags": ["minion"], "desc": "ミニオンの攻撃速度 +30%", "mul": {"speed": 1.3, "mana": 1.1}},
-	{"id": "minion_tough", "name": "鋼の僕", "color": Color("#c8c0b0"), "energy": 1, "tags": ["minion"], "desc": "ミニオンのライフ +100%／ダメージ -10%", "mul": {"mlife": 2.0, "dmg": 0.9}},
-	{"id": "curse_eff", "name": "呪詛強化", "color": Color("#d070d0"), "energy": 1, "tags": ["curse"], "desc": "呪いの効果 +50%", "mul": {"ceff": 1.5, "mana": 1.2}},
-	{"id": "buff_eff", "name": "鼓舞", "color": Color("#ffd080"), "energy": 1, "tags": ["buff", "aura"], "desc": "強化・オーラスキルの効果 +40%（オーラのリザーブ +20%）", "mul": {"beff": 1.4, "mana": 1.2}},
-	{"id": "move_far", "name": "長駆", "color": Color("#b0b0ff"), "energy": 1, "tags": ["movement"], "desc": "移動距離 +40%", "mul": {"mdist": 1.4}},
-	{"id": "move_land", "name": "着地衝撃", "color": Color("#e0c0a0"), "energy": 1, "tags": ["movement"], "desc": "移動の終点で衝撃波を起こし、周囲に物理ダメージ", "add": {"mland": 1}, "mul": {"mana": 1.2}},
+	{"id": "minion_speed", "name": "迅速の僕", "color": Color("#d0e8c0"), "energy": 1, "lvl": 4, "tags": ["minion"], "desc": "ミニオンの攻撃速度 +30%", "mul": {"speed": 1.3, "mana": 1.1}},
+	{"id": "minion_tough", "name": "鋼の僕", "color": Color("#c8c0b0"), "energy": 1, "lvl": 5, "tags": ["minion"], "desc": "ミニオンのライフ +100%／ダメージ -10%", "mul": {"mlife": 2.0, "dmg": 0.9}},
+	{"id": "curse_eff", "name": "呪詛強化", "color": Color("#d070d0"), "energy": 1, "lvl": 7, "tags": ["curse"], "desc": "呪いの効果 +50%", "mul": {"ceff": 1.5, "mana": 1.2}},
+	{"id": "buff_eff", "name": "鼓舞", "color": Color("#ffd080"), "energy": 1, "lvl": 5, "tags": ["buff", "aura"], "desc": "強化・オーラスキルの効果 +40%（オーラのリザーブ +20%）", "mul": {"beff": 1.4, "mana": 1.2}},
+	{"id": "move_far", "name": "長駆", "color": Color("#b0b0ff"), "energy": 1, "lvl": 3, "tags": ["movement"], "desc": "移動距離 +40%", "mul": {"mdist": 1.4}},
+	{"id": "move_land", "name": "着地衝撃", "color": Color("#e0c0a0"), "energy": 1, "lvl": 6, "tags": ["movement"], "desc": "移動の終点で衝撃波を起こし、周囲に物理ダメージ", "add": {"mland": 1}, "mul": {"mana": 1.2}},
 ]
 const DEFAULT_GEMS := ["power", "haste"]
 const LINK_MAX := 6
@@ -324,6 +326,27 @@ const GEM_COLOR := Color("#7fe0a0")
 ## the energy pool every linked support gem draws on: 2 + character level, plus gear
 static func energy_base(level: int) -> int:
 	return 2 + level
+
+
+## skill gems and support gems a character doesn't own yet, needing at most level `max_lvl`
+static func missing_gems(skills: Array, gems: Array, max_lvl := 999) -> Array:
+	var out := []
+	for id in SKILL_ORDER:
+		if not id in skills and SKILLS[id].lvl <= max_lvl:
+			out.append({"skill": true, "id": id})
+	for g in SUPPORTS:
+		if not g.id in gems and g.lvl <= max_lvl:
+			out.append({"skill": false, "id": g.id})
+	return out
+
+
+## a skill gem's or support gem's name, color and level, for drops and the merchant
+static func gem_info(skill: bool, id: String) -> Dictionary:
+	if skill:
+		var sk: Dictionary = SKILLS[id]
+		return {"name": sk.name, "color": sk.color, "lvl": sk.lvl, "kind": "スキルジェム"}
+	var g := support(id)
+	return {"name": g.name, "color": g.color, "lvl": g.lvl, "kind": "サポートジェム"}
 
 
 static func support(id: String) -> Dictionary:
