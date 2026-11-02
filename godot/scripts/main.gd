@@ -571,6 +571,16 @@ func _smoke_tree() -> void:
 	hud.tree_ui._reset()
 	print("SMOKE tree reset size=%d life_back=%s" % [p.tree.size(), is_equal_approx(p.s.max_life, life0)])
 	_expect("tree_reset", {"empty": p.tree.is_empty(), "life_back": is_equal_approx(p.s.max_life, life0)})
+	# "more" stats compound with each other while "increased" ones add up
+	var sum := {}
+	for v in [20, 25]:
+		Data.add_stat(sum, "inc_dmg", v)
+		Data.add_stat(sum, "more_dmg", v)
+	Data.add_stat(sum, "more_atk", 10, 2)
+	var ks_more: float = PassiveTree.stats(["k_ashstorm", "k_lastember"]).more_dmg
+	print("SMOKE more inc=%d more=%.1f ranks=%.1f keystones=%.1f" % [sum.inc_dmg, sum.more_dmg, sum.more_atk, ks_more])
+	_expect("more_stats", {"add": sum.inc_dmg == 45, "compound": is_equal_approx(sum.more_dmg, 50.0), "ranks": is_equal_approx(sum.more_atk, 21.0),
+		"keystones": is_equal_approx(ks_more, 53.4), "factor": is_equal_approx(Data.more(sum, "more_dmg"), 1.5)})
 	# saves: round trip, junk dropped, cut off or over-budget nodes pruned, another class's tree emptied
 	p.level = 20
 	p.recalc(true)
@@ -2695,7 +2705,11 @@ func roll_damage(coef: float, type: String, spell := false) -> Dictionary:
 		inc += 50
 	if player.low_life():
 		inc += 40
-	d *= (1.0 + inc / 100.0) * sup.dmg * sup.get("m_" + type, 1.0)
+	# "more" multipliers each scale the whole hit on their own, after the summed "increased"
+	var more: float = Data.more(s, "more_dmg") * Data.more(s, "more_spell" if spell else "more_atk") * Data.more(s, "more_" + type)
+	if ally:
+		more *= Data.more(s, "more_ally")
+	d *= (1.0 + inc / 100.0) * more * sup.dmg * sup.get("m_" + type, 1.0)
 	if sup.lowlife > 0.0 and player.life <= player.s.max_life * 0.5:
 		d *= 1.0 + sup.lowlife
 	var crit: bool = force_crit or (randf() * 100.0 < s.crit + sup.crit and not player.effects.has("no_crit"))

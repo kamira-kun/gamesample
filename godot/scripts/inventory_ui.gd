@@ -180,6 +180,7 @@ func refresh() -> void:
 	stats.text = "\n".join([
 		"ダメージ　%d–%d" % [s.dmg_min, s.dmg_max], "攻撃/秒　%.2f" % s.attack_rate,
 		"ダメージ増加　%d%%" % s.inc_dmg, "スキルダメージ　%d%%" % s.spell_dmg,
+		"乗算　%s" % StatusUI.more_text(s),
 		"クリティカル　%.0f%% / %d%%" % [s.crit, s.crit_multi], "詠唱速度　+%d%%" % s.cast_spd,
 		"火炎/冷気/雷　%d/%d/%d%%" % [s.fire_dmg, s.cold_dmg, s.light_dmg],
 		"アーマー　%d（軽減 %d%%）" % [s.armor, roundi(s.dr * 100)], "移動速度　+%d%%" % s.move_spd,

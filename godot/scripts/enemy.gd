@@ -64,8 +64,9 @@ func setup(kind: String, at: Vector2, level: int, pack_id: int, affix: Dictionar
 	pack = pack_id
 	var f := level - 1
 	r = t.r
-	max_life = t.life * (1.0 + 0.5 * f + 0.05 * f * f)
-	dmg = t.dmg * (1.0 + 0.3 * f)
+	# the last factor keeps pace with the "more" multipliers a character gathers as it levels
+	max_life = t.life * (1.0 + 0.5 * f + 0.05 * f * f) * (1.0 + 0.012 * f)
+	dmg = t.dmg * (1.0 + 0.3 * f) * (1.0 + 0.006 * f)
 	speed = t.speed * randf_range(0.9, 1.1)
 	xp = t.xp * (1.0 + 0.25 * f)
 	boss = t.get("boss", false)

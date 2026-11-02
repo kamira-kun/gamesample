@@ -527,8 +527,8 @@ const ASCENDANCIES := [
 				{"id": "slash_wave", "name": "焔走り", "desc": "斬撃が貫通する衝撃波を放つ"}],
 			[{"id": "rage_kill", "name": "闘争の熱", "desc": "攻撃で敵を倒すたび4秒間 攻撃速度 +4%（最大5重）"},
 				{"id": "blood_hunger", "name": "血の渇き", "desc": "撃破時ライフ +8、最大ライフ +20", "stats": {"life_on_kill": 8, "life": 20}}],
-			[{"id": "pyre_fist", "name": "灼熱の拳", "desc": "火炎ダメージ +25%、攻撃ダメージ +15%", "stats": {"fire_dmg": 25, "atk_dmg": 15}},
-				{"id": "ash_frenzy", "name": "燼の狂奔", "desc": "ダメージ +25%、最大ライフ -25", "stats": {"inc_dmg": 25, "life": -25}}],
+			[{"id": "pyre_fist", "name": "灼熱の拳", "desc": "火炎ダメージ +15%（乗算）、攻撃ダメージ +15%", "stats": {"more_fire": 15, "atk_dmg": 15}},
+				{"id": "ash_frenzy", "name": "燼の狂奔", "desc": "ダメージ +18%（乗算）、最大ライフ -25", "stats": {"more_dmg": 18, "life": -25}}],
 		]},
 	{"k": "astral", "name": "星砂の賢者", "icon": "✦", "color": Color("#f0e0a0"), "desc": "星の砂を読み、あらゆる呪文を極める賢者。スペル全般・マナ・リンクの余力に特化。",
 		"minors": [
@@ -543,7 +543,7 @@ const ASCENDANCIES := [
 			[{"id": "chain_plus", "name": "連鎖の星図", "desc": "チェインライトニングの連鎖数 +4"},
 				{"id": "meteor_shower", "name": "流星群", "desc": "メテオが追加で2つ降り注ぐ"}],
 			[{"id": "fireball_multi", "name": "三連星", "desc": "ファイアボールが3方向に放たれる"},
-				{"id": "star_eater", "name": "星喰み", "desc": "スペルダメージ +40%、最大ライフ -30", "stats": {"spell_dmg": 40, "life": -30}}],
+				{"id": "star_eater", "name": "星喰み", "desc": "スペルダメージ +25%（乗算）、最大ライフ -30", "stats": {"more_spell": 25, "life": -30}}],
 		]},
 	{"k": "shade", "name": "影走りの狩人", "icon": "☾", "color": Color("#8fa0c8"), "desc": "影から影へ渡り、刃を投げ放つ狩人。攻撃・移動とクリティカルに特化。",
 		"minors": [
@@ -572,7 +572,7 @@ const ASCENDANCIES := [
 				{"id": "soul_drain", "name": "魂喰い", "desc": "混沌ダメージの5%をライフとして吸収する"}],
 			[{"id": "hex_deep", "name": "深き呪縛", "desc": "呪われた・蝕まれた敵へのダメージ +30%"},
 				{"id": "moon_feast", "name": "月蝕の饗宴", "desc": "撃破時ライフ +6、マナ回復 +3/秒", "stats": {"life_on_kill": 6, "mana_regen": 3}}],
-			[{"id": "void_tide", "name": "虚無の潮", "desc": "混沌ダメージ +40%、最大マナ +30", "stats": {"chaos_dmg": 40, "mana": 30}},
+			[{"id": "void_tide", "name": "虚無の潮", "desc": "混沌ダメージ +25%（乗算）、最大マナ +30", "stats": {"more_chaos": 25, "mana": 30}},
 				{"id": "eclipse", "name": "皆既", "desc": "スペルダメージ +30%、受けるダメージ -8%", "stats": {"spell_dmg": 30, "dr_pct": 8}}],
 		]},
 ]
@@ -803,7 +803,22 @@ const SPECIAL_MODS := [
 	{"k": "s_ally", "name": "従者の紋", "fmt": "ミニオン・トーテムのダメージとライフ +%d%%", "min": 15, "max": 30, "sc": 0.015, "stats": {"ally_dmg": 1, "ally_life": 1}},
 	{"k": "s_void", "name": "蝕紋", "fmt": "混沌ダメージ +%d%%", "min": 15, "max": 30, "sc": 0.015, "stats": {"chaos_dmg": 1}},
 	{"k": "s_energy", "name": "共鳴の紋", "fmt": "エネルギー上限 +%d", "min": 2, "max": 3, "sc": 0.0, "stats": {"energy": 1}},
+	{"k": "s_fury", "name": "猛威の紋", "fmt": "ダメージ +%d%%（乗算）", "min": 4, "max": 8, "sc": 0.006, "stats": {"more_dmg": 1}},
 ]
+
+
+## add `v` of stat `k` into a summed stat dictionary, `times` over. The "increased" stats add up; the "more" stats
+## (more_*) multiply with each other, and a dictionary keeps their product as one combined % (20 and 25 make 50)
+static func add_stat(st: Dictionary, k: String, v: float, times := 1) -> void:
+	if k.begins_with("more_"):
+		st[k] = ((1.0 + st.get(k, 0.0) / 100.0) * pow(1.0 + v / 100.0, times) - 1.0) * 100.0
+	else:
+		st[k] = st.get(k, 0) + v * times
+
+
+## the factor a "more" stat multiplies by (more_dmg 30 -> 1.3)
+static func more(st: Dictionary, k: String) -> float:
+	return maxf(0.0, 1.0 + st.get(k, 0.0) / 100.0)
 
 
 static func special_mod(k: String) -> Dictionary:

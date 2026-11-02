@@ -179,7 +179,7 @@ static func stats(list: Array) -> Dictionary:
 	for t in list:
 		if t.placed:
 			for k in t.mods:
-				st[k] = st.get(k, 0) + t.mods[k]
+				Data.add_stat(st, k, t.mods[k])
 	return st
 
 

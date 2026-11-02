@@ -50,16 +50,21 @@ func _build() -> void:
 	right.add_child(skills)
 
 
-## [label, value] rows; the first seven are offense
+## [label, value] rows; the first eight are offense
 static func stat_rows(s: Dictionary) -> Array:
 	return [
 		["ダメージ", "%d–%d" % [roundi(s.dmg_min), roundi(s.dmg_max)]], ["攻撃/秒", "%.2f" % s.attack_rate],
-		["ダメージ増加", "%d%%" % s.inc_dmg], ["スキルダメージ", "%d%%" % s.spell_dmg],
+		["ダメージ増加", "%d%%" % s.inc_dmg], ["スキルダメージ", "%d%%" % s.spell_dmg], ["乗算（全体/攻撃/スペル）", more_text(s)],
 		["クリティカル", "%.1f%% / %d%%" % [s.crit, s.crit_multi]], ["詠唱速度", "+%d%%" % s.cast_spd],
 		["火炎/冷気/雷", "%d/%d/%d%%" % [s.fire_dmg, s.cold_dmg, s.light_dmg]], ["アーマー", "%d（軽減 %d%%）" % [s.armor, roundi(s.dr * 100)]],
 		["移動速度", "+%d%%" % s.move_spd], ["クールダウン短縮", "%d%%" % s.cdr],
 		["ライフ回復", "%.1f/秒" % s.life_regen], ["マナ回復", "%.1f/秒" % s.mana_regen],
 	]
+
+
+## the "more" multipliers as ×factors
+static func more_text(s: Dictionary) -> String:
+	return "×%.2f / ×%.2f / ×%.2f" % [Data.more(s, "more_dmg"), Data.more(s, "more_atk"), Data.more(s, "more_spell")]
 
 
 func _row(grid: GridContainer, k: String, v: String, vcol := Color("#f0dcb4")) -> void:
@@ -90,7 +95,7 @@ func refresh() -> void:
 	stats.add_child(sub("攻撃", 14, Color("#f0d8a0")))
 	stats.add_child(Control.new())
 	for i in rows.size():
-		if i == 7:
+		if i == 8:
 			stats.add_child(sub("防御・その他", 14, Color("#f0d8a0")))
 			stats.add_child(Control.new())
 		_row(stats, rows[i][0], rows[i][1])

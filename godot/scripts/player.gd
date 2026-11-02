@@ -128,10 +128,13 @@ func recalc(full := false) -> void:
 		"light_dmg": 0, "spell_dmg": 0, "life_on_kill": 0, "cdr": 0, "life": 0, "mana": 0,
 		"atk_dmg": 0, "ally_dmg": 0, "ally_life": 0, "energy": 0, "chaos_dmg": 0, "dr_pct": 0,
 		"life_pct": 0, "mana_pct": 0,
+		# "more" multipliers as a combined %, compounded by Data.add_stat
+		"more_dmg": 0.0, "more_atk": 0.0, "more_spell": 0.0, "more_ally": 0.0, "more_fire": 0.0, "more_cold": 0.0,
+		"more_light": 0.0, "more_chaos": 0.0, "more_life": 0.0,
 	}
 	var bc := Data.base_class(cls)
 	for k in bc.get("stats", {}):
-		st[k] += bc.stats[k]
+		Data.add_stat(st, k, bc.stats[k])
 	effects = {}
 	for slot in equip:
 		var it: Dictionary = equip[slot]
@@ -142,33 +145,33 @@ func recalc(full := false) -> void:
 		st.armor += it.get("armor", 0)
 		for src in [it.implicit, it.mods, Items.special_stats(it)]:
 			for k in src:
-				st[k] = st.get(k, 0) + src[k]
+				Data.add_stat(st, k, src[k])
 		if it.has("effect"):
 			effects[it.effect] = true
 	PassiveTree.set_rings(Jewels.rings_in(jewels))
 	var ts := PassiveTree.stats(tree)
 	for k in ts:
-		st[k] = st.get(k, 0) + ts[k]
+		Data.add_stat(st, k, ts[k])
 	var js := Jewels.stats(jewels, tree)
 	for k in js:
-		st[k] = st.get(k, 0) + js[k]
+		Data.add_stat(st, k, js[k])
 	var tb := Tablets.stats(tablets)
 	for k in tb:
-		st[k] = st.get(k, 0) + tb[k]
+		Data.add_stat(st, k, tb[k])
 	var a := Data.ascendancy(asc)
 	if not a.is_empty():
 		for n in a.minors:
 			for k in n.stats:
-				st[k] = st.get(k, 0) + n.stats[k] * asc_rank(n.id)
+				Data.add_stat(st, k, n.stats[k], asc_rank(n.id))
 		for k in asc_cores:
 			if k != "":
 				effects[k] = true
 				var c := Data.asc_core(a, k)
 				for sk in c.get("stats", {}):
-					st[sk] = st.get(sk, 0) + c.stats[sk]
+					Data.add_stat(st, sk, c.stats[sk])
 	st.dmg_min += st.flat_dmg
 	st.dmg_max += st.flat_dmg
-	st.max_life = (st.max_life + st.life) * (1.0 + st.life_pct / 100.0)
+	st.max_life = (st.max_life + st.life) * (1.0 + st.life_pct / 100.0) * Data.more(st, "more_life")
 	st.max_mana = (st.max_mana + st.mana) * (1.0 + st.mana_pct / 100.0)
 	st.life_regen += atlas.val("ward") if atlas else 0.0
 	if effects.has("chant_power"):

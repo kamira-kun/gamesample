@@ -70,27 +70,27 @@ const NOTABLE_ENDS := ["の血潮", "の構え", "の砦", "の意志", "の奔�
 # keystones: a big change with a big price, four in each zone's stretch of the outer band (in angle order)
 const KEYSTONES := [
 	{"id": "k_burnout", "name": "燃え尽きる灯", "stats": {"crit_multi": 80, "life_pct": -25}},
-	{"id": "k_blightheart", "name": "蝕心", "stats": {"chaos_dmg": 60, "life_pct": -15}},
+	{"id": "k_blightheart", "name": "蝕心", "stats": {"more_chaos": 35, "life_pct": -15}},
 	{"id": "k_glassstar", "name": "玻璃の星", "stats": {"crit": 8, "crit_multi": 40, "dr_pct": -15}},
 	{"id": "k_venomtide", "name": "毒潮の誓い", "stats": {"chaos_dmg": 45, "inc_dmg": 20, "mana_pct": -30}},
 	{"id": "k_duskdance", "name": "宵灯の舞踏", "stats": {"atk_spd": 22, "move_spd": 15, "life_pct": -20}},
-	{"id": "k_foxpact", "name": "狐火の契り", "stats": {"crit": 10, "inc_dmg": -25}},
-	{"id": "k_lanternhost", "name": "百灯の行列", "stats": {"ally_dmg": 60, "ally_life": 40, "atk_dmg": -30, "spell_dmg": -30}},
+	{"id": "k_foxpact", "name": "狐火の契り", "stats": {"crit": 10, "more_dmg": -20}},
+	{"id": "k_lanternhost", "name": "百灯の行列", "stats": {"more_ally": 40, "ally_life": 40, "more_atk": -30, "more_spell": -30}},
 	{"id": "k_windwalker", "name": "風渡り", "stats": {"move_spd": 25, "dr_pct": -12}},
-	{"id": "k_ashstorm", "name": "灰嵐の狂奔", "stats": {"inc_dmg": 45, "dr_pct": -18}},
+	{"id": "k_ashstorm", "name": "灰嵐の狂奔", "stats": {"more_dmg": 30, "dr_pct": -18}},
 	{"id": "k_carrion", "name": "屍喰らい", "stats": {"life_on_kill": 15, "life_pct": -15}},
 	{"id": "k_warcry", "name": "戦鬨", "stats": {"inc_dmg": 30, "atk_spd": 10, "mana_pct": -40}},
-	{"id": "k_lastember", "name": "最後の残り火", "stats": {"inc_dmg": 25, "crit_multi": 30, "life_pct": -20}},
+	{"id": "k_lastember", "name": "最後の残り火", "stats": {"more_dmg": 18, "crit_multi": 30, "life_pct": -20}},
 	{"id": "k_ironheart", "name": "灰鉄の心臓", "stats": {"life_pct": 40, "move_spd": -12}},
 	{"id": "k_bulwark", "name": "不落の城", "stats": {"armor": 200, "dr_pct": 10, "atk_spd": -15}},
-	{"id": "k_berserk", "name": "鬼哭の刃", "stats": {"atk_dmg": 50, "dr_pct": -15}},
-	{"id": "k_stoneblood", "name": "岩血", "stats": {"life_regen": 12, "life_pct": 15, "spell_dmg": -40}},
+	{"id": "k_berserk", "name": "鬼哭の刃", "stats": {"more_atk": 35, "dr_pct": -15}},
+	{"id": "k_stoneblood", "name": "岩血", "stats": {"life_regen": 12, "more_life": 12, "more_spell": -35}},
 	{"id": "k_ironchant", "name": "鋼の詠唱", "stats": {"armor": 120, "mana_pct": 20, "cast_spd": -18}},
-	{"id": "k_twinwick", "name": "二重の灯心", "stats": {"life_pct": 20, "mana_pct": 20, "inc_dmg": -20}},
+	{"id": "k_twinwick", "name": "二重の灯心", "stats": {"life_pct": 20, "mana_pct": 20, "more_dmg": -15}},
 	{"id": "k_bloodmana", "name": "血と魔の天秤", "stats": {"mana_pct": 50, "life_pct": -25}},
 	{"id": "k_steadfast", "name": "不動心", "stats": {"dr_pct": 12, "move_spd": -15}},
-	{"id": "k_starlore", "name": "星灯の叡智", "stats": {"mana_pct": 50, "spell_dmg": 45, "atk_dmg": -40}},
-	{"id": "k_cinderveil", "name": "燼の帳", "stats": {"fire_dmg": 50, "cold_dmg": -30, "light_dmg": -30}},
+	{"id": "k_starlore", "name": "星灯の叡智", "stats": {"mana_pct": 50, "more_spell": 30, "more_atk": -40}},
+	{"id": "k_cinderveil", "name": "燼の帳", "stats": {"more_fire": 35, "more_cold": -30, "more_light": -30}},
 	{"id": "k_triad", "name": "三相の極み", "stats": {"fire_dmg": 30, "cold_dmg": 30, "light_dmg": 30, "crit": -4}},
 	{"id": "k_quickchant", "name": "早口の呪", "stats": {"cast_spd": 25, "mana_pct": -35}},
 ]
@@ -105,6 +105,10 @@ const FMT := {
 	"cast_spd": "詠唱速度 {v}%", "move_spd": "移動速度 {v}%", "ally_dmg": "ミニオン・トーテムのダメージ {v}%",
 	"ally_life": "ミニオン・トーテムのライフ {v}%", "life_on_kill": "撃破時ライフ {v}",
 	"dr_pct": "受けるダメージ {v}%",   # shown negated: dr_pct 4 is "-4%"
+	# "more" stats multiply with everything else instead of adding to it (Data.add_stat)
+	"more_dmg": "ダメージ {v}%（乗算）", "more_atk": "攻撃ダメージ {v}%（乗算）", "more_spell": "スペルダメージ {v}%（乗算）",
+	"more_fire": "火炎ダメージ {v}%（乗算）", "more_cold": "冷気ダメージ {v}%（乗算）", "more_light": "雷ダメージ {v}%（乗算）",
+	"more_chaos": "混沌ダメージ {v}%（乗算）", "more_ally": "ミニオン・トーテムのダメージ {v}%（乗算）", "more_life": "最大ライフ {v}%（乗算）",
 }
 
 const KIND_NAMES := {"small": "", "notable": "注目ノード", "keystone": "キーストーン", "start": "起点",
@@ -513,7 +517,7 @@ static func stats(tree: Array) -> Dictionary:
 	for id in tree:
 		var n := node(id)
 		for k in n.get("stats", {}):
-			st[k] = st.get(k, 0) + n.stats[k]
+			Data.add_stat(st, k, n.stats[k])
 	return st
 
 

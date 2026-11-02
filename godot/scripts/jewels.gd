@@ -324,7 +324,7 @@ static func stats(list: Array, tree: Array) -> Dictionary:
 			continue
 		for src in [base(j.base).implicit, j.mods]:
 			for k in src:
-				st[k] = st.get(k, 0) + src[k]
+				Data.add_stat(st, k, src[k])
 	return st
 
 
