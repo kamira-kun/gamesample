@@ -1,7 +1,8 @@
 extends RefCounted
 ## Checks the unique table: `godot --headless --path . -s tools/run_check.gd`
-## Every entry has a valid base and known stats, names never repeat, every unique comes out of
-## legendary drops, and its tooltip and the stats it grants compute. Exits 1 on any failure.
+## Every entry has a valid base and known stats, names never repeat, legendary drops only give uniques
+## from the table and every unique can drop (a tier with a drop weight), and each one's tooltip and the
+## stats it grants compute. Exits 1 on any failure.
 
 # effect keys the game checks (legendary effects, ascendancy cores, unique-only keystones)
 const KNOWN_FX := ["fireball_multi", "dash_nova", "chain_plus", "slash_wave", "kill_heal", "meteor_shower", "nova_on_hit",
@@ -27,17 +28,21 @@ func run() -> int:
 		for k in l.get("mods", {}):
 			if Data.affix(k).is_empty():
 				bad.append("unknown stat %s on %s" % [k, l.name])
-	# drops: legendary rolls reach every unique, and each item's tooltip and stats work
+		if Data.unique_weight(l.name) <= 0.0:
+			bad.append("never drops " + l.name)
+	# drops: legendary rolls give known uniques; then each unique's tooltip and stats work
 	var seen := {}
-	var p := Player.new()
-	var sword: Dictionary = p.equip.weapon
-	for i in 40000:
+	for i in 20000:
 		var it := Items.generate(randi_range(1, 60), 0.0, 3)
 		if not names.has(it.name):
 			bad.append("dropped unknown " + it.name)
-		if seen.has(it.name):
-			continue
 		seen[it.name] = true
+	var p := Player.new()
+	var sword: Dictionary = p.equip.weapon
+	for l in Data.LEGENDARY:
+		var it := Items.generate(randi_range(1, 60), 0.0, 3, "", l.name)
+		if it.name != l.name:
+			bad.append("could not roll " + l.name)
 		for ln in Items.lines(it):
 			if "+-" in ln[0]:
 				bad.append("bad tooltip line on %s: %s" % [it.name, ln[0]])
@@ -50,8 +55,6 @@ func run() -> int:
 		if Items.craft("divine", it) != "" and it.mods.size() > 0:
 			bad.append("divine failed on " + it.name)
 	p.free()
-	if seen.size() != names.size():
-		bad.append("only %d of %d uniques dropped" % [seen.size(), names.size()])
 	print("UNIQUES count=%d names=%d dropped=%d problems=%d" % [Data.LEGENDARY.size(), names.size(), seen.size(), bad.size()])
 	for b in bad.slice(0, 20):
 		print("  ", b)

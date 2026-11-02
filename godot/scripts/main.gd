@@ -162,6 +162,14 @@ func _ready() -> void:
 					player.recalc(true)
 				hud.toggle({"talents": hud.tree_ui, "status": hud.status_ui, "filter": hud.filter_ui, "passives": hud.passive_ui,
 					"ascend": hud.asc_ui, "ascend_pick": hud.asc_ui}[kind])
+			elif kind == "unique_tip":   # one unique of each drop tier in the bag, the rarest one's tooltip up
+				var top := {}
+				for t in Data.UNIQUE_TIERS.size():
+					var l: Dictionary = Data.LEGENDARY.filter(func(q): return Data.unique_tier(q.name) == t and q.has("mods"))[0]
+					top = Items.generate(20, 0.0, 3, "", l.name)
+					player.bag.append(top)
+				hud.toggle_inventory()
+				get_tree().create_timer(2.0).timeout.connect(func(): hud.show_tip(Items.lines(top)))
 			elif kind in ["colossus", "witch"]:   # a boss next to the player
 				enter_map("ash")
 				var b := _make_enemy(kind, player.pos + Vector2(5, -5), 999)
@@ -243,6 +251,44 @@ func _smoke_docs() -> void:
 
 ## skill gems: a new character owns only the class's starting bar, other skills are found or bought, skills
 ## and support gems wait for their level, drops follow the area level, and older saves keep what their level taught
+## unique drop tiers: every tier has uniques, the rarer tiers drop less often, roll stronger stat lines
+## and sell for more
+func _smoke_unique_tiers() -> void:
+	var n := Data.UNIQUE_TIERS.size()
+	var count := []
+	var drops := []
+	count.resize(n)
+	count.fill(0)
+	drops.resize(n)
+	drops.fill(0)
+	var pick := []
+	pick.resize(n)
+	for l in Data.LEGENDARY:
+		var t := Data.unique_tier(l.name)
+		count[t] += 1
+		if pick[t] == null and l.has("mods"):
+			pick[t] = l
+	for i in 6000:
+		drops[Data.unique_tier(Items.pick_legend(Data.LEGENDARY).name)] += 1
+	var rate_down := true
+	var stronger := true
+	var dearer := true
+	var share_drops := true
+	for t in range(1, n):
+		var now := float(drops[t]) / maxi(1, count[t])
+		var before := float(drops[t - 1]) / maxi(1, count[t - 1])
+		rate_down = rate_down and now < before
+		share_drops = share_drops and drops[t] < drops[t - 1]
+		var hi := {"name": pick[t].name, "ilvl": 1, "rarity": 3}
+		var lo := {"name": pick[t - 1].name, "ilvl": 1, "rarity": 3}
+		stronger = stronger and Items.roll_fixed(hi, "life", [20, 20]) > Items.roll_fixed(lo, "life", [20, 20]) 			and Items.roll_fixed(hi, "life", [-20, -20]) == Items.roll_fixed(lo, "life", [-20, -20])
+		dearer = dearer and Trade.unique_tier(hi.name).base > Trade.unique_tier(lo.name).base 			and Items.sell_price(hi) > Items.sell_price(lo)
+	var top := Items.generate(20, 0.0, 3)
+	var tip: Array = Items.lines(top)
+	print("SMOKE unique tiers count=%s drops=%s rate_down=%s share_down=%s stronger=%s dearer=%s tip=%s" % [count, drops,
+		rate_down, share_drops, stronger, dearer, tip[1][0].begins_with("希少度：")])
+
+
 func _smoke_gems() -> void:
 	var p := player
 	var keep := [p.level, p.slots.duplicate(), p.links.duplicate(true), p.gems.duplicate(), p.skills.duplicate(), p.cur.ember, p.cls]
@@ -960,6 +1006,7 @@ func _smoke_test() -> void:
 	_smoke_classes()
 	_smoke_gems()
 	_smoke_docs()
+	_smoke_unique_tiers()
 	_smoke_market()
 	_smoke_trade()
 	await _smoke_keys()

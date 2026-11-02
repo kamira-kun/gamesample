@@ -738,6 +738,40 @@ static func legend(name: String) -> Dictionary:
 			_legend_by_name[l.name] = l
 	return _legend_by_name.get(name, {})
 
+## how rare each unique is, fixed by its name: `share` of the 1000 fall in the tier, `w` is each one's drop weight,
+## `pow` scales its positive stat lines (and a unique weapon's damage), `base` is what buyers pay for it (c)
+const UNIQUE_TIERS := [
+	{"name": "並", "share": 0.60, "w": 100.0, "pow": 0.85, "base": [0.3, 1.0], "color": Color("#b8a890")},
+	{"name": "稀少", "share": 0.28, "w": 30.0, "pow": 1.0, "base": [1.5, 4.0], "color": Color("#7ec8ff")},
+	{"name": "秘宝", "share": 0.10, "w": 8.0, "pow": 1.2, "base": [6.0, 15.0], "color": Color("#d48cff")},
+	{"name": "至宝", "share": 0.02, "w": 3.0, "pow": 1.4, "base": [25.0, 60.0], "color": Color("#ffe06a")},
+]
+static var _tier_by_name := {}
+
+
+## the unique's tier index into UNIQUE_TIERS (0 for anything that isn't a unique)
+static func unique_tier(name: String) -> int:
+	if not _tier_by_name.has(name):
+		var r := RandomNumberGenerator.new()
+		r.seed = ("unique/" + name).hash()
+		var roll := r.randf()
+		var t := 0
+		for i in range(UNIQUE_TIERS.size() - 1, 0, -1):
+			roll -= UNIQUE_TIERS[i].share
+			if roll < 0.0:
+				t = i
+				break
+		_tier_by_name[name] = t if not legend(name).is_empty() else 0
+	return _tier_by_name[name]
+
+
+static func unique_pow(name: String) -> float:
+	return UNIQUE_TIERS[unique_tier(name)].pow
+
+
+static func unique_weight(name: String) -> float:
+	return UNIQUE_TIERS[unique_tier(name)].w
+
 const RARE_A := ["災厄", "黄昏", "血染め", "嵐", "亡霊", "灰", "深淵", "黒鉄", "緋色", "月影", "残光", "骸"]
 const RARE_B := ["の牙", "の囁き", "の誓約", "の棘", "の鎖", "の祈り", "の咆哮", "の残響", "の印", "の爪"]
 
