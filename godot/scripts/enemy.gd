@@ -42,6 +42,8 @@ var tgt: Actor = null       # who it is fighting: the player, a minion or a tote
 var tgt_t := 0.0
 var charge := {}            # colossus: the charge in progress
 var enraged := false        # bosses below half life
+var dummy := false          # the hideout training dummy: never moves, attacks or dies
+var home := Vector2.ZERO
 
 # animated rigs per monster type (KayKit, plus a Quaternius demon for imps)
 const RIGS := {
@@ -93,6 +95,49 @@ func setup(kind: String, at: Vector2, level: int, pack_id: int, affix: Dictionar
 	_build()
 	if not elite.is_empty():
 		model.scale = Vector3.ONE * 1.25
+
+
+## the hideout training dummy (燼藁のカカシ): a straw effigy on a charred post with an ember sash, all primitive parts
+## so it flashes on every hit; its life is refilled after each hit, so it never falls
+func setup_dummy(at: Vector2) -> void:
+	type = "dummy"
+	dummy = true
+	t = {"name": "燼藁のカカシ", "r": 0.8, "h": 2.6, "color": Color("#d8b060")}
+	pos = at
+	home = at
+	pack = -1
+	r = t.r
+	max_life = 1e12
+	life = max_life
+	xp = 0.0
+	dmg = 0.0
+	speed = 0.0
+	display_name = t.name
+	face = PI / 2.0
+	var post := CylinderMesh.new()
+	post.top_radius = 0.09
+	post.bottom_radius = 0.12
+	post.height = 2.7
+	part(post, Color("#3a2a1e"), Vector3(0, 1.35, 0))
+	part(Fx.box(Vector3(1.9, 0.12, 0.12)), Color("#3a2a1e"), Vector3(0, 1.9, 0))
+	var body := CylinderMesh.new()
+	body.top_radius = 0.34
+	body.bottom_radius = 0.46
+	body.height = 1.15
+	part(body, Color("#c9a45a"), Vector3(0, 1.45, 0))
+	for side in [-1.0, 1.0]:   # straw tufts at the ends of the crossbar
+		part(Fx.box(Vector3(0.3, 0.32, 0.3)), Color("#b8914a"), Vector3(side * 0.95, 1.85, 0))
+	part(Fx.sphere(0.3), Color("#a88a5a"), Vector3(0, 2.35, 0))
+	part(Fx.box(Vector3(0.95, 0.14, 0.95)), Color("#5a2a18"), Vector3(0, 1.6, 0))
+	# an ember sash across the chest and two glowing eyes, so it reads as Emberfall's and not a plain scarecrow
+	Fx.mesh(model, Fx.box(Vector3(0.98, 0.1, 0.98)), Fx.mat(Color("#ff7a30"), 3.0), Vector3(0, 1.2, 0))
+	for side in [-1.0, 1.0]:
+		Fx.mesh(model, Fx.sphere(0.05), Fx.mat(Color("#ffb060"), 6.0, true), Vector3(side * 0.11, 2.4, -0.27))
+	var base := CylinderMesh.new()
+	base.top_radius = 0.7
+	base.bottom_radius = 0.85
+	base.height = 0.25
+	part(base, Color("#4a4038"), Vector3(0, 0.12, 0))
 
 
 func _build() -> void:
