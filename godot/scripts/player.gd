@@ -44,6 +44,7 @@ var skills: Array = Data.DEFAULT_SLOTS.duplicate()
 var links: Array = [[], [], [], [], [], []]
 var gems: Array = Data.DEFAULT_GEMS.duplicate()
 var tablets: Array = []      # rune tablets owned, on the 6x6 board or not (Tablets)
+var jewels: Array = []       # 燈晶 and 環晶 owned, socketed in the passive tree or not (Jewels)
 # the weapon in hand per weapon base: a mesh already on the Knight rig or a KayKit glTF; two-handers drop the shield
 const WEAPON_MODELS := {
 	"片手剣": {"rig": "1H_Sword"}, "戦斧": {"gltf": "axe_1handed"}, "大槌": {"gltf": "axe_2handed", "two": true},
@@ -115,7 +116,7 @@ func max_potions() -> int:
 	return BASE_POTIONS + (roundi(atlas.val("flask")) if atlas else 0)
 
 
-## derived stats from level, the passive tree, the tablet board and gear
+## derived stats from level, the passive tree and its jewels, the tablet board and gear
 func recalc(full := false) -> void:
 	var L := level
 	var old_l: float = life / s.max_life if s else 1.0
@@ -144,9 +145,13 @@ func recalc(full := false) -> void:
 				st[k] = st.get(k, 0) + src[k]
 		if it.has("effect"):
 			effects[it.effect] = true
+	PassiveTree.set_rings(Jewels.rings_in(jewels))
 	var ts := PassiveTree.stats(tree)
 	for k in ts:
 		st[k] = st.get(k, 0) + ts[k]
+	var js := Jewels.stats(jewels, tree)
+	for k in js:
+		st[k] = st.get(k, 0) + js[k]
 	var tb := Tablets.stats(tablets)
 	for k in tb:
 		st[k] = st.get(k, 0) + tb[k]
@@ -277,6 +282,30 @@ func tree_points() -> int:
 
 func tree_free() -> int:
 	return tree_points() - tree.size()
+
+
+## jewels and the tree made to agree (after loading, or after the tree was cut back): every jewel sits in a socket
+## of its kind that exists and nobody else holds, ring jewels' rings are grown, the tree is pruned to what joins up,
+## and a jewel whose socket isn't taken comes out (a ring's nodes then leave the tree with it)
+func fix_jewels() -> void:
+	var held := {}
+	for pass_kind in ["ring_socket", "socket"]:
+		if pass_kind == "socket":
+			PassiveTree.set_rings(Jewels.rings_in(jewels))
+		for j in jewels:
+			if Jewels.socket_kind(j) != pass_kind or j.socket == "":
+				continue
+			if PassiveTree.node(j.socket).get("kind", "") != pass_kind or held.has(j.socket):
+				j.socket = ""
+			else:
+				held[j.socket] = true
+	tree = PassiveTree.sanitize(tree, cls, tree_points())
+	for i in 2:   # twice: a small socket on a ring that just came out goes too
+		for j in jewels:
+			if j.socket != "" and not j.socket in tree:
+				j.socket = ""
+		PassiveTree.set_rings(Jewels.rings_in(jewels))
+		tree = PassiveTree.sanitize(tree, cls, tree_points())
 
 
 # ---- ascendancy ----

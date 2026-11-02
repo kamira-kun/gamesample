@@ -1,7 +1,7 @@
 class_name DataDocs
 extends RefCounted
 ## The game-data reference (docs/db): uniques, rare items and their affixes, base classes and ascendancies,
-## the passive tree, and skill and support gems, built from the live tables so it never drifts from the game.
+## the passive tree and its jewels, and skill and support gems, built from the live tables so it never drifts from the game.
 ## Every page is a list of sections, each a table; `pages()` renders them as Markdown files and as one
 ## searchable HTML page. Written by `godot --headless --path . -s tools/gen_docs.gd`; tools/run_check.gd fails
 ## while the files on disk are out of date.
@@ -32,6 +32,7 @@ static func pages() -> Array:
 	ps.append(_tablets())
 	ps.append(_ascendancies())
 	ps.append(_passives())
+	ps.append(_jewels())
 	ps.append(_gems())
 	return ps
 
@@ -198,20 +199,58 @@ static func _ascendancies() -> Dictionary:
 
 static func _passives() -> Dictionary:
 	var nodes := PassiveTree.nodes()
-	var kinds := [["start", "起点"], ["keystone", "キーストーン"], ["notable", "注目ノード"], ["small", "小ノード"]]
+	var kinds := [["start", "起点"], ["keystone", "キーストーン"], ["ring_socket", "環晶の大台座"], ["socket", "燈晶の台座"],
+		["notable", "注目ノード"], ["small", "小ノード"]]
 	var secs := []
 	for kd in kinds:
 		var rows := []
-		for id in PassiveTree.order():
+		for id in PassiveTree.order().slice(0, PassiveTree.base_count()):
 			var n: Dictionary = nodes[id]
 			if n.kind != kd[0]:
 				continue
 			var near: Array = n.links.map(func(l): return nodes[l].name)
-			rows.append([n.name, "・".join(PackedStringArray(PassiveTree.lines(n.stats))), "%s（%d°）" % [_area(n.step), n.step * 15],
+			rows.append([n.name, "・".join(PackedStringArray(PassiveTree.lines(n.stats))), "%s・第%d層（%d°）" % [PassiveTree.ZONES[n.zone].name, n.layer, roundi(n.ang)],
 				"、".join(PackedStringArray(near))])
 		secs.append({"title": "%s（%d）" % [kd[1], rows.size()], "note": "", "head": ["名前", "効果", "位置", "つながるノード"], "rows": rows})
-	return {"file": "passives.md", "title": "パッシブツリー（%dノード）" % nodes.size(),
-		"intro": "レベルが上がるたびに1ポイント（Lv N で N−1 ポイント）。ベースキャラごとの起点から、取得済みのノードにつながったノードだけを取れます。位置は中心から見た角度（0°＝右、時計回り）で、近いベースキャラ向けの効果が並びます。",
+	return {"file": "passives.md", "title": "パッシブツリー（%dノード）" % PassiveTree.base_count(),
+		"intro": "レベルが上がるたびに1ポイント（Lv N で N−1 ポイント）。ベースキャラごとの起点から、取得済みのノードにつながったノードだけを取れます。ツリーは固定のシードから作られ、中心の環から%d層のクラスター（小ノードの環と、その中の注目ノードか燈晶の台座）が外へ広がり、最外周にキーストーンと環晶の大台座が並びます。位置は 60° ずつ6つの区域（各ベースキャラの区域と、その間の混ざる区域）と層（0＝中心や橋渡し、外ほど大きい）で、注目ノードは外の層ほど強くなります。0°＝右、時計回り。" % PassiveTree.LAYERS,
+		"sections": secs}
+
+
+static func _jewels() -> Dictionary:
+	var secs := []
+	var br := []
+	for b in Jewels.BASES:
+		br.append([b.name, "・".join(PackedStringArray(PassiveTree.lines(b.implicit)))])
+	secs.append({"title": "燈晶のベース", "note": "燈晶は燈晶の台座に入れ、その台座ノードを取得している間だけ効きます。レア度はノーマル・マジック・レア（オプション数は装備と同じ）。",
+		"head": ["ベース", "固定の能力"], "rows": br})
+	var ar := []
+	for a in Jewels.AFFIXES:
+		var row := [a.word, PassiveTree.FMT[a.k].replace("{v}", "+N")]
+		for lv in TABLET_LVLS:
+			row.append(_range_text(_grow(a.min, lv, a.sc), _grow(a.max, lv, a.sc)))
+		ar.append(row)
+	secs.append({"title": "燈晶のオプション（%d）" % ar.size(), "note": "",
+		"head": ["語", "能力"] + TABLET_LVLS.map(func(lv): return "iLv%d" % lv), "rows": ar})
+	var sr := []
+	for sd in Jewels.SIZES:
+		sr.append([sd.name, str(sd.smalls), "1" if sd.socket else "なし", "マジック 1・レア %d〜%d" % [mini(2, sd.notables), sd.notables]])
+	secs.append({"title": "環晶の大きさ", "note": "環晶は最外周の環晶の大台座に入れると、その先に小ノード・注目ノード・（大環晶なら）燈晶の小台座の環が伸びます。外すと環のノードに振ったポイントは戻ります。",
+		"head": ["大きさ", "小ノード", "燈晶の小台座", "注目ノード"], "rows": sr})
+	var tr := []
+	for th in Jewels.THEMES:
+		var ns: Array = th.notables.map(func(n): return "%s（%s）" % [n.name, "・".join(PackedStringArray(PassiveTree.lines(n.stats)))])
+		tr.append([th.name, "・".join(PackedStringArray(PassiveTree.lines(th.small.stats))), "<br>".join(PackedStringArray(ns))])
+	secs.append({"title": "環晶の主題（%d）" % tr.size(), "note": "小ノードの値は環の強さ（+0〜20%＋iLv×0.6%）だけ大きくなります。",
+		"head": ["主題", "小ノード（強さ+0%）", "注目ノード"], "rows": tr})
+	var cr := []
+	for k in ["transmute", "ascend", "chaos", "whet", "purify", "divine"]:
+		cr.append([Data.currency(k).name, {"transmute": "ノーマル→マジック（燈晶はオプション1〜2、環晶は注目ノード1）",
+			"ascend": "マジック→レア（燈晶はオプション3〜4まで、環晶は注目ノードを上限まで）", "chaos": "オプションを作り直す（環晶は主題と注目ノード）",
+			"whet": "オプション（環晶は注目ノード）を1つ追加", "purify": "ノーマルに戻す", "divine": "数値（環晶は環の強さ）を振り直す"}[k]])
+	secs.append({"title": "クラフト", "note": "台座に入れたままでは使えません。", "head": ["カレンシー", "効果"], "rows": cr})
+	return {"file": "jewels.md", "title": "ジュエル（燈晶と環晶）",
+		"intro": "ジュエルは敵が落とします（ボス60%%、エリート12%%、通常0.6%%。そのうち環晶はボス40%%・ほか15%%）。1キャラクターにつき%d個まで持て、パッシブツリーの画面（%s）で台座に出し入れし、クラフトします。" % [Jewels.MAX_OWNED, "T"],
 		"sections": secs}
 
 
@@ -231,16 +270,6 @@ static func _gems() -> Dictionary:
 		"sections": [{"title": "スキル（%d）" % sr.size(), "note": "", "head": ["スキル", "必要Lv", "タグ", "コスト", "説明"], "rows": sr},
 			{"title": "サポートジェム（%d）" % gr.size(), "note": "リンクの合計エネルギーは 2＋キャラクターレベル＋装備 まで。1スロットにつき最大%d個。" % Data.LINK_MAX,
 				"head": ["サポートジェム", "必要Lv", "エネルギー", "対象", "効果"], "rows": gr}]}
-
-
-## which class's part of the tree an angle step is in, or the two it sits halfway between
-static func _area(step: int) -> String:
-	var near := []
-	for k in PassiveTree.SECTORS:
-		var d := absi(posmod(step - PassiveTree.SECTORS[k].step + PassiveTree.STEPS / 2, PassiveTree.STEPS) - PassiveTree.STEPS / 2)
-		near.append([d, Data.base_class(k).name])
-	near.sort_custom(func(x, y): return x[0] < y[0])
-	return "%s・%sの間" % [near[0][1], near[1][1]] if near[0][0] == near[1][0] else near[0][1] + "寄り"
 
 
 # =================== values ===================
