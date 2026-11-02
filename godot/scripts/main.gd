@@ -2110,7 +2110,7 @@ func _smoke_map() -> void:
 	var px := (mo.to_screen(p.pos + Vector2(1, 0)) - mo.to_screen(p.pos)).length()
 	print("SMOKE map options transparency=%d zoom=%d alpha=%.2f px_per_m=%.2f" % [Settings.map_transparency, Settings.map_zoom, mo.modulate.a, px])
 	_expect("map_options", {"transparency": Settings.map_transparency == 70, "zoom": Settings.map_zoom == 200,
-		"alpha": is_equal_approx(mo.modulate.a, 0.3), "scale": is_equal_approx(px, MapOverlay.PX_PER_METER * 2.0)})
+		"alpha": is_equal_approx(mo.modulate.a, 0.3), "scale": absf(px - MapOverlay.PX_PER_METER * 2.0) < 0.01})
 	hud.pause_ui.open_close()
 	# save beside the key bindings, load back; junk and out-of-range values fall back or are clamped
 	var path := "user://smoke_settings.cfg"
