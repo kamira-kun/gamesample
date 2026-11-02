@@ -1,3 +1,7 @@
 # Godot editor cache and export output
 .godot/
 export/
+Emberfall.exe
+Emberfall.console.exe
+export_presets.cfg
+Emberfall.pck
