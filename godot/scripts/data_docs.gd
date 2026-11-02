@@ -11,6 +11,7 @@ const RARE_LVLS := [1, 20, 40, 60]     # item levels the affix tables show
 const UNIQUE_LVLS := [1, 40]
 const CRAFT_CURRENCIES := ["transmute", "ascend", "chaos", "whet", "purify", "divine", "brand"]
 const TABLET_LVLS := [1, 20, 40]
+const LINE_CRAFT_LVLS := [1, 4, 8, 9, 13, 16, 17, 23, 29, 40]
 
 
 ## path (relative to DIR) -> file text
@@ -101,6 +102,7 @@ static func _rares() -> Dictionary:
 	for c in Data.CURRENCIES.filter(func(x): return x.k in CRAFT_CURRENCIES):
 		cr.append([c.icon + " " + c.name, c.desc])
 	secs.append({"title": "クラフト用カレンシー", "note": "", "head": ["カレンシー", "効果"], "rows": cr})
+	secs.append(_line_craft("マジック・レアの装備に使えます（インベントリの「一行クラフト」でアイテムを選ぶ）。"))
 	return {"file": "rare.md", "title": "レア装備とオプション",
 		"intro": "ユニーク以外の装備は、ベースアイテムにランダムなオプションが付いたものです。レアは3〜4個のオプションを持ち、名前はランダムな2語から作られます。",
 		"sections": secs}
@@ -139,6 +141,7 @@ static func _tablets() -> Dictionary:
 		cr.append([cd.icon + " " + cd.name, c[1]])
 	cr.append(["（砕く）", "盤に置いていない石板を灰燼の欠片に変える"])
 	secs.append({"title": "石板のクラフト", "note": "石板盤で選んだ石板に使います。", "head": ["カレンシー", "効果"], "rows": cr})
+	secs.append(_line_craft("石板盤で選んだ石板の行ごとに使えます。"))
 	var xr := []
 	for m in Data.SPECIAL_MODS:
 		var row := [m.name, _fill(m.fmt, "#")]
@@ -151,6 +154,20 @@ static func _tablets() -> Dictionary:
 	return {"file": "tablets.md", "title": "石板と特殊修飾子",
 		"intro": "石板はボスが必ず1つ落とします（半分は能力を1行刻んだ状態、残りは無地）。6×6の石板盤に回して置き、盤に置いた石板の能力だけが効きます。%sは刻紋の封碑（マップの約%d%%に1つ。封印を解いて番人をすべて倒す）からだけ得られます。" % [b.name, roundi(Seal.CHANCE * 100)],
 		"sections": secs}
+
+
+## one-line crafting: what each action does and what it costs by item level
+static func _line_craft(where: String) -> Dictionary:
+	var rows := []
+	for lv in LINE_CRAFT_LVLS:
+		var row := ["iLv%d" % lv, LineCraft.tier(lv).name]
+		for a in LineCraft.ACTIONS:
+			var c := LineCraft.cost(lv, a.k)
+			row.append("%s %s ×%d" % [Data.currency(c.k).icon, Data.currency(c.k).name, c.n])
+		rows.append(row)
+	var acts := "、".join(PackedStringArray(LineCraft.ACTIONS.map(func(a): return "%s（%s）" % [a.name, a.desc])))
+	return {"title": "一行クラフト", "note": "%s ほかの行はそのままに、1行だけを %s。アイテムレベルが上がるほど必要数が増え、iLv%d・iLv%d で使うカレンシーが変わります（最大 %d 個）。" % [where, acts, LineCraft.TIERS[1].from, LineCraft.TIERS[2].from, LineCraft.MAX_COST],
+		"head": ["アイテムレベル", "帯"] + LineCraft.ACTIONS.map(func(a): return a.name), "rows": rows}
 
 
 static func _ascendancies() -> Dictionary:

@@ -198,6 +198,14 @@ func _ready() -> void:
 				var sl := place_seal(_free_spot(player.pos, 5.0))
 				if kind == "seal_open":
 					get_tree().create_timer(1.0).timeout.connect(func(): break_seal(sl))
+			elif kind == "line_craft":   # the inventory in one-line crafting with a rare ring picked
+				var it := Items.generate(20, 0.0, 2, "ring")
+				player.bag.append(it)
+				for k in ["divine", "chaos", "whet", "transmute"]:
+					player.cur[k] = 6
+				hud.toggle_inventory()
+				hud.inventory._pick_currency("line")
+				hud.inventory._on_bag_click(player.bag.size() - 1)
 			elif kind == "brand_tip":   # a rare chest with a special modifier, its tooltip up
 				var it := Items.generate(20, 0.0, 2, "armor")
 				Items.brand(it)
@@ -1145,6 +1153,86 @@ func _smoke_brand() -> void:
 	p.recalc()
 
 
+## one-line crafting: the cost climbs with item level and changes currency by band without ever getting cheaper,
+## and on gear (through the inventory) and on a tablet (through the board) a line is swapped or retuned on its own:
+## the other lines, their order and the line count stay, the currency is spent, and the wrong targets are refused
+func _smoke_line_craft() -> void:
+	var p := player
+	var worth := func(c: Dictionary) -> float: return float(Data.currency(c.k).value) * c.n
+	var rising: bool = true
+	var kinds := {}
+	for act in ["swap", "tune"]:
+		for lv in range(1, 60):
+			rising = rising and worth.call(LineCraft.cost(lv, act)) >= worth.call(LineCraft.cost(lv - 1, act))
+			kinds[LineCraft.cost(lv, act).k] = true
+	print("SMOKE line_craft cost lv1=%s lv8=%s lv9=%s lv17=%s lv40=%s rising=%s kinds=%d" % [LineCraft.cost_text(LineCraft.cost(1, "swap")),
+		LineCraft.cost_text(LineCraft.cost(8, "swap")), LineCraft.cost_text(LineCraft.cost(9, "swap")), LineCraft.cost_text(LineCraft.cost(17, "swap")),
+		LineCraft.cost_text(LineCraft.cost(40, "swap")), rising, kinds.size()])
+	# gear, through the inventory panel
+	var rare := Items.generate(20, 0.0, 2, "amulet")
+	p.bag = [rare]
+	for k in ["divine", "chaos", "whet", "transmute"]:
+		p.cur[k] = 20
+	hud.toggle_inventory()
+	var inv := hud.inventory
+	inv._pick_currency("line")
+	inv._on_bag_click(0)
+	var picked: bool = is_same(inv.line_item, rare) and inv.line_box.visible
+	var keys0: Array = rare.mods.keys()
+	var mods0: Dictionary = rare.mods.duplicate()
+	var sc := LineCraft.cost(20, "swap")
+	var have: int = p.cur[sc.k]
+	inv.line_box.craft(keys0[1], "swap")
+	var keys1: Array = rare.mods.keys()
+	var others: bool = range(keys0.size()).filter(func(i): return i != 1).all(func(i): return keys1[i] == keys0[i] and rare.mods[keys0[i]] == mods0[keys0[i]])
+	var swapped: bool = keys1[1] != keys0[1] and not rare.mods.has(keys0[1]) and keys1.size() == keys0.size()
+	var spent: int = have - p.cur[sc.k]
+	var tc := LineCraft.cost(20, "tune")
+	var have_t: int = p.cur[tc.k]
+	var before: Dictionary = rare.mods.duplicate()
+	for i in 3:
+		inv.line_box.craft(keys1[0], "tune")
+	var tuned_only: bool = rare.mods.keys() == keys1 and keys1.slice(1).all(func(k): return rare.mods[k] == before[k])
+	var still_rows: int = inv.line_box.get_child_count()
+	inv._cancel_craft()
+	hud.toggle_inventory()
+	# the wrong targets and too little currency
+	var normal := Items.generate(5, 0.0, 0, "ring")
+	var uq := Items.generate(5, 0.0, 3)
+	var poor := Items.generate(30, 0.0, 2, "ring")
+	var magic := Items.generate(3, 0.0, 1, "boots")
+	var mk: String = magic.mods.keys()[0]
+	var cur := {"whet": 5}
+	var magic_err := LineCraft.apply(magic, mk, "swap", cur)
+	var renamed: bool = magic.name.begins_with(Data.affix(magic.mods.keys()[0]).word)
+	print("SMOKE line_craft gear picked=%s swapped=%s others_kept=%s spent=%d/%d %s tune_spent=%d/%d tuned_only=%s rows=%d normal='%s' unique='%s' poor='%s' magic='%s' renamed=%s" % [
+		picked, swapped, others, spent, sc.n, sc.k, have_t - p.cur[tc.k], tc.n * 3, tuned_only, still_rows,
+		LineCraft.can(normal, "life", "swap"), LineCraft.can(uq, uq.mods.keys()[0] if not uq.mods.is_empty() else "life", "swap"),
+		LineCraft.apply(poor, poor.mods.keys()[0], "swap", {}), magic_err, renamed])
+	p.bag = []
+	# a tablet, through the board
+	p.tablets = []
+	var t := Tablets.generate(10, "cross5", 3)
+	p.tablets.append(t)
+	Tablets.place(p.tablets, t, 0, 0, 0)
+	p.recalc(true)
+	hud.toggle(hud.tablet_ui)
+	var ui: TabletUI = hud.tablet_ui
+	ui.pick(t.uid)
+	var tk0: Array = t.mods.keys()
+	var stat0: int = Tablets.stats(p.tablets).get(tk0[2], 0)
+	var tsc := LineCraft.cost(10, "swap")
+	var th: int = p.cur[tsc.k]
+	ui.line_box.craft(tk0[2], "swap")
+	var tk1: Array = t.mods.keys()
+	print("SMOKE line_craft tablet box=%s swapped=%s kept=%s lines=%d/%d spent=%d/%d stat_moved=%s" % [ui.line_box.visible, tk1[2] != tk0[2],
+		tk1[0] == tk0[0] and tk1[1] == tk0[1], t.mods.size(), Tablets.max_mods(t), th - p.cur[tsc.k], tsc.n,
+		stat0 > 0 and not Tablets.stats(p.tablets).has(tk0[2])])
+	hud.close_panels()
+	p.tablets = []
+	p.recalc(true)
+
+
 ## sealed monoliths: one sits in the map with its label, breaking it frees the wardens and wakes the rune blasts,
 ## and felling them all drops 刻紋の熾石
 func _smoke_seal() -> void:
@@ -1429,6 +1517,7 @@ func _smoke_test() -> void:
 	await _smoke_farm()
 	await _smoke_tablets()
 	_smoke_brand()
+	_smoke_line_craft()
 	await _smoke_seal()
 	get_tree().quit()
 
