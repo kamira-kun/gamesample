@@ -8,6 +8,7 @@ var pos := Vector2.ZERO
 var r := 0.5
 var face := 0.0          # ground-plane angle the actor looks toward
 var hit_t := 0.0
+var flash_mat: StandardMaterial3D = null   # overrides the shared hit flash (the player's is dimmer, set by the option)
 var dead := false
 var walk_t := 0.0
 var frosted := false
@@ -86,7 +87,7 @@ func sync_node(delta: float, moving: bool) -> void:
 			_overlay = want
 			var m: Material = null
 			if want == 1:
-				m = _overlay_mat(true)
+				m = flash_mat if flash_mat else _overlay_mat(true)
 			elif want == 2:
 				m = _overlay_mat(false)
 			for mi in rig_meshes:
@@ -99,7 +100,7 @@ func sync_node(delta: float, moving: bool) -> void:
 		model.position.y = lerpf(model.position.y, 0.0, delta * 10.0)
 	var flash := hit_t > 0.0
 	for i in body_mats.size():
-		body_mats[i].albedo_color = Color.WHITE if flash else (base_colors[i].lerp(Color("#9fdcff"), 0.7) if frosted else base_colors[i])
+		body_mats[i].albedo_color = base_colors[i].lerp(Color.WHITE, flash_mat.albedo_color.a if flash_mat else 1.0) if flash else (base_colors[i].lerp(Color("#9fdcff"), 0.7) if frosted else base_colors[i])
 
 
 static func _overlay_mat(flash: bool) -> StandardMaterial3D:

@@ -6,6 +6,12 @@ const T := Dungeon.T
 const CAM_PITCH := 0.96      # ~55 degrees above the ground
 const CAM_YAW := PI / 4.0
 const CAM_DIST := 36.0
+# feedback of a hit on the player at 100% of the 被ダメージ演出 option (#53; before: shake 4, a 0.15 s white flash
+# at 0.55 alpha on every hit, no cooldown)
+const HURT_SHAKE := 2.0
+const HURT_SPRITE_ALPHA := 0.4
+const HURT_SPRITE_TIME := 0.1
+const HURT_FX_COOLDOWN := 0.35   # s: hits closer together than this show their feedback once
 
 var map: Dungeon
 var floor_level := 1
@@ -48,6 +54,7 @@ var dps := DpsMeter.new()    # what the dummy has taken
 var flow_t := 0.0
 var time := 0.0
 var shake := 0.0
+var hurt_fx_cd := 0.0   # s until a hit on the player shows its feedback again (see _hurt_fx)
 var level_root: Node3D
 var cam: Camera3D
 var cam_target := Vector3.ZERO
@@ -202,6 +209,18 @@ func _ready() -> void:
 				player.invuln = 1e9
 				_walk_reveal(map.rooms.slice(1, 4))
 				hud.map_overlay.toggle()
+			elif kind.begins_with("hurt"):   # a hit on the player caught mid-flash: `hurt_low` at 20% life; `--hurt_fx=N` sets the option
+				enter_map("ash")
+				player.invuln = 1e9
+				for y in args:
+					if y.begins_with("--hurt_fx="):
+						Settings.hurt_fx = int(y.trim_prefix("--hurt_fx="))
+				get_tree().create_timer(4.4).timeout.connect(func():
+					if kind == "hurt_low":
+						player.life = player.s.max_life * 0.2
+					player.invuln = 0.0
+					damage_player(5.0)
+					player.invuln = 1e9)
 			elif kind == "dummy":   # the hideout training dummy a few seconds into being hit by the bar's skills
 				_view_dummy()
 			elif kind.begins_with("altar") or kind == "forge":
@@ -2160,6 +2179,104 @@ func _smoke_map() -> void:
 	_expect("map_errors", {"none": errs.n == 0})
 
 
+## the feedback of a hit on the player (issue #53): the vignette, shake and sprite flash scale with the
+## 被ダメージ演出 option set from the pause menu, 0 turns them all off (the damage number stays), a second hit inside
+## the cooldown adds nothing, the low-life throb is gentle and scaled too, and the option survives a save and load
+func _smoke_hurt_fx() -> void:
+	var p := player
+	var errs := ErrorCount.new()
+	OS.add_logger(errs)
+	hud.close_panels()
+	var hit := func() -> Dictionary:
+		hurt_fx_cd = 0.0
+		shake = 0.0
+		p.hit_t = 0.0
+		hud.hurt_t = 0.0
+		hud.hurt_peak = 0.0
+		p.life = p.cap("life")
+		p.invuln = 0.0
+		var n := texts.size()
+		damage_player(5.0)
+		p.invuln = 1e9
+		return {"peak": hud.hurt_peak, "shake": shake, "sprite": p.hit_t > 0.0 and p.flash_mat != null,
+			"sprite_a": p.flash_mat.albedo_color.a if p.flash_mat else 0.0, "number": texts.size() > n}
+	var res := {}
+	hud.pause_ui.open_close()
+	for v in [100, 50, 0]:
+		hud.pause_ui.hurt_fx.value = v
+		res[v] = hit.call()
+	hud.pause_ui.open_close()
+	print("SMOKE hurt_fx full=%s half=%s off=%s" % [res[100], res[50], res[0]])
+	var f: Dictionary = res[100]
+	var h: Dictionary = res[50]
+	var o: Dictionary = res[0]
+	_expect("hurt_fx_scale", {"default": Settings.DEFAULTS.hurt_fx == 50, "full": f.peak > 0.0 and f.shake > 0.0 and f.sprite,
+		"gentler": f.peak <= 0.3 + 1e-6 and f.shake < 4.0 and f.sprite_a < 0.55,   # below the old values even at 100%
+		"half": is_equal_approx(h.peak, f.peak * 0.5) and is_equal_approx(h.shake, f.shake * 0.5) and is_equal_approx(h.sprite_a, f.sprite_a * 0.5),
+		"off": o.peak == 0.0 and o.shake == 0.0 and not o.sprite, "numbers": f.number and h.number and o.number})
+	# a flurry: the second hit inside the cooldown shows nothing more; once it has passed it shows again
+	Settings.hurt_fx = 100
+	hit.call()
+	hud.hurt_t = 0.0
+	shake = 0.0
+	p.invuln = 0.0
+	damage_player(5.0)
+	var held := hud.hurt_t == 0.0 and shake == 0.0
+	await get_tree().create_timer(HURT_FX_COOLDOWN + 0.1).timeout
+	damage_player(5.0)
+	p.invuln = 1e9
+	var again := hud.hurt_t > 0.0 and shake > 0.0
+	# the vignette starts at its peak and is gone once HURT_TIME has passed (life full: no throb under it)
+	var drawn := is_equal_approx(hud.hurt_alpha(1.0, 0.0), Hud.HURT_ALPHA) and hud.hurt.texture != null
+	hud.hurt_t = 0.0
+	drawn = drawn and hud.hurt_alpha(1.0, 0.0) == 0.0
+	# low life: a slow throb, never above LOW_ALPHA[1] at 100%, half at 50%, none at 0
+	hud.hurt_t = 0.0
+	var lows := {}
+	for v in [100, 50, 0]:
+		Settings.hurt_fx = v
+		var top := 0.0
+		for i in 48:
+			top = maxf(top, hud.hurt_alpha(0.1, i * Hud.LOW_PERIOD / 48.0))
+		lows[v] = top
+	var healthy := hud.hurt_alpha(0.9, 0.3)
+	print("SMOKE hurt_fx cooldown held=%s again=%s drawn=%s low=%s healthy=%.2f" % [held, again, drawn, lows, healthy])
+	_expect("hurt_fx_cooldown", {"held": held, "again": again, "drawn": drawn})
+	_expect("hurt_fx_low", {"gentle": lows[100] > 0.0 and lows[100] <= Hud.LOW_ALPHA[1] + 0.001,
+		"half": absf(lows[50] - lows[100] * 0.5) < 0.001, "off": lows[0] == 0.0, "healthy_clear": healthy == 0.0})
+	# saved beside the other options; junk falls back to the default, out-of-range is clamped
+	var path := "user://smoke_hurt_settings.cfg"
+	Settings.hurt_fx = 30
+	Settings.save(path)
+	Settings.reset()
+	var reset_ok := Settings.hurt_fx == Settings.DEFAULTS.hurt_fx
+	Settings.load_file(path)
+	var kept := Settings.hurt_fx == 30
+	hud.pause_ui.open_close()
+	var slider := hud.pause_ui.hurt_fx.value == 30
+	hud.pause_ui.open_close()
+	var cf := ConfigFile.new()
+	cf.load(path)
+	cf.set_value("options", "hurt_fx", "junk")
+	cf.save(path)
+	Settings.load_file(path)
+	var junk := Settings.hurt_fx == Settings.DEFAULTS.hurt_fx
+	cf.set_value("options", "hurt_fx", 500)
+	cf.save(path)
+	Settings.load_file(path)
+	var clamp := Settings.hurt_fx == Settings.HURT_FX[1]
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	Settings.reset()
+	p.life = p.cap("life")
+	hud.hurt_t = 0.0
+	shake = 0.0
+	await get_tree().process_frame
+	OS.remove_logger(errs)
+	print("SMOKE hurt_fx saved reset=%s kept=%s slider=%s junk=%s clamp=%s errors=%d %s" % [reset_ok, kept, slider, junk, clamp, errs.n, errs.first])
+	_expect("hurt_fx_saved", {"reset": reset_ok, "kept": kept, "slider": slider, "junk": junk, "clamp": clamp})
+	_expect("hurt_fx_errors", {"none": errs.n == 0})
+
+
 func _smoke_test() -> void:
 	smoke_log = SmokeLogger.new()
 	OS.add_logger(smoke_log)
@@ -2534,6 +2651,7 @@ func _smoke_test() -> void:
 	_smoke_line_craft()
 	await _smoke_seal()
 	_smoke_progress()
+	await _smoke_hurt_fx()
 	_smoke_craft()
 	_smoke_jewels()
 	_smoke_save()
@@ -2939,6 +3057,7 @@ func _make_enemy(kind: String, at: Vector2, pack_id: int, affix: Dictionary = {}
 # =================== main loop ===================
 func _process(delta: float) -> void:
 	delta = minf(delta, 0.05)
+	hurt_fx_cd = maxf(0.0, hurt_fx_cd - delta)
 	_update_mouse()
 	for a in PANEL_ACTIONS:
 		if pressed.has(a):
@@ -3086,10 +3205,8 @@ func damage_player(amount: float) -> void:
 	var d := maxi(1, roundi(amount * (1.0 - p.s.dr) * (0.85 if p.effects.has("iron_stance") else 1.0) * (1.0 - p.bonus("dr") / 100.0)
 		* (1.0 - p.s.dr_pct / 100.0)))
 	p.life -= d
-	p.hit_t = 0.15
-	add_text(p.pos, str(d), Color("#ff5050"), 18)
-	shake = maxf(shake, 4.0)
-	hud.flash()
+	add_text(p.pos, str(d), Color("#ff6a6a"), 16)
+	_hurt_fx()
 	if p.effects.has("nova_on_hit") and randf() < 0.2:
 		_cast_nova(_player_caster(), true)
 	if p.life <= 0.0:
@@ -3097,6 +3214,22 @@ func damage_player(amount: float) -> void:
 		p.dead = true
 		Fx.burst(level_root, to3(p.pos, 1.0), 40, Color("#a01010"), 5.0)
 		get_tree().create_timer(0.9).timeout.connect(hud.show_death)
+
+
+## the feedback of a hit on the player (red vignette, camera shake, sprite flash), scaled by the 被ダメージ演出
+## option (0 turns it off). Hits within HURT_FX_COOLDOWN of the last shown one add nothing, so a flurry of small
+## hits never becomes a steady flash; the damage numbers still show every hit.
+func _hurt_fx() -> void:
+	var k := Settings.hurt_fx_scale()
+	if k <= 0.0 or hurt_fx_cd > 0.0:
+		return
+	hurt_fx_cd = HURT_FX_COOLDOWN
+	shake = maxf(shake, HURT_SHAKE * k)
+	if player.flash_mat == null:
+		player.flash_mat = Fx.mat(Color(1, 1, 1, 0.5), 0.0, true)
+	player.flash_mat.albedo_color.a = HURT_SPRITE_ALPHA * k
+	player.hit_t = HURT_SPRITE_TIME
+	hud.flash(k)
 
 
 func retry_floor() -> void:

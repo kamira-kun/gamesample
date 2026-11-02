@@ -3,6 +3,11 @@ extends CanvasLayer
 ## On-screen UI built in code: life/mana orbs, skill bar, XP, messages, boss bar,
 ## and an overlay that draws enemy health bars and damage numbers over the 3D view.
 
+const HURT_ALPHA := 0.3           # edge alpha of the hit vignette at 100% (before #53: a 0.3 full-screen red wash)
+const HURT_TIME := 0.25           # s the hit vignette takes to fade out
+const LOW_ALPHA := [0.03, 0.09]   # the low-life vignette's throb, min..max alpha at 100% (before: 0.04..0.2 full-screen)
+const LOW_PERIOD := 2.4           # s per throb (before: 1)
+
 var main               # main.gd (untyped so its members resolve at runtime)
 var boss: Enemy = null
 var root := Control.new()
@@ -19,7 +24,9 @@ var boss_box := VBoxContainer.new()
 var boss_name := Label.new()
 var boss_bar := Bar.new()
 var death := ColorRect.new()
-var hurt := ColorRect.new()
+var hurt := TextureRect.new()   # red vignette when the player is hit or low on life; its strength is modulate.a
+var hurt_peak := 0.0            # the vignette's alpha right after a hit, fading out over HURT_TIME
+var hurt_t := 0.0
 var inventory := InventoryUI.new()
 var shop_ui := ShopUI.new()
 var atlas_ui := AtlasUI.new()
@@ -61,7 +68,18 @@ func _ready() -> void:
 	root.add_child(map_overlay)
 
 	hurt.set_anchors_preset(Control.PRESET_FULL_RECT)
-	hurt.color = Color(0.6, 0, 0, 0)
+	hurt.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	hurt.stretch_mode = TextureRect.STRETCH_SCALE
+	var vg := GradientTexture2D.new()   # clear in the middle, red toward the edges
+	vg.fill = GradientTexture2D.FILL_RADIAL
+	vg.fill_from = Vector2(0.5, 0.5)
+	vg.fill_to = Vector2(1.0, 0.5)
+	vg.gradient = Gradient.new()
+	vg.gradient.set_color(0, Color(0.6, 0, 0, 0))
+	vg.gradient.set_offset(0, 0.45)
+	vg.gradient.set_color(1, Color(0.6, 0, 0, 1))
+	hurt.texture = vg
+	hurt.modulate.a = 0.0
 	hurt.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(hurt)
 
@@ -314,13 +332,23 @@ func refresh() -> void:
 	xp_bar.queue_redraw()
 	boss_bar.queue_redraw()
 	overlay.queue_redraw()
-	hurt.color.a = maxf(0.0, hurt.color.a - get_process_delta_time() * 1.5)
-	if p.life / p.s.max_life < 0.3:
-		hurt.color.a = maxf(hurt.color.a, 0.12 + 0.08 * sin(Time.get_ticks_msec() / 160.0))
+	hurt_t = maxf(0.0, hurt_t - get_process_delta_time())
+	hurt.modulate.a = hurt_alpha(p.life / p.s.max_life, Time.get_ticks_msec() / 1000.0)
 
 
-func flash() -> void:
-	hurt.color.a = 0.3
+## the vignette's alpha: a fading hit flash, or a slow gentle throb below 30% life, both scaled by the option
+func hurt_alpha(life_frac: float, now: float) -> float:
+	var a := hurt_peak * hurt_t / HURT_TIME
+	if life_frac < 0.3:
+		var w := 0.5 + 0.5 * sin(now * TAU / LOW_PERIOD)
+		a = maxf(a, lerpf(LOW_ALPHA[0], LOW_ALPHA[1], w) * Settings.hurt_fx_scale())
+	return a
+
+
+## a hit on the player at strength k (the option, 0..1)
+func flash(k: float) -> void:
+	hurt_peak = HURT_ALPHA * k
+	hurt_t = HURT_TIME
 
 
 func message(text: String, color := Color.WHITE) -> void:

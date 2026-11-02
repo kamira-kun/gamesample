@@ -5,6 +5,7 @@ extends BasePanel
 var leave := Button.new()
 var map_alpha := HSlider.new()   # options: the map overlay's transparency and zoom, in percent
 var map_zoom := HSlider.new()
+var hurt_fx := HSlider.new()     # options: how strong the hit-taken feedback is, in percent
 var controls := VBoxContainer.new()   # the key list, rebuilt as the bindings change
 
 
@@ -41,6 +42,8 @@ func _build() -> void:
 	body.add_child(_slider_row("マップの拡大率", map_zoom, Settings.ZOOM, 10, func(v):
 		Settings.set_zoom(int(v))
 		hud.map_overlay.apply_settings()))
+	body.add_child(_slider_row("被ダメージ演出の強さ", hurt_fx, Settings.HURT_FX, 10, func(v):
+		Settings.set_hurt_fx(int(v))))
 	body.add_child(sub("操作", 14, Color("#f0d8a0")))
 	body.add_child(controls)
 
@@ -70,7 +73,7 @@ func _slider_row(text: String, s: HSlider, range_: Array, step: int, changed: Ca
 
 func refresh() -> void:
 	leave.visible = not hud.main.in_hideout()
-	for pair in [[map_alpha, Settings.map_transparency], [map_zoom, Settings.map_zoom]]:
+	for pair in [[map_alpha, Settings.map_transparency], [map_zoom, Settings.map_zoom], [hurt_fx, Settings.hurt_fx]]:
 		pair[0].set_value_no_signal(pair[1])
 		pair[0].get_meta("value_label").text = "%d%%" % pair[1]
 	clear(controls)
