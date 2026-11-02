@@ -246,6 +246,18 @@ func _ready() -> void:
 				hud.toggle_inventory()
 				hud.inventory._pick_currency("line")
 				hud.inventory._on_bag_click(player.bag.size() - 1)
+			elif kind == "alt_tip":   # a rare weapon with a special modifier, its tooltip up with Alt held (the ranges)
+				var it := Items.generate(24, 0.0, 2, "weapon")
+				it.mods["flat_dmg"] = Items.roll_value(it, Data.affix("flat_dmg"))
+				Items.brand(it)
+				player.bag.append(it)
+				hud.toggle_inventory()
+				hud.set_detail(true)
+				get_tree().create_timer(2.0).timeout.connect(func():
+					hud.show_tip(Items.lines(it))
+					# the tooltip follows the real pointer, which may be anywhere: hold it beside the item for the shot
+					var at: Vector2 = hud.inventory.find_children("*", "ItemSlot", true, false).filter(func(c): return is_same(c.item, it))[0].get_global_rect().end
+					RenderingServer.frame_pre_draw.connect(func(): hud.tip.position = at + Vector2(8, -40)))
 			elif kind == "brand_tip":   # a rare chest with a special modifier, its tooltip up
 				var it := Items.generate(20, 0.0, 2, "armor")
 				Items.brand(it)
@@ -2683,11 +2695,134 @@ func _smoke_test() -> void:
 	_smoke_chars()
 	await _smoke_map()
 	await _smoke_status()
+	await _smoke_ranges()
 	print("SMOKE errors locked=%d %s" % [smoke_log.count(), smoke_log.locked])
 	_expect("errors", {"no_locked_free": smoke_log.count() == 0})
 	OS.remove_logger(smoke_log)
 	print("SMOKE RESULT checks=%d failed=%d %s" % [smoke_checks, smoke_failed.size(), smoke_failed])
 	get_tree().quit(1 if smoke_failed.size() > 0 else 0)
+
+
+## the texts the tooltip of `lines` shows, as the HUD has drawn them
+func _tip_texts() -> Array:
+	return hud.tip_box.get_children().map(func(l): return l.text)
+
+
+## the ranges in the tooltips while Alt is held (issue #57): a generated rare's lines show the affix's range at its item
+## level and its name, worked out here from the affix table; the open tooltip swaps the ranges in and out when Alt goes
+## down and up over it; a weapon's damage shows both ends' ranges; implicits are marked fixed; a unique's lines show its
+## own ranges and its fixed lines none; crafted lines (神秘の核, one-line crafting, 刻紋) stay in their ranges; jewels and
+## tablets show theirs; an older save's items (an unknown affix, a unique that no longer exists, a value out of range)
+## load and show their tooltips without errors; Alt can't be bound to an action
+func _smoke_ranges() -> void:
+	var p := player
+	var errs := ErrorCount.new()
+	OS.add_logger(errs)
+	hud.close_panels()
+	hud.set_detail(false)
+	var rare := Items.generate(30, 0.0, 2, "ring")
+	rare.mods = {}
+	for k in ["life", "crit", "mana_regen"]:
+		rare.mods[k] = Items.roll_value(rare, Data.affix(k))
+	var plain := Items.lines(rare)
+	var want := {}
+	var right := true
+	for k in rare.mods:
+		var a := Data.affix(k)
+		var lo := maxi(1, roundi(a.min * (1.0 + 30 * a.sc)))
+		var hi := maxi(1, roundi(a.max * (1.0 + 30 * a.sc)))
+		var text: String = a.fmt % rare.mods[k]
+		want[k] = text + ("  [%d–%d]「%s」" % [lo, hi, a.word] if lo != hi else "  （固定）「%s」" % a.word)
+		var r := ModRange.item(rare, k)
+		right = right and r.lo == lo and r.hi == hi and rare.mods[k] >= lo and rare.mods[k] <= hi
+	var details := plain.filter(func(l): return l.size() > 3).map(func(l): return l[3])
+	var listed: bool = want.values().all(func(w): return w in details)
+	hud.show_tip(plain)
+	var off := _tip_texts()
+	hud.set_detail(true)   # Alt down over the open tooltip
+	var on := _tip_texts()
+	hud.set_detail(false)
+	var back := _tip_texts()
+	var live: bool = want.values().all(func(w): return w in on) and not off.any(func(t): return "[" in t) and back == off
+	print("SMOKE alt_rare want=%s right=%s listed=%s live=%s" % [want.values(), right, listed, live])
+	_expect("alt_rare", {"ranges_right": right, "in_tooltip": listed, "live_swap": live, "implicit_fixed": on.any(func(t): return "（基礎・固定）" in t)})
+	# a weapon's two damage numbers roll with its flat damage line; Alt opened before hovering shows the ranges at once
+	var wpn := Items.generate(20, 0.0, 2, "weapon")
+	wpn.mods["flat_dmg"] = Items.roll_value(wpn, Data.affix("flat_dmg"))
+	var fr := ModRange.item(wpn, "flat_dmg")
+	hud.set_detail(true)
+	hud.show_tip(Items.lines(wpn))
+	var both := "[%d–%d]–[%d–%d]" % [wpn.min + fr.lo, wpn.min + fr.hi, wpn.max + fr.lo, wpn.max + fr.hi]
+	var two: bool = _tip_texts().any(func(t): return t.begins_with("ダメージ") and both in t)
+	# a unique: its lines show its own [min, max] (not the affix's), the lines that never roll show nothing
+	var l: Dictionary = Data.LEGENDARY.filter(func(q): return q.has("mods") and q.has("desc"))[0]
+	var uq := Items.generate(20, 0.0, 3, "", l.name)
+	var u_lines := Items.lines(uq)
+	var u_right := true
+	for k in uq.mods:
+		var r := ModRange.item(uq, k)
+		var ends := [Items.fixed_at(uq, k, l.mods[k], 0.0), Items.fixed_at(uq, k, l.mods[k], 1.0)]
+		u_right = u_right and r.lo == ends.min() and r.hi == ends.max() and r.name == "固有" and uq.mods[k] >= r.lo and uq.mods[k] <= r.hi
+	var u_fixed: bool = u_lines.filter(func(q): return q[0] in [uq.name, uq.desc] or q[0].begins_with("アイテムレベル")).all(func(q): return q.size() <= 3)
+	var u_shown: bool = u_lines.any(func(q): return q.size() > 3 and "「固有」" in q[3])
+	print("SMOKE alt_misc two_dmg=%s %s unique_right=%s unique_fixed_bare=%s" % [two, both, u_right, u_fixed])
+	_expect("alt_unique", {"own_ranges": u_right and u_shown, "fixed_lines_bare": u_fixed, "no_range_when_fixed": ModRange.tag({"lo": 5, "hi": 5, "name": ""}) == "  （固定）"})
+	_expect("alt_weapon", {"two_ranges": two})
+	# crafting: rerolled, swapped and carved lines stay inside the ranges the tooltip shows
+	var inside := func(x: Dictionary) -> bool:
+		for k in x.mods:
+			var r := ModRange.of(x, k)
+			if r.is_empty() or x.mods[k] < r.lo or x.mods[k] > r.hi:
+				return false
+		return true
+	var crafted := Items.generate(25, 0.0, 2, "amulet")
+	var ok_craft := true
+	for i in 6:
+		Items.craft("divine", crafted)
+		ok_craft = ok_craft and inside.call(crafted)
+	var cur := {"whet": 99, "chaos": 99, "divine": 99, "transmute": 99}
+	LineCraft.apply(crafted, crafted.mods.keys()[0], "swap", cur)
+	LineCraft.apply(crafted, crafted.mods.keys()[0], "tune", cur)
+	Items.brand(crafted)
+	var sr := ModRange.special(crafted)
+	ok_craft = ok_craft and inside.call(crafted) and crafted.special.v >= sr.lo and crafted.special.v <= sr.hi
+	var tab := Tablets.generate(10, "", 2)
+	Tablets.craft("divine", tab)
+	var jw := Jewels.generate(15, 2)
+	Jewels.craft("divine", jw)
+	var ring := Jewels.generate_ring(15, 1)
+	var pr := ModRange.ring_power(ring)
+	var others: bool = inside.call(tab) and inside.call(jw) and ring.power >= pr.lo and ring.power <= pr.hi
+	var shows := func(lines: Array) -> bool:
+		return lines.any(func(q): return q.size() > 3 and "[" in q[3])
+	others = others and shows.call(Tablets.lines(tab)) and shows.call(Jewels.lines(jw)) and shows.call(Jewels.lines(ring))
+	# the one-line crafting rows show the ranges too while Alt is held
+	hud.inventory.line_box.show_for(p, crafted)
+	var row_text: String = hud.inventory.line_box.get_child(1).get_child(0).text if hud.inventory.line_box.get_child_count() > 1 else ""
+	print("SMOKE alt_craft in_range=%s others=%s row='%s'" % [ok_craft, others, row_text])
+	_expect("alt_craft", {"in_range": ok_craft, "jewels_tablets": others, "craft_rows": "[" in row_text or "（固定）" in row_text})
+	# an older save: an affix since removed, a unique since renamed, a value from before a rebalance
+	var old: Dictionary = JSON.parse_string(JSON.stringify(save_data()))
+	var stale := {"uid": "old1", "slot": "ring", "base": "銅の指輪", "rarity": 3, "ilvl": 12, "name": "昔のユニーク", "mods": {"life": 999.0, "gone_affix": 5.0},
+		"implicit": {"life": 12.0, "gone_too": 1.0}}
+	var older := {"uid": "old2", "slot": "boots", "base": "革靴", "rarity": 2, "ilvl": 8, "name": "古い靴", "mods": {"move_spd": 6.0, "life": 20.0}, "implicit": {"move_spd": 4.0}}
+	old.bag = [stale, older]
+	apply_save(old)
+	var loaded: bool = p.bag.size() == 2 and not p.bag[0].mods.has("gone_affix") and not p.bag[0].implicit.has("gone_too")
+	for it in p.bag:
+		hud.show_tip(Items.lines(it))
+	var old_tip: bool = _tip_texts().any(func(t): return "[" in t)
+	hud.set_detail(false)
+	hud.hide_tip()
+	var alt := InputEventKey.new()
+	alt.keycode = KEY_ALT
+	alt.physical_keycode = KEY_ALT
+	alt.pressed = true
+	var unbound := Keybinds.from_event(alt).is_empty() and Keybinds.binds.values().all(func(row): return row.all(func(b): return int(b.get("key", 0)) != KEY_ALT))
+	OS.remove_logger(errs)
+	print("SMOKE alt_old loaded=%s tip=%s errors=%d %s unbound=%s" % [loaded, old_tip, errs.n, errs.first, unbound])
+	_expect("alt_old_save", {"loaded": loaded, "tooltip": old_tip, "no_errors": errs.n == 0})
+	_expect("alt_key", {"not_bindable": unbound})
 
 
 ## the status icons at the top left (issue #54): summoning adds to a kind's count badge and a death takes from it,

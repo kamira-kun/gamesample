@@ -149,9 +149,11 @@ class Box extends VBoxContainer:
 			add_child(row)
 			var l := Label.new()
 			l.text = (Data.affix(k).fmt % target.mods[k]).replace("+-", "-")
+			if ModRange.detail:   # Alt held: what this line can roll to
+				l.text += ModRange.tag(ModRange.of(target, k))
 			l.add_theme_font_size_override("font_size", 13)
 			l.add_theme_color_override("font_color", Color("#8fd8ff") if LineCraft.is_tablet(target) else Color("#8fb4ff"))
-			l.custom_minimum_size = Vector2(190, 0)
+			l.custom_minimum_size = Vector2(300 if ModRange.detail else 190, 0)
 			l.clip_text = true
 			row.add_child(l)
 			for a in LineCraft.ACTIONS:
