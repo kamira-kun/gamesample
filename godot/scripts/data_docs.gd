@@ -214,7 +214,28 @@ static func _passives() -> Dictionary:
 		secs.append({"title": "%s（%d）" % [kd[1], rows.size()], "note": "", "head": ["名前", "効果", "位置", "つながるノード"], "rows": rows})
 	return {"file": "passives.md", "title": "パッシブツリー（%dノード）" % PassiveTree.base_count(),
 		"intro": "レベルが上がるたびに1ポイント（Lv N で N−1 ポイント）。ベースキャラごとの起点から、取得済みのノードにつながったノードだけを取れます。ツリーは固定のシードから作られ、中心の環から%d層のクラスター（小ノードの環と、その中の注目ノードか燈晶の台座）が外へ広がり、最外周にキーストーンと環晶の大台座が並びます。位置は 60° ずつ6つの区域（各ベースキャラの区域と、その間の混ざる区域）と層（0＝中心や橋渡し、外ほど大きい）で、注目ノードは外の層ほど強くなります。0°＝右、時計回り。" % PassiveTree.LAYERS,
-		"sections": secs}
+		"sections": secs, "tree": _tree_data(nodes)}
+
+
+## the fixed web for the HTML page's map: nodes [x, y, kind, sector, name, effect lines, place, link count] and links as index pairs
+static func _tree_data(nodes: Dictionary) -> Dictionary:
+	var ids: Array = PassiveTree.order().slice(0, PassiveTree.base_count())
+	var idx := {}
+	for i in ids.size():
+		idx[ids[i]] = i
+	var tn := []
+	var tl := []
+	for i in ids.size():
+		var n: Dictionary = nodes[ids[i]]
+		tn.append([snappedf(n.pos.x, 0.01), snappedf(n.pos.y, 0.01), n.kind, n.sector, n.name, PassiveTree.lines(n.stats),
+			"%s・第%d層（%d°）" % [PassiveTree.ZONES[n.zone].name, n.layer, roundi(n.ang)], n.links.size()])
+		for l in n.links:
+			if idx[l] > i:
+				tl.append([i, idx[l]])
+	var cols := {}
+	for k in PassiveTree.SECTORS:
+		cols[k] = "#" + PassiveTree.SECTORS[k].color.to_html(false)
+	return {"nodes": tn, "links": tl, "colors": cols, "kinds": PassiveTree.KIND_NAMES}
 
 
 static func _jewels() -> Dictionary:
@@ -392,6 +413,10 @@ static func _html(ps: Array) -> String:
 		var p: Dictionary = ps[i]
 		tabs += "<button data-p=\"%d\"%s>%s</button>" % [i, " class=\"on\"" if i == 0 else "", _esc(p.title)]
 		body += "<section data-p=\"%d\"%s><h2>%s</h2><p>%s</p>" % [i, "" if i == 0 else " hidden", _esc(p.title), _esc(p.intro)]
+		if p.has("tree"):
+			body += "<div class=\"tree\"><canvas id=\"tree\"></canvas><div id=\"tip\" hidden></div><button id=\"fit\">全体表示</button></div>"
+			body += "<p class=\"note\">ドラッグで移動・ホイール（タッチは2本指）で拡大縮小・ノードにマウスを重ねると効果を表示。検索語に合うノードは光ります。</p>"
+			body += "<script id=\"tree-data\" type=\"application/json\">%s</script>" % JSON.stringify(p.tree).replace("</", "<\\/")
 		for s in p.sections:
 			body += "<div class=\"tbl\"><h3>%s</h3>" % _esc(s.title)
 			if s.note != "":
@@ -421,6 +446,12 @@ th,td{border:1px solid var(--line);padding:4px 7px;vertical-align:top;text-align
 th{background:var(--panel);color:var(--sub);font-weight:normal;position:sticky;top:0}
 td:first-child{color:var(--accent);white-space:nowrap}
 tr.hide{display:none}
+.tree{position:relative;height:72vh;min-height:360px;margin:12px 0 4px;background:#0a0806;border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.tree canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+.tree canvas.drag{cursor:grabbing}
+#fit{position:absolute;top:8px;right:8px;background:var(--panel);color:var(--sub);border:1px solid var(--line);border-radius:4px;padding:3px 8px;cursor:pointer;font:inherit}
+#tip{position:absolute;pointer-events:none;max-width:280px;background:rgba(20,16,12,.96);border:1px solid var(--line);border-radius:4px;padding:6px 9px;font-size:13px;line-height:1.5}
+#tip b{display:block;font-size:14px}#tip .k{color:var(--sub);font-size:12px}#tip .l{color:#e8d8b0}
 @media (max-width:700px){td:first-child{white-space:normal}header{position:static}nav{flex-wrap:nowrap;overflow-x:auto}nav button{white-space:nowrap}th{position:static}}
 </style></head><body>
 <header><h1>Emberfall データベース</h1><nav>""" + tabs + """</nav>
@@ -429,13 +460,68 @@ tr.hide{display:none}
 <script>
 const tabs=[...document.querySelectorAll('nav button')],secs=[...document.querySelectorAll('section')],q=document.getElementById('q');
 let cur=0;
-// with a search word, every page shows only its matching rows (pages and tables without a match hide)
-function show(){const w=q.value.trim().toLowerCase(),any=w!=='';
+// with a search word, every page shows only its matching rows (pages and tables without a match hide;
+// the passive page stays while its map lights a node)
+function show(){const w=q.value.trim().toLowerCase(),any=w!=='',lit=window.treeFind?treeFind(w):0;
  secs.forEach((s,i)=>{
   s.querySelectorAll('tbody tr').forEach(r=>r.classList.toggle('hide',any&&!r.textContent.toLowerCase().includes(w)));
   s.querySelectorAll('.tbl').forEach(d=>d.hidden=any&&!d.querySelector('tbody tr:not(.hide)'));
-  s.hidden=any?!s.querySelector('tbody tr:not(.hide)'):i!==cur;});}
+  s.hidden=any?!(s.querySelector('tbody tr:not(.hide)')||(lit&&s.querySelector('.tree'))):i!==cur;});}
 tabs.forEach((b,i)=>b.onclick=()=>{cur=i;tabs.forEach(x=>x.classList.toggle('on',x===b));q.value='';show();scrollTo(0,0);});
 q.oninput=show;
-</script></body></html>
+""" + _tree_js() + """</script></body></html>
+"""
+
+
+## the passive page's map: the whole web on a canvas, dragged and zoomed, with the hovered node's effects in a tooltip
+static func _tree_js() -> String:
+	return """const TD=document.getElementById('tree-data');
+if(TD){const T=JSON.parse(TD.textContent),N=T.nodes,cv=document.getElementById('tree'),cx=cv.getContext('2d'),tip=document.getElementById('tip'),box=cv.parentNode;
+const R={small:6.5,notable:11,keystone:15,start:13,socket:10,ring_socket:15},U=28;
+const EXT=Math.max(...N.map(n=>Math.hypot(n[0],n[1])))+3;
+let W=0,H=0,zoom=1,fitZ=1,px=0,py=0,hov=-1,found=null,drag=null;const pts=new Map();
+const sx=n=>W/2+px+n[0]*U*zoom,sy=n=>H/2+py+n[1]*U*zoom;
+function fit(){fitZ=Math.min(W,H)/(EXT*2*U);zoom=fitZ;px=py=0;}
+function size(){const w=cv.clientWidth,h=cv.clientHeight;if(!w||!h)return;const d=devicePixelRatio||1,first=!W;
+ W=w;H=h;cv.width=w*d;cv.height=h*d;cx.setTransform(d,0,0,d,0,0);if(first)fit();draw();}
+function poly(x,y,r,k,rot){cx.beginPath();for(let i=0;i<k;i++){const a=rot+Math.PI*2*i/k;cx.lineTo(x+Math.cos(a)*r,y+Math.sin(a)*r);}cx.closePath();}
+function draw(){if(!W)return;cx.fillStyle='#0a0806';cx.fillRect(0,0,W,H);
+ cx.strokeStyle='#3a3024';cx.lineWidth=Math.max(1,2.5*zoom);cx.beginPath();
+ for(const[a,b]of T.links){cx.moveTo(sx(N[a]),sy(N[a]));cx.lineTo(sx(N[b]),sy(N[b]));}cx.stroke();
+ const lab=[];
+ N.forEach((n,i)=>{const x=sx(n),y=sy(n),r=Math.max(1.5,R[n[2]]*zoom);if(x<-r||y<-r||x>W+r||y>H+r)return;
+  const sc=T.colors[n[3]]||'#a89878',on=found&&found.has(i);cx.globalAlpha=found&&!on?0.3:1;
+  if(on){cx.fillStyle='rgba(255,230,77,.45)';cx.beginPath();cx.arc(x,y,r+6*Math.max(zoom,0.5),0,7);cx.fill();}
+  cx.fillStyle=n[2]==='small'?'#15110c':'#2a2016';cx.strokeStyle=i===hov?'#fff':sc;cx.lineWidth=Math.max(1,(n[2]==='small'?1.6:2.5)*zoom);
+  if(n[2]==='keystone')poly(x,y,r,8,Math.PI/8);else if(n[2]==='ring_socket')poly(x,y,r,6,Math.PI/6);else if(n[2]==='socket')poly(x,y,r,4,0);
+  else{cx.beginPath();cx.arc(x,y,r,0,7);}
+  cx.fill();cx.stroke();
+  if(n[2]==='notable'&&zoom>=0.5){cx.beginPath();cx.arc(x,y,r*0.6,0,7);cx.lineWidth=Math.max(1,1.2*zoom);cx.stroke();}
+  if(n[2]==='start'){cx.beginPath();cx.arc(x,y,r*0.55,0,7);cx.fillStyle=sc;cx.fill();}
+  if((['notable','keystone','ring_socket','start'].includes(n[2])&&zoom>=0.8)||(n[2]==='keystone'&&zoom>=0.4)||(on&&zoom>=0.4))lab.push([n[4],x,y+r+4,on]);});
+ cx.globalAlpha=1;const fs=Math.max(10,Math.round(12*zoom));cx.font=fs+'px sans-serif';cx.textAlign='center';cx.textBaseline='top';cx.lineWidth=4;cx.lineJoin='round';
+ for(const[t,x,y,on]of lab){cx.strokeStyle='rgba(0,0,0,.9)';cx.strokeText(t,x,y);cx.fillStyle=on?'#ffe8b0':'#b8a888';cx.fillText(t,x,y);}}
+function hit(mx,my){let best=-1,bd=1e9;N.forEach((n,i)=>{const d=Math.hypot(sx(n)-mx,sy(n)-my);if(d<(R[n[2]]+4)*Math.max(zoom,0.8)&&d<bd){bd=d;best=i;}});return best;}
+function el(tag,cls,text,color){const e=document.createElement(tag);if(cls)e.className=cls;e.textContent=text;if(color)e.style.color=color;return e;}
+function hover(mx,my){const i=hit(mx,my);if(i!==hov){hov=i;draw();}
+ if(i<0){tip.hidden=true;return;}const n=N[i],k=T.kinds[n[2]]||'';tip.replaceChildren(el('b','',n[4],T.colors[n[3]]));
+ if(k&&k!==n[4])tip.append(el('div','k',k));n[5].forEach(l=>tip.append(el('div','l',l)));if(!n[5].length&&n[2]!=='start')tip.append(el('div','k','効果なし'));
+ tip.append(el('div','k',n[6]+'・つながり '+n[7]));tip.hidden=false;
+ const tw=tip.offsetWidth,th=tip.offsetHeight;tip.style.left=Math.min(mx+14,W-tw-4)+'px';tip.style.top=(my+14+th>H?my-th-10:my+14)+'px';}
+function zoomAt(mx,my,f){const z=Math.min(Math.max(zoom*f,fitZ*0.6),fitZ*12);const k=z/zoom;px=(px-mx+W/2)*k+mx-W/2;py=(py-my+H/2)*k+my-H/2;zoom=z;draw();}
+const pos=e=>{const r=cv.getBoundingClientRect();return[e.clientX-r.left,e.clientY-r.top];};
+cv.addEventListener('wheel',e=>{e.preventDefault();const[x,y]=pos(e);zoomAt(x,y,Math.exp(-e.deltaY*0.0015));hover(x,y);},{passive:false});
+cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);pts.set(e.pointerId,pos(e));if(pts.size===1)drag={x:e.clientX,y:e.clientY,moved:false};});
+cv.addEventListener('pointermove',e=>{const p=pos(e);
+ if(pts.size===2&&pts.has(e.pointerId)){const o=[...pts.entries()].find(([id])=>id!==e.pointerId)[1],q0=pts.get(e.pointerId);
+  const d0=Math.hypot(q0[0]-o[0],q0[1]-o[1]),d1=Math.hypot(p[0]-o[0],p[1]-o[1]);pts.set(e.pointerId,p);if(d0>0)zoomAt((p[0]+o[0])/2,(p[1]+o[1])/2,d1/d0);if(drag)drag.moved=true;return;}
+ if(pts.has(e.pointerId))pts.set(e.pointerId,p);
+ if(drag&&pts.size===1){const dx=e.clientX-drag.x,dy=e.clientY-drag.y;if(drag.moved||Math.hypot(dx,dy)>3){drag.moved=true;cv.classList.add('drag');px+=dx;py+=dy;drag.x=e.clientX;drag.y=e.clientY;tip.hidden=true;draw();return;}}
+ if(e.pointerType==='mouse'&&!drag)hover(p[0],p[1]);});
+function up(e){const p=pos(e);pts.delete(e.pointerId);if(pts.size)return;if(drag&&!drag.moved)hover(p[0],p[1]);drag=null;cv.classList.remove('drag');}
+cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);
+cv.addEventListener('pointerleave',e=>{if(e.pointerType==='mouse'&&!drag){hov=-1;tip.hidden=true;draw();}});
+document.getElementById('fit').onclick=()=>{fit();draw();};
+window.treeFind=w=>{found=w?new Set(N.flatMap((n,i)=>(n[4]+' '+n[5].join(' ')+' '+(T.kinds[n[2]]||'')).toLowerCase().includes(w)?[i]:[])):null;draw();return found?found.size:0;};
+new ResizeObserver(size).observe(cv);}
 """
