@@ -18,6 +18,7 @@ var mana_orb := OrbGauge.new()
 var slots: Array[SkillSlot] = []
 var xp_bar := Bar.new()
 var info := Label.new()
+var status_bar := StatusBar.new()   # summoned allies, auras and buffs as icons under the info line (#54)
 var potion := Label.new()
 var messages := VBoxContainer.new()
 var boss_box := VBoxContainer.new()
@@ -83,14 +84,22 @@ func _ready() -> void:
 	hurt.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(hurt)
 
-	info.position = Vector2(16, 10)
+	# top left: the info line, the status icons (when there are any) and the point hints, stacked
+	var top_left := VBoxContainer.new()
+	top_left.position = Vector2(16, 10)
+	top_left.add_theme_constant_override("separation", 4)
+	top_left.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(top_left)
 	_shadow(info)
-	root.add_child(info)
-	talent_hint.position = Vector2(16, 36)
+	info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top_left.add_child(info)
+	status_bar.hud = self
+	top_left.add_child(status_bar)
 	talent_hint.add_theme_color_override("font_color", Color("#ffe27a"))
 	talent_hint.add_theme_font_size_override("font_size", 14)
+	talent_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_shadow(talent_hint)
-	root.add_child(talent_hint)
+	top_left.add_child(talent_hint)
 
 	messages.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	messages.position = Vector2(-400, 80)
@@ -308,10 +317,6 @@ func refresh() -> void:
 	var lg: String = main.league()
 	var tag := "" if Profiles.current().is_empty() else "[%s] " % Profiles.league_name(lg)
 	info.text = "%s%s　Lv %d　◆ %d　%s %d" % [tag, where, p.level, p.cur.ember, Farm.CURRENCY.icon, Farm.state(lg).cinder]
-	for id in p.tbuffs:
-		info.text += "　｜ %s %s %.0f秒" % [Data.SKILLS[id].icon, Data.SKILLS[id].name, ceilf(p.tbuffs[id].t)]
-	for id in p.auras:
-		info.text += "　｜ %s %s" % [Data.SKILLS[id].icon, Data.SKILLS[id].name]
 	for line in [main.altar_status(), main.seal_status()]:
 		if line != "":
 			info.text += "　｜ " + line
@@ -327,6 +332,7 @@ func refresh() -> void:
 	talent_hint.visible = not hints.is_empty()
 	if boss:
 		boss_bar.value = maxf(0.0, boss.life / boss.max_life)
+	status_bar.tick()
 	for sl in slots:
 		sl.queue_redraw()
 	xp_bar.queue_redraw()

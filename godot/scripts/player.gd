@@ -13,6 +13,8 @@ var buffs := {}              # stacking timed buffs from core talents: key -> {"
 var combo := 0               # attack skills used, for "three strikes"
 var tbuffs := {}             # timed self buffs from buff skills: skill id -> {"t", "stats"}
 var auras: Array = []        # aura skills switched on, in the order they were switched on
+
+signal status_changed        # an aura, buff skill or talent buff came or went, or its stacks changed (the HUD's StatusBar)
 var aura_fx: Node3D          # the ground marks of the active auras
 var _aura_key := ""
 var atlas: Atlas             # for the atlas passives that change stats
@@ -333,9 +335,13 @@ func asc_reset_price() -> int:
 
 func add_buff(k: String, max_n: int, dur: float) -> void:
 	var b: Dictionary = buffs.get(k, {"n": 0, "t": 0.0})
+	var n0: int = b.n
 	b.n = mini(max_n, b.n + 1)
 	b.t = dur
+	b.dur = dur
 	buffs[k] = b
+	if b.n != n0:
+		status_changed.emit()
 
 
 func buff(k: String) -> int:
@@ -343,15 +349,20 @@ func buff(k: String) -> int:
 
 
 func tick_buffs(delta: float) -> void:
+	var gone := false
 	for list in [buffs, tbuffs]:
 		for k in list.keys():
 			list[k].t -= delta
 			if list[k].t <= 0.0:
 				list.erase(k)
+				gone = true
+	if gone:
+		status_changed.emit()
 
 
 func add_tbuff(id: String, dur: float, stats: Dictionary) -> void:
-	tbuffs[id] = {"t": dur, "stats": stats}
+	tbuffs[id] = {"t": dur, "dur": dur, "stats": stats}
+	status_changed.emit()
 
 
 ## a stat summed over the active buff skills: dmg, atk_spd, cast_spd, move, dr (all %) and regen (% life per second)
@@ -400,12 +411,14 @@ func reserve_fits(list: Array) -> bool:
 func toggle_aura(id: String) -> String:
 	if id in auras:
 		auras.erase(id)
+		status_changed.emit()
 		return ""
 	if not reserve_fits(auras + [id]):
 		return "full"
 	auras.append(id)
 	life = minf(life, cap("life"))
 	mana = minf(mana, cap("mana"))
+	status_changed.emit()
 	return ""
 
 
@@ -416,6 +429,8 @@ func fix_auras() -> Array:
 	auras = auras.filter(func(id): return not id in off)
 	while not auras.is_empty() and not reserve_fits(auras):
 		off.append(auras.pop_back())
+	if not off.is_empty():
+		status_changed.emit()
 	return off
 
 

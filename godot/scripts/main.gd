@@ -28,6 +28,9 @@ var zones: Array = []        # ticking areas from skill effect blocks
 var proj_spawn: Array = []   # projectiles made while the list is being walked; joined after
 var minions: Array[Ally] = []
 var totems: Array[Ally] = []
+var ally_caps := {}          # the most of each kind of ally at its last summon (StatusBar key -> n), for the HUD's count badges
+
+signal allies_changed        # a minion, totem or trap was summoned, died or was cleared away (the HUD's StatusBar)
 var no_sup := Data.build_sup("", [])
 var sup := no_sup            # support modifiers of the skill being resolved right now
 var texts: Array = []        # floating damage numbers, drawn by the HUD
@@ -84,7 +87,7 @@ func _ready() -> void:
 	hud.main = self
 	add_child(hud)
 	var args := Array(OS.get_cmdline_user_args())
-	# dev runs: `--smoke` plays a scripted test, `--view=<panel>` opens a panel, `--view=colossus|witch` a boss fight or `--view=imp` a few imps; neither touches the save
+	# dev runs: `--smoke` plays a scripted test, `--view=<panel>` opens a panel (`--view=status_icons` the HUD status icons), `--view=colossus|witch` a boss fight or `--view=imp` a few imps; neither touches the save
 	smoke = "--smoke" in args or args.any(func(x): return x.begins_with("--view="))
 	for x in args:
 		if x.begins_with("--date="):   # dev runs: pretend it is another day, to test a season ending
@@ -249,6 +252,24 @@ func _ready() -> void:
 				player.bag.append(it)
 				hud.toggle_inventory()
 				get_tree().create_timer(2.0).timeout.connect(func(): hud.show_tip(Items.lines(it)))
+			elif kind == "status_icons":   # the status icons at the top left: skeletons, a totem, two auras, a buff skill and talent stacks
+				enter_map("ash")
+				player.invuln = 1e9
+				player.level = 14
+				player.slots = ["skeleton", "ember_heart", "gale_hymn", "tailwind", "fireball", "slash"]
+				player.recalc(true)
+				get_tree().create_timer(2.5).timeout.connect(func():
+					for i in [0, 0, 1, 2, 3]:
+						player.action_t = 0.0
+						player.cds.clear()
+						player.mana = player.cap("mana")
+						_try_cast(i)
+					_place_totem("fireball", Data.build_sup("fireball", ["totem"]), _player_caster())
+					for i in 6:
+						player.add_buff("fervor", 15, 3.0)
+					for a in _allies():
+						a.max_life = 1e7
+						a.life = 1e7)
 			elif kind.begins_with("aura"):   # auras on the bar: `aura0` none on, `aura` three on and a fourth refused, `aura_off` one switched off again
 				enter_map("ash")
 				player.invuln = 1e9
@@ -1043,6 +1064,7 @@ func _smoke_auras() -> void:
 	var keep_links := p.links.duplicate(true)
 	var keep_level := p.level
 	p.auras.clear()
+	p.status_changed.emit()
 	p.level = 14
 	p.slots = ["slash", "ember_heart", "frost_veil", "gale_hymn", "crimson_pact", "hearth_ward"]
 	p.links = [[], [], [], [], [], []]
@@ -1099,6 +1121,7 @@ func _smoke_auras() -> void:
 	var on := p.auras.duplicate()
 	var data = JSON.parse_string(JSON.stringify(save_data()))
 	p.auras.clear()
+	p.status_changed.emit()
 	p.recalc(true)
 	apply_save(data)
 	print("SMOKE aura save restored=%s same=%s mana_capped=%s life_capped=%s" % [p.auras == on, held == [p.reserved("life"), p.reserved("mana")],
@@ -1106,6 +1129,7 @@ func _smoke_auras() -> void:
 	_expect("aura_save", {"restored": p.auras == on, "same": held == [p.reserved("life"), p.reserved("mana")], "mana_capped": p.mana <= p.cap("mana"),
 		"life_capped": p.life <= p.cap("life")})
 	p.auras.clear()
+	p.status_changed.emit()
 	p.slots = keep_slots
 	p.links = keep_links
 	p.level = keep_level
@@ -2658,11 +2682,141 @@ func _smoke_test() -> void:
 	_smoke_dungeon()
 	_smoke_chars()
 	await _smoke_map()
+	await _smoke_status()
 	print("SMOKE errors locked=%d %s" % [smoke_log.count(), smoke_log.locked])
 	_expect("errors", {"no_locked_free": smoke_log.count() == 0})
 	OS.remove_logger(smoke_log)
 	print("SMOKE RESULT checks=%d failed=%d %s" % [smoke_checks, smoke_failed.size(), smoke_failed])
 	get_tree().quit(1 if smoke_failed.size() > 0 else 0)
+
+
+## the status icons at the top left (issue #54): summoning adds to a kind's count badge and a death takes from it,
+## totems count apart from minions, an aura's icon comes and goes with it, timed buffs sweep and leave when they run
+## out, hovering shows a tooltip that goes with its icon, nothing is rebuilt on a quiet frame, the icon pool does not
+## grow from the same row twice, and a change of scene (the hideout) leaves no ally icons and logs no errors
+func _smoke_status() -> void:
+	var p := player
+	var sb: StatusBar = hud.status_bar
+	var errs := ErrorCount.new()
+	OS.add_logger(errs)
+	hud.close_panels()
+	if hud.map_overlay.visible:
+		hud.map_overlay.toggle()
+	p.invuln = 1e9
+	p.dead = false
+	var settle := func() -> void:   # the row is rebuilt deferred, after the frame's signals
+		await get_tree().process_frame
+		await get_tree().process_frame
+	for a in _allies():
+		_kill_ally(a)
+	minions.clear()
+	totems.clear()
+	p.auras.clear()
+	p.tbuffs.clear()
+	p.buffs.clear()
+	p.status_changed.emit()
+	allies_changed.emit()
+	await settle.call()
+	var empty := sb.keys().is_empty() and sb.shown == 0
+	# summon two skeletons, then two more: the oldest crumbles past the cap
+	p.slots[0] = "skeleton"
+	p.links[0] = []
+	var cast := func() -> void:
+		p.action_t = 0.0
+		p.cds.clear()
+		p.mana = p.s.max_mana
+		_try_cast(0)
+		for m in minions:
+			m.max_life = 1e7
+			m.life = 1e7
+	cast.call()
+	await settle.call()
+	var two: Dictionary = sb.entry("skeleton").duplicate()
+	cast.call()
+	await settle.call()
+	var capped: Dictionary = sb.entry("skeleton").duplicate()
+	var alive := minions.size()
+	# one falls in the middle of the minions' update: the badge counts one fewer
+	minions[0].life = 0.0
+	await settle.call()
+	var fell: Dictionary = sb.entry("skeleton").duplicate()
+	print("SMOKE status summon two=%s capped=%s fell=%s keys=%s" % [two, capped, fell, sb.keys()])
+	_expect("status_summon", {"empty_first": empty, "two": two.get("n", 0) == 2 and two.get("max", 0) == ally_caps.skeleton,
+		"capped": capped.get("n", 0) == ally_caps.skeleton and capped.get("n", 0) == alive, "fell": fell.get("n", 0) == capped.get("n", 0) - 1})
+	# a quiet frame rebuilds nothing
+	var r0 := sb.rebuilds
+	for i in 4:
+		await get_tree().process_frame
+	var quiet := sb.rebuilds == r0
+	# a totem is its own icon, with its own cap
+	_place_totem("fireball", Data.build_sup("fireball", ["totem"]), _player_caster())
+	totems[-1].max_life = 1e7
+	totems[-1].life = 1e7
+	await settle.call()
+	var tot: Dictionary = sb.entry("totem:fireball").duplicate()
+	var tot_timed := sb.icons[sb.keys().find("totem:fireball")].timed() if tot.size() > 0 else false
+	print("SMOKE status totem=%s timed=%s quiet=%s rebuilds=%d" % [tot, tot_timed, quiet, sb.rebuilds])
+	_expect("status_totem", {"shown": tot.get("n", 0) == 1 and tot.get("max", 0) == TOTEM_MAX + (1 if p.effects.has("twin_totems") else 0),
+		"timed": tot_timed, "quiet": quiet, "skeleton_kept": sb.entry("skeleton").get("n", 0) == fell.get("n", -1)})
+	# an aura: switched on, its icon shows (with a tooltip on hover); switched off while hovered, both go
+	p.slots[1] = "ember_heart"
+	p.links[1] = []
+	p.mana = p.s.max_mana
+	p.action_t = 0.0
+	_toggle_aura("ember_heart")
+	await settle.call()
+	var aura_on := "aura:ember_heart" in sb.keys()
+	var ic: Control = sb.icons[sb.keys().find("aura:ember_heart")] if aura_on else null
+	if ic:
+		ic.mouse_entered.emit()
+	var tip_name := hud.tip.visible and hud.tip_box.get_child_count() > 0 and (hud.tip_box.get_child(0) as Label).text == Data.SKILLS.ember_heart.name
+	p.action_t = 0.0
+	_toggle_aura("ember_heart")
+	await settle.call()
+	var aura_off := not "aura:ember_heart" in sb.keys()
+	print("SMOKE status aura on=%s tip=%s off=%s tip_hidden=%s" % [aura_on, tip_name, aura_off, not hud.tip.visible])
+	_expect("status_aura", {"on": aura_on, "tip": tip_name, "off": aura_off, "tip_hidden": not hud.tip.visible})
+	# a buff skill sweeps and is gone when it runs out; a stacking talent buff shows its stacks
+	p.add_tbuff("tailwind", 1.0, {})
+	p.add_buff("fervor", 15, 3.0)
+	p.add_buff("fervor", 15, 3.0)
+	await settle.call()
+	var tb := "tbuff:tailwind" in sb.keys()
+	var tleft: Array = sb.time_left(sb.entry("tbuff:tailwind"))
+	var stacks := sb.entry("buff:fervor").size() > 0 and p.buff("fervor") == 2
+	var tl_ok: bool = tleft.size() == 2 and tleft[0] < tleft[1] + 1e-6 and is_equal_approx(tleft[1], 1.0)
+	var tips_ok := not sb.tip_lines(sb.entry("buff:fervor")).is_empty() and not sb.tip_lines(sb.entry("skeleton")).is_empty()
+	p.tick_buffs(5.0)
+	await settle.call()
+	var gone := not "tbuff:tailwind" in sb.keys() and not "buff:fervor" in sb.keys()
+	print("SMOKE status buffs tbuff=%s left=%s stacks=%s tips=%s gone=%s" % [tb, tleft, stacks, tips_ok, gone])
+	_expect("status_buffs", {"tbuff": tb, "sweep": tl_ok, "stacks": stacks, "tips": tips_ok, "gone": gone})
+	# the pool: the same row summoned and cleared again adds no icons, and every icon is a child of the bar
+	var pool := sb.icons.size()
+	for i in 3:
+		cast.call()
+		await settle.call()
+		for a in _allies():
+			_kill_ally(a)
+		minions.clear()
+		totems.clear()
+		await settle.call()
+	var no_leak := sb.icons.size() == pool and sb.get_child_count() == pool and sb.keys().is_empty()
+	# a change of scene: allies cleared with the old level, the auras kept, no errors
+	cast.call()
+	_toggle_aura("ember_heart")
+	await settle.call()
+	enter_hideout()
+	await settle.call()
+	var hide_keys := sb.keys()
+	var no_allies := not hide_keys.any(func(k): return k == "skeleton" or k.contains(":fireball"))
+	var aura_kept := "aura:ember_heart" in hide_keys
+	p.action_t = 0.0
+	_toggle_aura("ember_heart")
+	await settle.call()
+	OS.remove_logger(errs)
+	print("SMOKE status scene keys=%s pool=%d/%d errors=%d %s" % [hide_keys, sb.icons.size(), pool, errs.n, errs.first])
+	_expect("status_scene", {"no_allies": no_allies, "aura_kept": aura_kept, "no_leak": no_leak, "cleared": sb.keys().is_empty(), "no_errors": errs.n == 0})
 
 
 func _setup_environment() -> void:
@@ -2731,6 +2885,7 @@ func _reset_world(new_map: Dungeon, new_theme: Dictionary) -> void:
 	enemies.clear()
 	minions.clear()
 	totems.clear()
+	allies_changed.emit()
 	portal = {}
 	boss = null
 	dummy = null
@@ -4027,6 +4182,8 @@ func _fx_summon(id: String, c: Dictionary, b: Dictionary, col: Color) -> void:
 		minions.append(m)
 		mine.append(m)
 		Fx.burst(level_root, to3(at, 0.5), 14, col, 4.0)
+	ally_caps[id] = b.max + sup.mcount
+	allies_changed.emit()
 
 
 func _cast_slash(c: Dictionary) -> void:
@@ -4297,6 +4454,8 @@ func _cast_skeleton(c: Dictionary) -> void:
 		minions.append(m)
 		mine.append(m)
 		Fx.burst(level_root, to3(at, 0.5), 14, Color("#e8e0c8"), 4.0)
+	ally_caps["skeleton"] = most
+	allies_changed.emit()
 
 
 ## burning ground; with `hostile_dmg` it is the bosses' fire and hurts the player and allies instead
@@ -4404,8 +4563,10 @@ func _place_totem(id: String, s: Dictionary, c: Dictionary) -> void:
 		at -= back * 0.8
 	var trap: bool = s.trap > 0 and s.totem == 0
 	var mine := totems.filter(func(t): return t.skill == id and t.trap == trap)
-	if mine.size() >= (TRAP_MAX if trap else TOTEM_MAX + (1 if p.effects.has("twin_totems") else 0)):
+	var most: int = TRAP_MAX if trap else TOTEM_MAX + (1 if p.effects.has("twin_totems") else 0)
+	if mine.size() >= most:
 		mine[0].life = 0.0
+	ally_caps["%s:%s" % ["trap" if trap else "totem", id]] = most
 	var t := Ally.new()
 	level_root.add_child(t)
 	t.setup_totem(at, id, (60.0 + p.level * 15) * (1.0 + p.s.ally_life / 100.0), s)
@@ -4416,6 +4577,7 @@ func _place_totem(id: String, s: Dictionary, c: Dictionary) -> void:
 	t.sync_node(0.0, false)
 	totems.append(t)
 	Fx.burst(level_root, to3(at, 1.0), 20, Data.SKILLS[id].color, 5.0)
+	allies_changed.emit()
 
 
 func _nearest_enemy(from: Vector2, max_d: float, near_to := Vector2.INF, near_d := INF) -> Enemy:
@@ -4538,6 +4700,7 @@ func _kill_ally(a: Ally) -> void:
 	a.dead = true
 	Fx.burst(level_root, to3(a.pos, 0.8), 16, Color("#d8d0b8") if a.kind == "minion" else Color("#8a6a3a"), 4.0)
 	a.queue_free()
+	allies_changed.emit()
 
 
 ## enemies hit minions and totems too
@@ -5838,6 +6001,7 @@ func apply_save(data: Dictionary) -> void:
 		shop = {"level": int(sd.level), "items": sd.items.map(func(it): return Items.normalize(it))}
 	# auras that were on come back on; recalc drops any that left the bar or no longer fit
 	p.auras = Array(data.get("auras", [])).filter(func(id): return Data.SKILLS.has(id) and Data.SKILLS[id].has("aura") and id in p.slots)
+	p.status_changed.emit()
 	p.recalc(true)
 
 
