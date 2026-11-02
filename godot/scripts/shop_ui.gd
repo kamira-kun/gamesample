@@ -105,8 +105,7 @@ func refresh() -> void:
 	var p: Player = m.player
 	var lvl: int = m.shop.level
 	gold.text = "◆ %d" % p.cur.ember
-	for c in stock_grid.get_children():
-		c.free()
+	BasePanel.clear(stock_grid)
 	for it in m.shop.items:
 		var cost := Items.buy_price(it)
 		var cell := VBoxContainer.new()
@@ -132,8 +131,7 @@ func refresh() -> void:
 	var rp := Items.reroll_price(lvl)
 	reroll_btn.text = "品揃えを入れ替える（◆ %d）" % rp
 	reroll_btn.disabled = p.cur.ember < rp
-	for c in cur_grid.get_children():
-		c.free()
+	BasePanel.clear(cur_grid)
 	for cdef in Data.CURRENCIES:
 		if cdef.w <= 0.0:
 			continue
@@ -147,8 +145,7 @@ func refresh() -> void:
 		b.tooltip_text = "%s\n所持数 %d" % [cdef.desc, p.cur[cdef.k]]
 		b.pressed.connect(_buy_currency.bind(cdef.k, cost))
 		cur_grid.add_child(b)
-	for c in gem_grid.get_children():
-		c.free()
+	BasePanel.clear(gem_grid)
 	var missing := Data.missing_gems(p.skills, p.gems, p.level + GEM_AHEAD)
 	if missing.is_empty():
 		gem_grid.add_child(_sub("いま並ぶジェムはすべて入手済み"))
@@ -166,8 +163,7 @@ func refresh() -> void:
 		b.mouse_exited.connect(func(): hud.hide_tip())
 		b.pressed.connect((_buy_skill if m_gem.skill else _buy_gem).bind(m_gem.id))
 		gem_grid.add_child(b)
-	for c in bag_grid.get_children():
-		c.free()
+	BasePanel.clear(bag_grid)
 	for i in Player.BAG_SIZE:
 		var sl := ItemSlot.new()
 		sl.custom_minimum_size = Vector2(52, 52)

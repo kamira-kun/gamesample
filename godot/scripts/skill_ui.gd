@@ -180,14 +180,10 @@ func refresh() -> void:
 		return
 	var p: Player = hud.main.player
 	var e_left := p.energy_max() - p.energy_used()
-	for c in slot_row.get_children():
-		c.free()
-	for c in skill_grid.get_children():
-		c.free()
-	for c in gem_grid.get_children():
-		c.free()
-	for c in tag_row.get_children():
-		c.free()
+	BasePanel.clear(slot_row)
+	BasePanel.clear(skill_grid)
+	BasePanel.clear(gem_grid)
+	BasePanel.clear(tag_row)
 	for t in FILTER_TAGS:
 		var on: bool = tag_sel == t
 		var tb := card("すべて" if t == "" else Data.TAG_NAMES[t], Color("#2a2014") if on else Color("#120e0a"),

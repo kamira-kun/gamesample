@@ -244,8 +244,7 @@ func refresh_inventory() -> void:
 
 ## lines: [text, color, size]
 func show_tip(lines: Array) -> void:
-	for c in tip_box.get_children():
-		c.free()
+	BasePanel.clear(tip_box)
 	for l in lines:
 		var lab := Label.new()
 		lab.text = l[0]
