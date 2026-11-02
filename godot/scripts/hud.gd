@@ -7,6 +7,7 @@ var main               # main.gd (untyped so its members resolve at runtime)
 var boss: Enemy = null
 var root := Control.new()
 var overlay := Overlay.new()
+var map_overlay := MapOverlay.new()
 var life_orb := OrbGauge.new()
 var mana_orb := OrbGauge.new()
 var slots: Array[SkillSlot] = []
@@ -53,6 +54,11 @@ func _ready() -> void:
 	overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
 	overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(overlay)
+
+	map_overlay.hud = self
+	map_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	map_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(map_overlay)
 
 	hurt.set_anchors_preset(Control.PRESET_FULL_RECT)
 	hurt.color = Color(0.6, 0, 0, 0)
