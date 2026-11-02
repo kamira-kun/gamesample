@@ -463,6 +463,8 @@ class Overlay extends Control:
 			var label: String = "%s  [%s]" % [o.name, Keybinds.text("interact")]
 			draw_string_outline(Data.ui_font, Vector2(sp.x - 120, sp.y), label, HORIZONTAL_ALIGNMENT_CENTER, 240, 16, 4, Color.BLACK)
 			draw_string(Data.ui_font, Vector2(sp.x - 120, sp.y), label, HORIZONTAL_ALIGNMENT_CENTER, 240, 16, Color("#ffd890"))
+		if m.dummy:
+			_draw_dps(m, cam)
 		for tx in m.texts:
 			var p3: Vector3 = tx.pos + Vector3(0, tx.z, 0)
 			if cam.is_position_behind(p3):
@@ -472,3 +474,50 @@ class Overlay extends Control:
 			var col: Color = tx.color
 			draw_string_outline(Data.ui_font, Vector2(s.x - 100, s.y), tx.str, HORIZONTAL_ALIGNMENT_CENTER, 200, tx.size, 4, Color(0, 0, 0, a))
 			draw_string(Data.ui_font, Vector2(s.x - 100, s.y), tx.str, HORIZONTAL_ALIGNMENT_CENTER, 200, tx.size, Color(col, a))
+
+	const DMG_NAMES := {"phys": "物理", "fire": "火炎", "cold": "冷気", "light": "雷", "chaos": "混沌"}
+
+	## the training dummy's readout, a small framed box over its head: current, average and peak DPS, total and time,
+	## a bar split by damage type, and the sources that did the most
+	func _draw_dps(m, cam: Camera3D) -> void:
+		var e: Enemy = m.dummy
+		var top := Vector3(e.pos.x, 4.6, e.pos.y)
+		if cam.is_position_behind(top) or e.pos.distance_to(m.player.pos) > 40.0:
+			return
+		var meter: DpsMeter = m.dps
+		var now: float = m.time
+		var f := Data.ui_font
+		var w := 250.0
+		var srcs := DpsMeter.split(meter.by_src).slice(0, 4)
+		var h := 34.0 if not meter.active() else 92.0 + srcs.size() * 16.0
+		var s := cam.unproject_position(top)
+		var box := Rect2(s.x - w / 2, s.y - h, w, h)
+		draw_rect(box, Color(0.03, 0.024, 0.016, 0.82))
+		draw_rect(box, Color("#7a6040"), false, 1.0)
+		var x := box.position.x + 10
+		var y := box.position.y + 20
+		if not meter.active():
+			draw_string(f, Vector2(x, y), "攻撃すると DPS を計測", HORIZONTAL_ALIGNMENT_LEFT, w - 20, 13, Color("#c8b890"))
+			return
+		draw_string(f, Vector2(x, y + 4), "DPS " + DpsMeter.fmt(meter.dps(now)), HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color("#ffd36a"))
+		draw_string(f, Vector2(x, y + 4), "最大 " + DpsMeter.fmt(meter.peak), HORIZONTAL_ALIGNMENT_RIGHT, w - 20, 13, Color("#e8c890"))
+		y += 24
+		draw_string(f, Vector2(x, y), "合計 %s　%.1f秒　平均 %s" % [DpsMeter.fmt(meter.total), meter.elapsed(now), DpsMeter.fmt(meter.average(now))],
+			HORIZONTAL_ALIGNMENT_LEFT, w - 20, 12, Color("#c8b890"))
+		y += 10
+		# one bar split by damage type, the biggest share's name under it
+		var bx := x
+		var types := DpsMeter.split(meter.by_type)
+		for tp in types:
+			var bw: float = (w - 20) * tp[2]
+			draw_rect(Rect2(bx, y, bw, 7), Data.DMG_COLORS.get(tp[0], Color.WHITE))
+			bx += bw
+		y += 22
+		var line := PackedStringArray()
+		for tp in types.slice(0, 3):
+			line.append("%s %d%%" % [DMG_NAMES.get(tp[0], tp[0]), roundi(tp[2] * 100)])
+		draw_string(f, Vector2(x, y), "　".join(line), HORIZONTAL_ALIGNMENT_LEFT, w - 20, 12, Color("#d8d0c0"))
+		for sr in srcs:
+			y += 16
+			draw_string(f, Vector2(x, y), sr[0], HORIZONTAL_ALIGNMENT_LEFT, w - 90, 12, Color("#b8a888"))
+			draw_string(f, Vector2(x, y), "%s  %d%%" % [DpsMeter.fmt(sr[1]), roundi(sr[2] * 100)], HORIZONTAL_ALIGNMENT_RIGHT, w - 20, 12, Color("#b8a888"))

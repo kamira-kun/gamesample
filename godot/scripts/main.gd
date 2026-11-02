@@ -43,6 +43,8 @@ var interacts: Array = []   # hideout objects and dormant altars: {kind, name, p
 var altars: Array = []      # cinder altars in this map (see Farm)
 var seals: Array = []       # sealed monoliths in this map (see Seal)
 var boss: Enemy = null
+var dummy: Enemy = null      # the hideout training dummy (null outside the hideout)
+var dps := DpsMeter.new()    # what the dummy has taken
 var flow_t := 0.0
 var time := 0.0
 var shake := 0.0
@@ -191,6 +193,8 @@ func _ready() -> void:
 					hud.keyconfig_ui.bind_to("skill_3", 0, {"key": KEY_F})
 				elif kind == "keys":
 					hud.keyconfig_ui.listen("skill_4", 0)
+			elif kind == "dummy":   # the hideout training dummy a few seconds into being hit by the bar's skills
+				_view_dummy()
 			elif kind.begins_with("altar") or kind == "forge":
 				_view_altar(kind)
 			elif kind in ["tree_all", "jewels", "jewel_craft"]:   # the whole tree; a tree with jewels in and a ring jewel's ring grown; the jewel side with currencies
@@ -822,6 +826,81 @@ func _smoke_jewels() -> void:
 	p.recalc(true)
 
 
+## the training dummy: in the hideout, measures hits (by type and by skill) and damage over time, never dies,
+## gives no XP or loot, stays put, and its meter starts over on interact or after a quiet spell
+func _smoke_dummy() -> void:
+	var p := player
+	var d := dummy
+	var exists: bool = d != null and d in enemies and interacts.any(func(o): return o.kind == "dummy")
+	print("SMOKE dummy exists=%s" % exists)
+	_expect("dummy_exists", {"exists": exists})
+	if not exists:
+		return
+	var xp0 := p.xp
+	var lvl0 := p.level
+	var loot0 := ground.size() + drops.size()
+	var pots0 := p.potion_prog
+	dps.reset()
+	# a real swing of the first skill on the bar, through the normal cast path
+	p.pos = d.pos + Vector2(0, 2.0)
+	mouse_ground = d.pos
+	p.aim = (d.pos - p.pos).angle()
+	p.action_t = 0.0
+	p.mana = p.cap("mana")
+	_try_cast(0)
+	await get_tree().create_timer(0.8).timeout
+	var cast_name: String = Data.SKILLS[p.slots[0]].name
+	var cast_ok := dps.by_src.has(cast_name)
+	# hits under a skill's supports, a crit, and a burn ticking for a second
+	# (bare supports and no ailments left from the swing, so the expected total is exact)
+	for k in ["shock", "vuln_t", "frozen", "burn_t", "bleed_t", "poison_t"]:
+		d.set(k, 0.0)
+	var total0 := dps.total
+	var rolls := []   # (lambdas capture locals by value: collect into an array)
+	_with_sup(no_sup.merged({"skill": "fireball"}, true), func():
+		for i in 4:
+			var h := roll_damage(1.0, "fire", true)
+			rolls.append(h.dmg)
+			hit_enemy(d, h))
+	force_crit = true
+	var hc := roll_damage(1.0, "phys")
+	force_crit = false
+	hit_enemy(d, hc)
+	var landed: float = hc.dmg
+	for v in rolls:
+		landed += v
+	_apply_burn(d, 100.0)
+	time += 1.5
+	_update_dummy(d, 1.0)
+	var counted := absf(dps.total - total0 - landed - 100.0) < 1.0
+	var now_dps := dps.dps(time)
+	print("SMOKE dummy cast=%s(%s) total=%.0f dps=%.0f peak=%.0f types=%s srcs=%s" % [cast_ok, p.slots[0], dps.total, now_dps, dps.peak, dps.by_type.keys(), dps.by_src.keys()])
+	_expect("dummy_measure", {"cast": cast_ok, "counted": counted, "dps": now_dps > 0.0, "peak": dps.peak >= now_dps and dps.peak > 0.0,
+		"crit": hc.crit, "types": dps.by_type.has("fire") and dps.by_type.has("phys"),
+		"skill": dps.by_src.has(Data.SKILLS.fireball.name), "dot": dps.by_src.has(DOT_NAMES.burn), "elapsed": dps.elapsed(time) >= 1.0})
+	# a hit far past its life, a cull and a knockback support, and a direct kill: it stays up, put, and full
+	_with_sup(Data.build_sup("slash", []).merged({"cull": 0.99, "knock": 3.0}, true), func(): hit_enemy(d, {"dmg": 999999999999999, "crit": false, "type": "phys"}))
+	_kill_enemy(d)
+	await get_tree().create_timer(0.3).timeout
+	var alive: bool = not d.dead and d in enemies and is_instance_valid(d) and d.life == d.max_life and d.pos == d.home
+	var loot := ground.size() + drops.size()
+	print("SMOKE dummy alive=%s xp=%d->%d level=%d->%d loot=%d->%d" % [alive, xp0, p.xp, lvl0, p.level, loot0, loot])
+	_expect("dummy_immortal", {"alive": alive})
+	_expect("dummy_no_reward", {"xp": p.xp == xp0 and p.level == lvl0, "loot": loot == loot0, "potion": p.potion_prog == pots0})
+	# interacting resets it; so does a quiet spell
+	open_interact("dummy")
+	var reset_interact := not dps.active() and dps.total == 0.0 and dps.by_src.is_empty()
+	hit_enemy(d, roll_damage(1.0, "phys"))
+	var again := dps.active()
+	d.burn_t = 0.0   # a burn still ticking would keep it measuring
+	time += DpsMeter.IDLE + 0.5
+	_update_dummy(d, 0.016)
+	var reset_idle := not dps.active() and dps.total == 0.0
+	print("SMOKE dummy reset interact=%s idle=%s" % [reset_interact, reset_idle])
+	_expect("dummy_reset", {"interact": reset_interact, "again": again, "idle": reset_idle})
+	p.pos = map.tile_center(map.start.cx, map.start.cy) + Vector2(0, 3 * T)
+
+
 func _smoke_seasons() -> void:
 	var p := player
 	var sid: String = Data.SEASONS[0].id
@@ -1326,6 +1405,26 @@ func _view_tablets(kind: String) -> void:
 
 
 ## a free spot about `d` away from `c` that the player can see
+## the player next to the hideout dummy, swinging and casting at it every few tenths of a second, one hit burning
+func _view_dummy() -> void:
+	player.invuln = 1e9
+	player.pos = dummy.pos + Vector2(-2.5, 1.5)
+	var tick := [0]
+	var tm := Timer.new()
+	tm.wait_time = 0.3
+	tm.timeout.connect(func():
+		mouse_ground = dummy.pos
+		player.aim = (dummy.pos - player.pos).angle()
+		player.action_t = 0.0
+		player.mana = player.cap("mana")
+		_try_cast([0, 3, 1, 0, 2][tick[0] % 5])
+		if tick[0] == 2:
+			_apply_burn(dummy, 40.0)
+		tick[0] += 1)
+	add_child(tm)
+	tm.start()
+
+
 func _free_spot(c: Vector2, d: float) -> Vector2:
 	for k in 32:
 		var at := c + Vector2.from_angle(k * TAU / 32.0 - PI / 2) * (d + k / 8)
@@ -1872,8 +1971,9 @@ func _smoke_test() -> void:
 	p.invuln = 1e9
 	# hideout: merchant and atlas
 	print("SMOKE hideout=%s interacts=%d stock=%d" % [in_hideout(), interacts.size(), shop.items.size()])
-	_expect("hideout", {"in": in_hideout(), "interacts": interacts.size() == 5, "stock": shop.items.size() > 0})
+	_expect("hideout", {"in": in_hideout(), "interacts": interacts.size() == 6, "stock": shop.items.size() > 0})
 	await get_tree().create_timer(0.5).timeout
+	await _smoke_dummy()
 	p.cur.ember = 2000
 	open_interact("merchant")
 	await get_tree().create_timer(0.3).timeout
@@ -2263,6 +2363,8 @@ func _reset_world(new_map: Dungeon, new_theme: Dictionary) -> void:
 	totems.clear()
 	portal = {}
 	boss = null
+	dummy = null
+	dps.reset()
 	level_root = Node3D.new()
 	add_child(level_root)
 	map = new_map
@@ -2319,6 +2421,7 @@ func enter_hideout() -> void:
 	interacts.append({"kind": "stash", "name": "スタッシュ", "pos": map.tile_center(r.x + r.w - 1, r.y + 6), "r": 1.0})
 	interacts.append({"kind": "exchange", "name": "取引所", "pos": map.tile_center(r.x + 3, r.y), "r": 1.2})
 	interacts.append({"kind": "forge", "name": "燼火の炉", "pos": c + Vector2(4 * T, 0), "r": 1.2})
+	interacts.append({"kind": "dummy", "name": "燼藁のカカシ", "pos": c + Vector2(4 * T, 3.5 * T), "r": 1.0})
 	_build_device(interacts[0].pos)
 	_build_altar(interacts[4].pos, true)
 	var merchant := Actor.new()
@@ -2328,6 +2431,7 @@ func enter_hideout() -> void:
 	merchant.use_rig(Assets.ADVENTURERS + "Rogue_Hooded.glb", 1.0)
 	merchant.sync_node(0.0, false)
 	merchant.play("Idle")
+	_place_dummy(interacts[5].pos)
 	for o in interacts:
 		var t := Vector2i(floori(o.pos.x / T), floori(o.pos.y / T))
 		map.blocked[map.idx(t.x, t.y)] = 1
@@ -2335,6 +2439,37 @@ func enter_hideout() -> void:
 		shop = Items.gen_shop(floor_level)
 	hud.message("隠れ家 — 遠征図の祭壇で行き先を選ぼう", Color("#e8d8b0"))
 	save_game()
+
+
+## the training dummy: an enemy that takes every hit, burn and minion swing like any other, measures them, and never
+## moves, attacks, dies, gives XP or drops loot (see hit_enemy, _update_dots, _update_dummy)
+func _place_dummy(at: Vector2) -> void:
+	dummy = Enemy.new()
+	level_root.add_child(dummy)
+	dummy.setup_dummy(at)
+	dummy.sync_node(0.0, false)
+	enemies.append(dummy)
+
+
+## status timers run out and damage over time keeps ticking, but it stays put and never fights back
+func _update_dummy(e: Enemy, delta: float) -> void:
+	e.slow -= delta
+	e.shock -= delta
+	e.vuln_t -= delta
+	e.stun = maxf(0.0, e.stun - delta)
+	e.frozen = maxf(0.0, e.frozen - delta)
+	if e.burn_t > 0.0 or e.bleed_t > 0.0 or e.poison_t > 0.0:
+		_update_dots(e, delta)
+	e.pos = e.home
+	e.life = e.max_life
+	dps.tick(time)
+
+
+## where a hit on the dummy is counted: the skill being resolved, or what landed it outside a skill
+func _dps_source() -> String:
+	if sup.skill != "" and Data.SKILLS.has(sup.skill):
+		return Data.SKILLS[sup.skill].name
+	return "その他"
 
 
 ## furniture along the hideout walls (blocking their tiles) and braziers in the corners
@@ -2421,6 +2556,9 @@ func open_interact(kind: String, o := {}) -> void:
 		hud.cinder_ui.open_altar(o.altar)
 	elif kind == "seal":
 		break_seal(o.seal)
+	elif kind == "dummy":
+		dps.reset()
+		hud.message("燼藁のカカシの計測をリセットした", Color("#ffd890"))
 	else:
 		hud.atlas_ui.open_close()
 
@@ -2791,12 +2929,16 @@ func hit_enemy(e: Enemy, hit: Dictionary, freeze := 0.0) -> void:
 		hit = hit.merged({"dmg": roundi(hit.dmg * mul)}, true)
 	e.life -= hit.dmg
 	e.hit_t = 0.12
+	if e.dummy:
+		dps.add(time, hit.dmg, hit.type, _dps_source())
 	freeze = maxf(freeze, sup.freeze) * (1.5 if fx.has("frostbite") else 1.0)
 	if sup.leech > 0.0:
 		player.life = minf(player.cap("life"), player.life + hit.dmg * sup.leech)
 	_asc_on_hit(e, hit)
 	_sup_on_hit(e, hit)
-	if not e.aggro:
+	if e.dummy:
+		e.life = e.max_life
+	elif not e.aggro:
 		_alert_pack(e)
 	add_text(e.pos, str(hit.dmg) + ("!" if hit.crit else ""), Color("#ffe040") if hit.crit else Data.DMG_COLORS[hit.type], 26 if hit.crit else 18)
 	if freeze > 0.0:
@@ -2835,9 +2977,9 @@ func _sup_on_hit(e: Enemy, hit: Dictionary) -> void:
 		p.mana = minf(p.cap("mana"), p.mana + hit.dmg * sup.mleech)
 	if sup.loh > 0.0:
 		p.life = minf(p.cap("life"), p.life + sup.loh)
-	if sup.knock > 0.0 and not e.boss:
+	if sup.knock > 0.0 and not e.boss and not e.dummy:
 		e.pos = map.move_circle(e.pos, e.r, (e.pos - p.pos).normalized() * sup.knock)
-	if sup.cull > 0.0 and not e.boss and e.life > 0.0 and e.life <= e.max_life * sup.cull:
+	if sup.cull > 0.0 and not e.boss and not e.dummy and e.life > 0.0 and e.life <= e.max_life * sup.cull:
 		e.life = 0.0
 		add_text(e.pos, "処刑", Color("#ff6060"), 20)
 
@@ -2937,6 +3079,9 @@ func enemies_in_radius(c: Vector2, rad: float) -> Array[Enemy]:
 
 
 func _kill_enemy(e: Enemy) -> void:
+	if e.dummy:   # nothing kills the dummy: no XP, loot or kill effects
+		e.life = e.max_life
+		return
 	e.dead = true
 	var p := player
 	gain_xp(roundi(e.xp * mod_fx.xp))
@@ -4058,6 +4203,9 @@ func _alert_pack(e: Enemy) -> void:
 
 
 func _update_enemy(e: Enemy, delta: float) -> void:
+	if e.dummy:
+		_update_dummy(e, delta)
+		return
 	var p := player
 	e.atk_cd -= delta
 	e.slow -= delta
@@ -4129,6 +4277,7 @@ func _update_enemy(e: Enemy, delta: float) -> void:
 	e.face = (tg.pos - e.pos).angle()
 
 
+const DOT_NAMES := {"burn": "燃焼", "bleed": "出血", "poison": "毒"}
 const DOTS := {"burn": ["fire", Color("#ff9a50")], "bleed": ["phys", Color("#d04040")], "poison": ["chaos", Color("#90d060")]}
 
 
@@ -4139,10 +4288,15 @@ func _update_dots(e: Enemy, delta: float) -> void:
 	for k in DOTS:
 		var left: float = e.get(k + "_t")
 		if left > 0.0:
-			d += e.get(k + "_dps") * minf(delta, left)
+			var dk: float = e.get(k + "_dps") * minf(delta, left)
+			d += dk
+			if e.dummy:
+				dps.add(time, dk, DOTS[k][0], DOT_NAMES[k])
 			e.set(k + "_t", left - delta)
 			last = k
 	e.life -= d
+	if e.dummy:
+		e.life = e.max_life
 	e.burn_acc += d
 	e.burn_show -= delta
 	if e.burn_show <= 0.0:
