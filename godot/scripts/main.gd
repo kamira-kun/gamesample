@@ -195,6 +195,43 @@ func _ready() -> void:
 		_smoke_test()
 
 
+## the data reference (docs/db): every unique, affix, class, ascendancy node, passive node and gem is in it,
+## each unique on its own slot's page, and no line is left with an unfilled number
+func _smoke_docs() -> void:
+	var files := DataDocs.files()
+	var pages := DataDocs.pages()
+	var html: String = files["index.html"]
+	var missing := []
+	for l in Data.LEGENDARY:
+		if not "| %s |" % l.name in files["uniques-%s.md" % l.slot] or not l.name in html:
+			missing.append(l.name)
+	var names := []
+	for a in Data.AFFIXES.filter(func(x): return not x.slots.is_empty()):
+		names.append(a.word)
+	for bc in Data.CLASSES:
+		names.append(bc.name)
+		for k in bc.ascs:
+			var a := Data.ascendancy(k)
+			names.append(a.name)
+			names.append_array(a.minors.map(func(n): return n.name))
+			for tier in a.cores:
+				names.append_array(tier.map(func(c): return c.name))
+	for id in PassiveTree.order():
+		names.append(PassiveTree.node(id).name)
+	for id in Data.SKILL_ORDER:
+		names.append(Data.SKILLS[id].name)
+	names.append_array(Data.SUPPORTS.map(func(g): return g.name))
+	var md := "".join(PackedStringArray(files.values()))
+	for n in names:
+		if not n in md:
+			missing.append(n)
+	var leftover := ["%d", "{v}", "+-", "%%"].filter(func(t): return t in md)
+	var unique_rows: int = pages.filter(func(p): return p.file.begins_with("uniques-")).reduce(func(a, p): return a + p.sections.reduce(func(b, s): return b + s.rows.size(), 0), 0)
+	var tree_rows: int = pages.filter(func(p): return p.file == "passives.md")[0].sections.reduce(func(b, s): return b + s.rows.size(), 0)
+	print("SMOKE docs files=%d uniques=%d tree=%d/%d names=%d missing=%s leftover=%s" % [files.size(), unique_rows, tree_rows,
+		PassiveTree.nodes().size(), names.size(), missing.slice(0, 5), leftover])
+
+
 ## skill gems: a new character owns only the class's starting bar, other skills are found or bought, skills
 ## and support gems wait for their level, drops follow the area level, and older saves keep what their level taught
 func _smoke_gems() -> void:
@@ -802,6 +839,7 @@ func _smoke_test() -> void:
 	_smoke_seasons()
 	_smoke_classes()
 	_smoke_gems()
+	_smoke_docs()
 	_smoke_market()
 	await _smoke_keys()
 	open_interact("device")
