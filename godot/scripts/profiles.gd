@@ -118,12 +118,20 @@ static func migrate(d: Dictionary, today: String) -> Array:
 		d.stash.erase(lg)
 		if n > 0:
 			notes.append("%s のスタッシュをスタンダードのタブ %d 枚に移しました" % [sname, n])
-	# a finished season's market is thrown away; what its orders still held goes to standard's stash currency
+	# a finished season's market is thrown away; what its orders still held goes to standard's stash currency,
+	# and the gear listed or waiting in its pickup box to a standard stash tab
 	for lg in d.get("market", {}).keys():
 		if lg == STANDARD or Data.season_running(lg, today):
 			continue
 		var back := Market.dissolve(d.market[lg])
+		var gear := Trade.dissolve_items(d.market[lg])
 		d.market.erase(lg)
+		var sname: String = Data.season(lg).get("name", lg)
+		var dest := stash_tabs(STANDARD, d)
+		for i in range(0, gear.size(), TAB_SIZE):
+			dest.append({"name": "%s 取引所" % sname, "items": gear.slice(i, i + TAB_SIZE)})
+		if not gear.is_empty():
+			notes.append("%s の取引所の出品と受け取り箱の装備 %d 個をスタンダードのスタッシュに移しました" % [sname, gear.size()])
 		var w := stash_cur(STANDARD, d)
 		var n := 0
 		for k in back:
@@ -131,7 +139,7 @@ static func migrate(d: Dictionary, today: String) -> Array:
 				w[k] = w.get(k, 0) + back[k]
 				n += back[k]
 		if n > 0:
-			notes.append("%s の取引所の注文を取り消し、通貨をスタンダードのスタッシュに戻しました" % Data.season(lg).get("name", lg))
+			notes.append("%s の取引所の注文を取り消し、通貨をスタンダードのスタッシュに戻しました" % sname)
 	for lg in d.get("stash_cur", {}).keys():
 		if lg == STANDARD or Data.season_running(lg, today):
 			continue
