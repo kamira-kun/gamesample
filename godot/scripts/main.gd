@@ -1974,6 +1974,12 @@ func _smoke_dungeon() -> void:
 	var h := Dungeon.new(28, 26, 1, "hideout")
 	print("SMOKE dungeon maps=12 unreachable=%d boss_farthest=%s rooms=%d-%d hideout_rooms=%d" % [cut, boss_far, sizes.min(), sizes.max(), h.rooms.size()])
 	_expect("dungeon", {"connected": cut == 0, "boss_farthest": boss_far, "rooms": sizes.min() >= 2, "hideout": h.rooms.size() == 1 and h.start == h.boss_room})
+	# a boss-sized circle centred on a lone prop tile collides with it (its corners alone fall on open floor)
+	var hr: Dictionary = h.rooms[0]
+	h.blocked[h.idx(hr.cx, hr.cy)] = 1
+	var straddle := h.circle_hits(h.tile_center(hr.cx, hr.cy), 1.8)
+	print("SMOKE big_circle straddle_hits=%s" % straddle)
+	_expect("big_circle", {"straddle_hits": straddle})
 
 
 ## the character screen, on an in-memory profile file: a row per character, the base class picked for a new one
@@ -2863,7 +2869,7 @@ func _spawn_enemies() -> void:
 		pack_id += 1
 		if room == map.boss_room:
 			var bt: Dictionary = Data.BOSS_ROTATION[atlas.node_theme(area)]
-			boss = _make_enemy(bt.type, map.tile_center(room.cx, room.cy), pack_id)
+			boss = _make_enemy(bt.type, _room_near(map.tile_center(room.cx, room.cy), Data.ENEMY_TYPES[bt.type].r), pack_id)
 			boss.max_life *= 1.0 + 0.12 * (f - 1)
 			boss.life = boss.max_life
 			for g in bt.guards:
@@ -5221,7 +5227,20 @@ func gain_jewel(j: Dictionary) -> void:
 
 
 # =================== portal ===================
+## `at`, or the nearest spot around it with room for a circle of `r`
+func _room_near(at: Vector2, r: float) -> Vector2:
+	if not map.circle_hits(at, r):
+		return at
+	for ring in range(1, 13):
+		for k in 16:
+			var p := at + Vector2.from_angle(k * TAU / 16.0) * ring * 0.5
+			if not map.circle_hits(p, r):
+				return p
+	return at
+
+
 func _open_portal(at: Vector2) -> void:
+	at = _room_near(at, player.r)   # a boss can die pressed against a wall or prop
 	var root := Node3D.new()
 	root.position = to3(at)
 	level_root.add_child(root)

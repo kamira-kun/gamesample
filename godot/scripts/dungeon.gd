@@ -247,8 +247,14 @@ func los(a: Vector2, b: Vector2) -> bool:
 	return true
 
 
+## samples the circle's bounding square at most a tile apart, so a big body (a boss) can't straddle a lone wall or prop tile
 func circle_hits(p: Vector2, r: float) -> bool:
-	return solid_at(p + Vector2(-r, -r)) or solid_at(p + Vector2(r, -r)) or solid_at(p + Vector2(-r, r)) or solid_at(p + Vector2(r, r))
+	var n := maxi(1, ceili(2.0 * r / T))
+	for i in n + 1:
+		for j in n + 1:
+			if solid_at(p + Vector2(-r + 2.0 * r * i / n, -r + 2.0 * r * j / n)):
+				return true
+	return false
 
 
 ## slide a circle along the walls; returns the new position
