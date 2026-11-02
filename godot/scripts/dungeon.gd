@@ -12,6 +12,7 @@ var tiles := PackedByteArray()   # 0 = wall, 1 = floor
 var blocked := PackedByteArray() # 1 = floor tile occupied by a prop
 var noise := PackedByteArray()
 var flow := PackedInt32Array()
+var seen := PackedByteArray()    # 1 = tile explored, shown on the map overlay (see reveal); a new map starts unexplored
 var rooms: Array = []            # Dictionary {x, y, w, h, cx, cy}
 var start: Dictionary
 var boss_room: Dictionary
@@ -27,6 +28,7 @@ func _init(width: int, height: int, lvl: int, layout := "") -> void:
 	for i in noise.size():
 		noise[i] = randi() % 256
 	flow.resize(w * h)
+	seen.resize(w * h)
 	if layout == "hideout":
 		_make_hideout()
 	else:
@@ -47,6 +49,26 @@ func solid_at(p: Vector2) -> bool:
 
 func tile_center(tx: int, ty: int) -> Vector2:
 	return Vector2(tx * T + T / 2.0, ty * T + T / 2.0)
+
+
+## mark the tiles whose centre is within `radius` meters of `p` explored; returns the indices newly explored
+func reveal(p: Vector2, radius: float) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	var r := ceili(radius / T)
+	var c := Vector2i(floori(p.x / T), floori(p.y / T))
+	for ty in range(maxi(0, c.y - r), mini(h, c.y + r + 1)):
+		for tx in range(maxi(0, c.x - r), mini(w, c.x + r + 1)):
+			var i := ty * w + tx
+			if seen[i] == 0 and tile_center(tx, ty).distance_squared_to(p) <= radius * radius:
+				seen[i] = 1
+				out.append(i)
+	return out
+
+
+func seen_at(p: Vector2) -> bool:
+	var tx := floori(p.x / T)
+	var ty := floori(p.y / T)
+	return tx >= 0 and ty >= 0 and tx < w and ty < h and seen[ty * w + tx] == 1
 
 
 func _carve(x: int, y: int) -> void:

@@ -85,8 +85,12 @@ func _ready() -> void:
 	if smoke:
 		Keybinds.reset()
 		hud.keyconfig_ui.save_path = ""
+		Settings.path = ""
+		Settings.reset()
 	else:
 		Keybinds.load_file()
+		Settings.load_file()
+	hud.map_overlay.apply_settings()
 	var notes := [] if smoke else Profiles.load_all()
 	if smoke:
 		Profiles.data = Profiles.fresh()
@@ -193,6 +197,11 @@ func _ready() -> void:
 					hud.keyconfig_ui.bind_to("skill_3", 0, {"key": KEY_F})
 				elif kind == "keys":
 					hud.keyconfig_ui.listen("skill_4", 0)
+			elif kind == "map":   # the map overlay over a map explored from the start room through a few rooms
+				enter_map("ash")
+				player.invuln = 1e9
+				_walk_reveal(map.rooms.slice(1, 4))
+				hud.map_overlay.toggle()
 			elif kind == "dummy":   # the hideout training dummy a few seconds into being hit by the bar's skills
 				_view_dummy()
 			elif kind.begins_with("altar") or kind == "forge":
@@ -1994,6 +2003,157 @@ func _smoke_chars() -> void:
 
 
 ## automated run used during development: `godot -- --smoke`
+## counts the engine and script errors logged while it is added (warnings aside), for `_smoke_map`
+class ErrorCount extends Logger:
+	var n := 0
+	var first := ""
+	var _lock := Mutex.new()
+
+	func _log_error(function: String, file: String, line: int, code: String, rationale: String, _editor_notify: bool,
+			error_type: int, _script_backtraces: Array[ScriptBacktrace]) -> void:
+		if error_type == ERROR_TYPE_WARNING:
+			return
+		_lock.lock()
+		n += 1
+		if first == "":
+			first = "%s %s %s:%d %s" % [code, rationale, file, line, function]
+		_lock.unlock()
+
+
+## a few rooms of a fresh map explored, as if walked from the start room to each in turn and back (for `--view=map`)
+func _walk_reveal(rooms: Array) -> void:
+	var at := map.tile_center(map.start.cx, map.start.cy)
+	for r in rooms:
+		var goal := map.tile_center(r.cx, r.cy)
+		map.compute_flow(goal, 99999)
+		for i in 400:
+			map.reveal(at, MapOverlay.REVEAL)
+			var nxt := map.flow_next(at)
+			if nxt == Vector2.INF:
+				break
+			at = nxt
+
+
+## the map overlay (issue #50): a real M press shows and hides it; walking explores the tiles around the player
+## while far rooms stay hidden, and standing still re-uploads nothing; the explored places (merchant, map device)
+## are marked; the transparency and zoom options apply at once from the pause menu and survive a save and load
+## (beside the key bindings, broken values falling back); a new map starts unexplored; no errors in the hideout
+func _smoke_map() -> void:
+	var p := player
+	var mo: MapOverlay = hud.map_overlay
+	var errs := ErrorCount.new()
+	OS.add_logger(errs)
+	hud.close_panels()
+	mo.visible = false
+	enter_hideout()
+	await get_tree().process_frame
+	var shown := []
+	for i in 2:
+		var press := InputEventKey.new()
+		press.physical_keycode = KEY_M
+		press.pressed = true
+		Input.parse_input_event(press)
+		await get_tree().process_frame
+		await get_tree().process_frame
+		var up := press.duplicate()
+		up.pressed = false
+		Input.parse_input_event(up)
+		await get_tree().process_frame
+		shown.append(mo.visible)
+	print("SMOKE map toggle shown=%s" % [shown])
+	_expect("map_toggle", {"opens": shown[0], "closes": not shown[1]})
+	mo.toggle()
+	for i in 3:
+		await get_tree().process_frame
+	var kinds := mo.pois().map(func(q): return q.kind)
+	print("SMOKE map hideout pois=%s seen=%d" % [kinds, map.seen.count(1)])
+	_expect("map_hideout", {"picture": mo.map == map, "here": map.seen_at(p.pos), "merchant": "merchant" in kinds, "device": "device" in kinds})
+	var hideout_map := map
+	# a map: the start room explored, the farthest room not yet; standing there explores it
+	enter_map("ash")
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var start := p.pos
+	var fresh := map.seen.count(1)
+	var cap := int(PI * pow(MapOverlay.REVEAL / Dungeon.T + 1.5, 2))   # tiles in the reveal circle, rounded up
+	var far: Dictionary = map.rooms[0]
+	for r in map.rooms:
+		if map.tile_center(r.cx, r.cy).distance_to(start) > map.tile_center(far.cx, far.cy).distance_to(start):
+			far = r
+	var far_at := map.tile_center(far.cx, far.cy)
+	var far_i := map.idx(far.cx, far.cy)
+	var hidden_before := map.seen[far_i] == 0 and mo.img.get_pixel(far.cx, far.cy).a == 0.0
+	print("SMOKE map reset new=%s seen=%d cap=%d" % [mo.map == map and map != hideout_map, fresh, cap])
+	_expect("map_reset", {"new_picture": mo.map == map and map != hideout_map, "only_start": fresh > 0 and fresh <= cap,
+		"far_hidden": hidden_before})
+	var up0 := mo.uploads
+	for i in 3:
+		await get_tree().process_frame
+	var still := mo.uploads == up0
+	p.pos = far_at
+	await get_tree().process_frame
+	await get_tree().process_frame
+	# a room out of reach of both spots stays dark
+	var other := map.rooms.filter(func(r):
+		var c := map.tile_center(r.cx, r.cy)
+		return c.distance_to(start) > MapOverlay.REVEAL + 2 * Dungeon.T and c.distance_to(far_at) > MapOverlay.REVEAL + 2 * Dungeon.T)
+	var dark := other.all(func(r): return map.seen[map.idx(r.cx, r.cy)] == 0 and mo.img.get_pixel(r.cx, r.cy).a == 0.0)
+	print("SMOKE map explore far_seen=%s pixel=%.2f seen=%d dark_rooms=%d/%s still=%s" % [map.seen[far_i] == 1,
+		mo.img.get_pixel(far.cx, far.cy).a, map.seen.count(1), other.size(), dark, still])
+	_expect("map_explore", {"far_seen": map.seen[far_i] == 1, "pixel": mo.img.get_pixel(far.cx, far.cy).a > 0.0,
+		"grew": map.seen.count(1) > fresh, "others_dark": dark, "still_no_upload": still, "uploaded": mo.uploads > up0})
+	# options: the pause menu's sliders apply at once
+	hud.pause_ui.open_close()
+	hud.pause_ui.map_alpha.value = 70
+	hud.pause_ui.map_zoom.value = 200
+	await get_tree().process_frame
+	var px := (mo.to_screen(p.pos + Vector2(1, 0)) - mo.to_screen(p.pos)).length()
+	print("SMOKE map options transparency=%d zoom=%d alpha=%.2f px_per_m=%.2f" % [Settings.map_transparency, Settings.map_zoom, mo.modulate.a, px])
+	_expect("map_options", {"transparency": Settings.map_transparency == 70, "zoom": Settings.map_zoom == 200,
+		"alpha": is_equal_approx(mo.modulate.a, 0.3), "scale": absf(px - MapOverlay.PX_PER_METER * 2.0) < 0.01})
+	hud.pause_ui.open_close()
+	# save beside the key bindings, load back; junk and out-of-range values fall back or are clamped
+	var path := "user://smoke_settings.cfg"
+	Keybinds.save(path)
+	Settings.save(path)
+	Keybinds.save(path)   # saving the keys again keeps the options
+	Settings.reset()
+	Settings.load_file(path)
+	var kept := Settings.map_transparency == 70 and Settings.map_zoom == 200
+	hud.pause_ui.open_close()
+	var slider := hud.pause_ui.map_alpha.value == 70 and hud.pause_ui.map_zoom.value == 200
+	hud.pause_ui.open_close()
+	var keys_before := Keybinds.binds.duplicate(true)
+	Keybinds.load_file(path)
+	var cf := ConfigFile.new()
+	cf.load(path)
+	cf.set_value("options", "map_transparency", "junk")
+	cf.set_value("options", "map_zoom", 9999)
+	cf.save(path)
+	Settings.load_file(path)
+	print("SMOKE map saved kept=%s slider=%s keys=%s junk=%d clamp=%d" % [kept, slider, Keybinds.binds == keys_before,
+		Settings.map_transparency, Settings.map_zoom])
+	_expect("map_saved", {"kept": kept, "slider": slider, "keys_kept": Keybinds.binds == keys_before,
+		"junk": Settings.map_transparency == Settings.DEFAULTS.map_transparency, "clamp": Settings.map_zoom == Settings.ZOOM[1]})
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	Settings.reset()
+	mo.apply_settings()
+	# the same map again is a new map: nothing of the last visit is kept
+	var old := map
+	enter_map("ash")
+	await get_tree().process_frame
+	await get_tree().process_frame
+	print("SMOKE map again new=%s seen=%d" % [map != old and mo.map == map, map.seen.count(1)])
+	_expect("map_again", {"new": map != old and mo.map == map, "only_start": map.seen.count(1) <= cap})
+	enter_hideout()
+	for i in 5:
+		await get_tree().process_frame
+	mo.visible = false
+	OS.remove_logger(errs)
+	print("SMOKE map errors=%d %s" % [errs.n, errs.first])
+	_expect("map_errors", {"none": errs.n == 0})
+
+
 func _smoke_test() -> void:
 	smoke_log = SmokeLogger.new()
 	OS.add_logger(smoke_log)
@@ -2373,6 +2533,7 @@ func _smoke_test() -> void:
 	_smoke_save()
 	_smoke_dungeon()
 	_smoke_chars()
+	await _smoke_map()
 	print("SMOKE errors locked=%d %s" % [smoke_log.count(), smoke_log.locked])
 	_expect("errors", {"no_locked_free": smoke_log.count() == 0})
 	OS.remove_logger(smoke_log)
@@ -2776,6 +2937,9 @@ func _process(delta: float) -> void:
 	for a in PANEL_ACTIONS:
 		if pressed.has(a):
 			hud.toggle(hud.panel_for(a))
+	if pressed.has("map") and not hud.char_ui.visible:
+		hud.map_overlay.toggle()
+	hud.map_overlay.track(map, player.pos)
 	if pressed.has("cancel"):
 		if hud.any_open():
 			hud.close_panels()
