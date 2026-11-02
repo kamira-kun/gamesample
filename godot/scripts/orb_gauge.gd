@@ -169,7 +169,9 @@ func _process(delta: float) -> void:
 			trail = move_toward(trail, v, delta * maxf(0.35, (trail - v) * 2.5))
 	var pulse := 0.0
 	if low_pulse and v < 0.3:
-		pulse = (0.55 + 0.45 * sin(Time.get_ticks_msec() / 150.0)) * (1.0 - v / 0.3)
+		# a slow, soft throb (#53: was 0.1..1.0 about once a second); not scaled by the 被ダメージ演出 option, so
+		# low life stays readable on the orb even with the screen effects off
+		pulse = (0.6 + 0.25 * sin(Time.get_ticks_msec() / 1000.0 * TAU / Hud.LOW_PERIOD)) * (1.0 - v / 0.3)
 	_mat.set_shader_parameter("level", shown)
 	_mat.set_shader_parameter("trail", maxf(trail, shown))
 	_mat.set_shader_parameter("pulse", pulse)
