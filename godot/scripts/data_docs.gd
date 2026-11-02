@@ -45,19 +45,19 @@ static func _uniques(slot: String) -> Dictionary:
 			var stats := []
 			if l.has("mods"):
 				for k in l.mods:
-					stats.append(_unique_stat(k, l.mods[k]))
+					stats.append(_unique_stat(k, l.mods[k], Data.unique_pow(l.name)))
 			else:
 				stats.append("ランダムなオプション %d〜%d 個" % Data.RARITY[3].aff)
-			rows.append([l.name, "<br>".join(PackedStringArray(stats)), l.get("desc", ""), l.get("flavor", "")])
+			rows.append([l.name, Data.UNIQUE_TIERS[Data.unique_tier(l.name)].name, "<br>".join(PackedStringArray(stats)), l.get("desc", ""), l.get("flavor", "")])
 		if rows.is_empty():
 			continue
 		var b: Dictionary = bases[bi]
 		secs.append({"title": "%s（%d）" % [b.name, rows.size()], "note": "ベース：" + _base_text(slot, b, true),
-			"head": ["名前", "能力値（iLv%d）" % UNIQUE_LVLS[0], "固有効果", "フレーバー"],
+			"head": ["名前", "希少度", "能力値（iLv%d）" % UNIQUE_LVLS[0], "固有効果", "フレーバー"],
 			"rows": rows})
 	var n := Data.LEGENDARY.filter(func(l): return l.slot == slot).size()
 	return {"file": "uniques-%s.md" % slot, "title": "ユニーク：%s（%d種）" % [Data.SLOT_INFO[slot].name, n],
-		"intro": "レジェンド（ユニーク）は全%d種。レジェンドのドロップはこの一覧から等確率で1つ選ばれます。能力値は範囲内でランダムに決まり、アイテムレベル（iLv＝落ちたエリアのレベル）が高いほど大きくなります（マイナスは代償）。神秘の核で振り直せます。" % Data.LEGENDARY.size(),
+		"intro": "レジェンド（ユニーク）は全%d種。レジェンドのドロップはこの一覧から希少度の比重に応じて1つ選ばれます（%s）。希少度が高いほど能力値（プラスの行）と武器ダメージが大きく、相場も高くなります。能力値は範囲内でランダムに決まり、アイテムレベル（iLv＝落ちたエリアのレベル）が高いほど大きくなります（マイナスは代償）。神秘の核で振り直せます。" % [Data.LEGENDARY.size(), _tier_text()],
 		"sections": secs}
 
 
@@ -218,10 +218,24 @@ static func _stat_text(k: String, v: float) -> String:
 	return _fill(Data.affix(k).fmt, _num(v))
 
 
-## a unique's fixed stat at each shown item level, as Items.roll_fixed rolls it
-static func _unique_stat(k: String, r: Array) -> String:
+## the unique tiers: how many of the 1000, the drop weight, and the stat scale
+static func _tier_text() -> String:
+	var counts := {}
+	for l in Data.LEGENDARY:
+		var t := Data.unique_tier(l.name)
+		counts[t] = counts.get(t, 0) + 1
+	var out := []
+	for i in Data.UNIQUE_TIERS.size():
+		var t: Dictionary = Data.UNIQUE_TIERS[i]
+		out.append("%s：%d種・比重%s・能力値×%s" % [t.name, counts.get(i, 0), _num(t.w), ("%.2f" % t.pow).trim_suffix("0").trim_suffix(".0")])
+	return "、".join(PackedStringArray(out))
+
+
+## a unique's fixed stat at each shown item level, as Items.roll_fixed rolls it (positive lines scaled by its tier)
+static func _unique_stat(k: String, r: Array, power := 1.0) -> String:
 	var a := Data.affix(k)
-	var at := func(lv: int) -> String: return _signed_range(roundi(r[0] * (1.0 + lv * a.sc)), roundi(r[1] * (1.0 + lv * a.sc)))
+	var m: float = power if r[0] > 0 else 1.0
+	var at := func(lv: int) -> String: return _signed_range(roundi(r[0] * (1.0 + lv * a.sc) * m), roundi(r[1] * (1.0 + lv * a.sc) * m))
 	var later := []
 	for lv in UNIQUE_LVLS.slice(1):
 		var v: String = at.call(lv)
@@ -233,7 +247,7 @@ static func _base_text(slot: String, b: Dictionary, unique: bool) -> String:
 	var out := []
 	if slot == "weapon":
 		var m := 1.25 if unique else 1.0
-		out.append("ダメージ %d–%d" % [roundi(b.min * 1.22 * m), roundi(b.max * 1.22 * m)] + "（iLv1）")
+		out.append("ダメージ %d–%d" % [roundi(b.min * 1.22 * m), roundi(b.max * 1.22 * m)] + ("（iLv1・稀少、希少度で増減）" if unique else "（iLv1）"))
 		out.append("攻撃/秒 %.2f" % b.aps)
 	if b.has("armor"):
 		out.append("アーマー %d（iLv1）" % roundi(b.armor * 1.2))

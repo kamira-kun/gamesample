@@ -15,14 +15,14 @@ static func roll_rarity(boost: float) -> int:
 	return 0
 
 
-static func generate(ilvl: int, boost := 0.0, force_rarity := -1, force_slot := "") -> Dictionary:
+static func generate(ilvl: int, boost := 0.0, force_rarity := -1, force_slot := "", force_unique := "") -> Dictionary:
 	var rarity := force_rarity if force_rarity >= 0 else roll_rarity(boost)
 	var slot: String = force_slot if force_slot != "" else Data.SLOTS.pick_random()
 	var legend := {}
 	var base: Dictionary
 	if rarity == 3:
-		var pool := Data.LEGENDARY.filter(func(l): return force_slot == "" or l.slot == force_slot)
-		legend = pool.pick_random()
+		var pool := Data.LEGENDARY.filter(func(l): return (force_slot == "" or l.slot == force_slot) and (force_unique == "" or l.name == force_unique))
+		legend = pick_legend(pool)
 		slot = legend.slot
 		var bases: Array = Data.BASES[slot]
 		base = bases[mini(legend.base, bases.size() - 1)]
@@ -32,8 +32,10 @@ static func generate(ilvl: int, boost := 0.0, force_rarity := -1, force_slot := 
 	var it := {"uid": "%d_%d" % [Time.get_ticks_msec(), _uid], "slot": slot, "base": base.name, "rarity": rarity, "ilvl": ilvl,
 		"mods": {}, "implicit": base.get("implicit", {}).duplicate()}
 	var grow := 1.0 + ilvl * 0.22
+	if rarity == 3:
+		it.name = legend.name
 	if slot == "weapon":
-		var boost_l := 1.25 if rarity == 3 else 1.0
+		var boost_l := 1.25 * Data.unique_pow(legend.name) if rarity == 3 else 1.0
 		it.min = roundi(base.min * grow * boost_l)
 		it.max = roundi(base.max * grow * boost_l)
 		it.aps = base.aps
@@ -45,7 +47,6 @@ static func generate(ilvl: int, boost := 0.0, force_rarity := -1, force_slot := 
 	else:
 		add_affixes(it, randi_range(Data.RARITY[rarity].aff[0], Data.RARITY[rarity].aff[1]))
 	if rarity == 3:
-		it.name = legend.name
 		for k in ["effect", "desc", "flavor"]:
 			if legend.has(k):
 				it[k] = legend[k]
@@ -54,14 +55,30 @@ static func generate(ilvl: int, boost := 0.0, force_rarity := -1, force_slot := 
 	return it
 
 
+## one unique from the pool, the rarer tiers less often (Data.UNIQUE_TIERS weights)
+static func pick_legend(pool: Array) -> Dictionary:
+	var total := 0.0
+	for l in pool:
+		total += Data.unique_weight(l.name)
+	var roll := randf() * total
+	for l in pool:
+		roll -= Data.unique_weight(l.name)
+		if roll <= 0.0:
+			return l
+	return pool.back()
+
+
 static func roll_value(it: Dictionary, a: Dictionary) -> int:
-	var v: float = (a.min + randf() * (a.max - a.min)) * (1.0 + it.ilvl * a.sc) * (1.2 if it.rarity == 3 else 1.0)
+	var v: float = (a.min + randf() * (a.max - a.min)) * (1.0 + it.ilvl * a.sc) * (1.2 * Data.unique_pow(it.name) if it.rarity == 3 else 1.0)
 	return maxi(1, roundi(v))
 
 
-## a unique's own stat line: its [min, max] (negative for a drawback) grown with item level like the affix
+## a unique's own stat line: its [min, max] (negative for a drawback) grown with item level like the affix,
+## the positive ones scaled by the unique's tier
 static func roll_fixed(it: Dictionary, k: String, r: Array) -> int:
 	var v: float = (r[0] + randf() * (r[1] - r[0])) * (1.0 + it.ilvl * Data.affix(k).sc)
+	if r[0] > 0:
+		v *= Data.unique_pow(it.name)
 	return roundi(v) if roundi(v) != 0 else signi(r[0])
 
 
@@ -129,7 +146,8 @@ static func craft(k: String, it: Dictionary) -> String:
 
 
 static func sell_price(it: Dictionary) -> int:
-	return roundi((3 + it.ilvl * 2) * (1 + it.rarity * 2))
+	var tier := pow(2.0, Data.unique_tier(it.name)) if int(it.rarity) == 3 else 1.0
+	return roundi((3 + it.ilvl * 2) * (1 + it.rarity * 2) * tier)
 
 
 # =================== merchant ===================
@@ -173,6 +191,9 @@ static func lines(it: Dictionary) -> Array:
 	var out := []
 	var rc: Color = Data.RARITY[it.rarity].color
 	out.append([it.name, rc, 18])
+	if int(it.rarity) == 3:
+		var t: Dictionary = Data.UNIQUE_TIERS[Data.unique_tier(it.name)]
+		out.append(["希少度：%s" % t.name, t.color, 13])
 	out.append(["%s %s" % [Data.RARITY[it.rarity].name, Data.SLOT_INFO[it.slot].name] + ("（%s）" % it.base if it.rarity >= 2 else ""), Color("#9a9080"), 13])
 	out.append(["アイテムレベル %d" % it.ilvl, Color("#7a7266"), 13])
 	if it.slot == "weapon":

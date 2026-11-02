@@ -92,16 +92,12 @@ static func tag_names(ts: Array) -> String:
 	return "・".join(PackedStringArray(ts.map(func(t): return TAGS[t].name)))
 
 
-## a unique's standing among buyers, fixed by its name: {tier, base (c)}
+## a unique's standing among buyers, by its drop tier (Data.UNIQUE_TIERS) and fixed by its name: {tier, base (c)}
 static func unique_tier(uname: String) -> Dictionary:
+	var t: Dictionary = Data.UNIQUE_TIERS[Data.unique_tier(uname)]
 	var r := RandomNumberGenerator.new()
-	r.seed = ("unique/" + uname).hash()
-	var roll := r.randf()
-	if roll < 0.05:
-		return {"tier": "垂涎", "base": r.randf_range(6.0, 15.0)}
-	if roll < 0.30:
-		return {"tier": "人気", "base": r.randf_range(1.5, 4.0)}
-	return {"tier": "並", "base": r.randf_range(0.3, 1.0)}
+	r.seed = ("unique-price/" + uname).hash()
+	return {"tier": t.name, "base": r.randf_range(t.base[0], t.base[1])}
 
 
 ## how good a stat line rolled, 0..1, for the item's level (unique lines against their fixed range)
@@ -113,11 +109,14 @@ static func roll_quality(it: Dictionary, k: String) -> float:
 	var hi := float(a.get("max", 1))
 	if int(it.rarity) == 3:
 		var fixed: Dictionary = Data.legend(it.name).get("mods", {})
+		var power := Data.unique_pow(it.name)
 		if fixed.has(k):
 			lo = fixed[k][0]
 			hi = fixed[k][1]
+			if lo > 0:
+				v /= power
 		else:
-			v /= 1.2
+			v /= 1.2 * power
 	return clampf((v - lo) / maxf(hi - lo, 0.001), 0.0, 1.0)
 
 
