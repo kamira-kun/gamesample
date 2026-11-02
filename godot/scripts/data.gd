@@ -429,8 +429,10 @@ static func talents() -> Array:
 			_talents.append({"k": id, "name": SKILLS[id].name, "desc": "このスキルのダメージ +15%", "max": 10, "skill": true})
 	return _talents
 
-# ascendancy: pick one lineage, spend the points levels give on its minor nodes; points spent there
-# unlock its core tiers, and in each unlocked tier one of two core talents is chosen (and can be swapped freely)
+# ascendancy: pick one of the three lineages of the character's base class (CLASSES), spend the points levels
+# give on its minor nodes; points spent there unlock its core tiers, and in each unlocked tier one of two core
+# talents is chosen (and can be swapped freely). A core's `stats` are added like a minor node's; its id is
+# also an effect key the game checks in player.effects
 const ASC_CORE_REQ := [2, 5, 8]
 const ASCENDANCIES := [
 	{"k": "pyre", "name": "焔王", "icon": "♨", "color": Color("#ff8a3a"), "desc": "炎の呪文で戦場を焼き尽くす王。火炎スペルと詠唱速度に特化。",
@@ -493,6 +495,81 @@ const ASCENDANCIES := [
 			[{"id": "lich_lord", "name": "冥王の権能", "desc": "ミニオン・トーテムのダメージ +50%、攻撃・詠唱の頻度 +25%"},
 				{"id": "bone_march", "name": "死者の行進", "desc": "骸骨召喚で呼ぶ骸骨 +1体、そのマナコスト -30%"}],
 		]},
+	{"k": "bulwark", "name": "鉄燼の城塞", "icon": "⛨", "color": Color("#b8c4d0"), "desc": "灰をかぶった鉄壁の守り手。アーマー・ライフ回復と被ダメージ軽減に特化。",
+		"minors": [
+			{"id": "bulwark_plate", "name": "鉄壁", "fmt": "アーマー +{v}", "max": 3, "stats": {"armor": 12}},
+			{"id": "bulwark_heart", "name": "不屈", "fmt": "最大ライフ +{v}", "max": 3, "stats": {"life": 22}},
+			{"id": "bulwark_mend", "name": "再起", "fmt": "ライフ回復 +{v}/秒", "max": 3, "stats": {"life_regen": 1.5}},
+			{"id": "bulwark_weight", "name": "重圧", "fmt": "攻撃ダメージ +{v}%", "max": 3, "stats": {"atk_dmg": 6}},
+		],
+		"cores": [
+			[{"id": "armor_life", "name": "燼鉄の血肉", "desc": "アーマーの20%を最大ライフに加える"},
+				{"id": "fortress", "name": "砦の構え", "desc": "アーマー +40、移動速度 -5%", "stats": {"armor": 40, "move_spd": -5}}],
+			[{"id": "nova_on_hit", "name": "霜の反撃", "desc": "被弾時20%の確率でフロストノヴァが発動する"},
+				{"id": "hearth_pulse", "name": "炉の鼓動", "desc": "ライフ回復 +6/秒", "stats": {"life_regen": 6}}],
+			[{"id": "unbroken", "name": "不壊の誓い", "desc": "受けるダメージ -12%、最大ライフ +40", "stats": {"dr_pct": 12, "life": 40}},
+				{"id": "kill_heal", "name": "燼喰らい", "desc": "敵を倒すと最大ライフの3%を回復する"}],
+		]},
+	{"k": "bloodfire", "name": "血焔の闘士", "icon": "✢", "color": Color("#e0503a"), "desc": "血と炎を刃に宿して戦う闘士。火炎をまとう攻撃と撃破時の回復に特化。",
+		"minors": [
+			{"id": "bf_flame", "name": "焔刃", "fmt": "火炎ダメージ +{v}%", "max": 3, "stats": {"fire_dmg": 7}},
+			{"id": "bf_fury", "name": "猛攻", "fmt": "攻撃ダメージ +{v}%", "max": 3, "stats": {"atk_dmg": 7}},
+			{"id": "bf_blood", "name": "血潮", "fmt": "撃破時ライフ +{v}", "max": 3, "stats": {"life_on_kill": 2}},
+			{"id": "bf_pace", "name": "闘志", "fmt": "攻撃速度 +{v}%", "max": 3, "stats": {"atk_spd": 4}},
+		],
+		"cores": [
+			[{"id": "ember_edge", "name": "燼の刃", "desc": "攻撃のヒットが敵を燃焼させ、3秒かけてヒットの25%のダメージを与える"},
+				{"id": "slash_wave", "name": "焔走り", "desc": "斬撃が貫通する衝撃波を放つ"}],
+			[{"id": "rage_kill", "name": "闘争の熱", "desc": "攻撃で敵を倒すたび4秒間 攻撃速度 +4%（最大5重）"},
+				{"id": "blood_hunger", "name": "血の渇き", "desc": "撃破時ライフ +8、最大ライフ +20", "stats": {"life_on_kill": 8, "life": 20}}],
+			[{"id": "pyre_fist", "name": "灼熱の拳", "desc": "火炎ダメージ +25%、攻撃ダメージ +15%", "stats": {"fire_dmg": 25, "atk_dmg": 15}},
+				{"id": "ash_frenzy", "name": "燼の狂奔", "desc": "ダメージ +25%、最大ライフ -25", "stats": {"inc_dmg": 25, "life": -25}}],
+		]},
+	{"k": "astral", "name": "星砂の賢者", "icon": "✦", "color": Color("#f0e0a0"), "desc": "星の砂を読み、あらゆる呪文を極める賢者。スペル全般・マナ・リンクの余力に特化。",
+		"minors": [
+			{"id": "astral_lore", "name": "星詠", "fmt": "スペルダメージ +{v}%", "max": 3, "stats": {"spell_dmg": 7}},
+			{"id": "astral_mind", "name": "叡智", "fmt": "最大マナ +{v}", "max": 3, "stats": {"mana": 15}},
+			{"id": "astral_flow", "name": "律動", "fmt": "詠唱速度 +{v}%", "max": 3, "stats": {"cast_spd": 4}},
+			{"id": "astral_well", "name": "余力", "fmt": "エネルギー上限 +{v}", "max": 3, "stats": {"energy": 1}},
+		],
+		"cores": [
+			[{"id": "elem_unity", "name": "三相の調和", "desc": "火炎・冷気・雷ダメージのボーナスが、そのうち最も高い値に揃う"},
+				{"id": "life_to_mana", "name": "魂の転写", "desc": "最大ライフの20%を最大マナに変換する"}],
+			[{"id": "chain_plus", "name": "連鎖の星図", "desc": "チェインライトニングの連鎖数 +4"},
+				{"id": "meteor_shower", "name": "流星群", "desc": "メテオが追加で2つ降り注ぐ"}],
+			[{"id": "fireball_multi", "name": "三連星", "desc": "ファイアボールが3方向に放たれる"},
+				{"id": "star_eater", "name": "星喰み", "desc": "スペルダメージ +40%、最大ライフ -30", "stats": {"spell_dmg": 40, "life": -30}}],
+		]},
+	{"k": "shade", "name": "影走りの狩人", "icon": "☾", "color": Color("#8fa0c8"), "desc": "影から影へ渡り、刃を投げ放つ狩人。攻撃・移動とクリティカルに特化。",
+		"minors": [
+			{"id": "shade_edge", "name": "影刃", "fmt": "攻撃ダメージ +{v}%", "max": 3, "stats": {"atk_dmg": 6}},
+			{"id": "shade_eye", "name": "鷹の目", "fmt": "クリティカル率 +{v}%", "max": 3, "stats": {"crit": 1.5}},
+			{"id": "shade_light", "name": "軽身", "fmt": "移動速度 +{v}%", "max": 3, "stats": {"move_spd": 4}},
+			{"id": "shade_fang", "name": "致命", "fmt": "クリティカルダメージ +{v}%", "max": 3, "stats": {"crit_multi": 10}},
+		],
+		"cores": [
+			[{"id": "dash_nova", "name": "霜影", "desc": "シャドウダッシュの終点でフロストノヴァが発動する"},
+				{"id": "shadow_step", "name": "影の歩み", "desc": "移動速度 +12%", "stats": {"move_spd": 12}}],
+			[{"id": "swift_blade", "name": "疾影", "desc": "移動速度のボーナスと同じだけ攻撃速度が増加する"},
+				{"id": "vital_point", "name": "急所穿ち", "desc": "クリティカル率 +5%、クリティカルダメージ +25%", "stats": {"crit": 5, "crit_multi": 25}}],
+			[{"id": "shade_mark", "name": "影の刻印", "desc": "クリティカルを受けた敵は4秒間 受けるダメージ +15%"},
+				{"id": "afterimage", "name": "残影", "desc": "攻撃速度 +15%、移動速度 +8%", "stats": {"atk_spd": 15, "move_spd": 8}}],
+		]},
+	{"k": "hex", "name": "蝕月の呪詠者", "icon": "☽", "color": Color("#a070c0"), "desc": "蝕む月の言葉で敵を呪い、命を吸い上げる詠み手。呪い・混沌と吸収に特化。",
+		"minors": [
+			{"id": "hex_void", "name": "蝕呪", "fmt": "混沌ダメージ +{v}%", "max": 3, "stats": {"chaos_dmg": 8}},
+			{"id": "hex_word", "name": "呪言", "fmt": "スペルダメージ +{v}%", "max": 3, "stats": {"spell_dmg": 5}},
+			{"id": "hex_moon", "name": "月光", "fmt": "マナ回復 +{v}/秒", "max": 3, "stats": {"mana_regen": 0.8}},
+			{"id": "hex_veil", "name": "闇衣", "fmt": "最大ライフ +{v}", "max": 3, "stats": {"life": 16}},
+		],
+		"cores": [
+			[{"id": "hex_touch", "name": "蝕みの手", "desc": "スペルのヒットが敵を4秒間蝕み、受けるダメージ +12%"},
+				{"id": "soul_drain", "name": "魂喰い", "desc": "混沌ダメージの5%をライフとして吸収する"}],
+			[{"id": "hex_deep", "name": "深き呪縛", "desc": "呪われた・蝕まれた敵へのダメージ +30%"},
+				{"id": "moon_feast", "name": "月蝕の饗宴", "desc": "撃破時ライフ +6、マナ回復 +3/秒", "stats": {"life_on_kill": 6, "mana_regen": 3}}],
+			[{"id": "void_tide", "name": "虚無の潮", "desc": "混沌ダメージ +40%、最大マナ +30", "stats": {"chaos_dmg": 40, "mana": 30}},
+				{"id": "eclipse", "name": "皆既", "desc": "スペルダメージ +30%、受けるダメージ -8%", "stats": {"spell_dmg": 30, "dr_pct": 8}}],
+		]},
 ]
 
 
@@ -501,6 +578,62 @@ static func ascendancy(k: String) -> Dictionary:
 		if a.k == k:
 			return a
 	return {}
+
+
+## a core talent of an ascendancy by id ({} if it has none)
+static func asc_core(a: Dictionary, id: String) -> Dictionary:
+	for tier in a.get("cores", []):
+		for c in tier:
+			if c.id == id:
+				return c
+	return {}
+
+# base classes: chosen when a character is made; each sets a starting lean of the stats, the starting
+# weapon, skill bar and gems, the heroine's colors, and which three ascendancies the character can take
+const DEFAULT_CLASS := "ashblade"   # characters from before base classes that have no ascendancy to go by
+const CLASSES := [
+	{"k": "ashblade", "name": "灰刃の剣士", "icon": "⚔", "color": Color("#d8b070"),
+		"desc": "鋼と灰をまとう前衛。厚いライフとアーマーで踏みとどまり、剣と盾で道を切り開く。",
+		"traits": "最大ライフ +30・アーマー +10・攻撃ダメージ +10%／最大マナ -10",
+		"stats": {"life": 30, "armor": 10, "atk_dmg": 10, "mana": -10},
+		"weapon": "片手剣", "slots": ["slash", "heavy_strike", "throw_knives", "fireball", "nova", "dash"], "gems": ["power", "haste"],
+		"ascs": ["blade", "bulwark", "bloodfire"],
+		"look": {"armor": Color("#2f3f8c"), "dark": Color("#1d2656"), "trim": Color("#d3d8e2"), "cape": false}},
+	{"k": "sigil", "name": "燼紋の術士", "icon": "✹", "color": Color("#ff9a50"),
+		"desc": "身体に燼の紋を刻み、元素を呼ぶ術士。豊富なマナと詠唱速度で呪文を撃ち続ける。",
+		"traits": "最大マナ +30・詠唱速度 +8%・スペルダメージ +10%／最大ライフ -10",
+		"stats": {"mana": 30, "cast_spd": 8, "spell_dmg": 10, "life": -10},
+		"weapon": "ルーンの杖", "slots": ["firebolt", "fireball", "nova", "chain", "meteor", "dash"], "gems": ["power", "multi"],
+		"ascs": ["pyre", "storm", "astral"],
+		"look": {"armor": Color("#8a2433"), "dark": Color("#47141c"), "trim": Color("#e8c36a"), "cape": true}},
+	{"k": "lantern", "name": "灯影の導き手", "icon": "☼", "color": Color("#9fd0a0"),
+		"desc": "灯り狐とともに影を渡る導き手。身軽さとクリティカル、従える霊やミニオンで戦う。",
+		"traits": "移動速度 +6%・攻撃速度 +5%・クリティカル率 +2%・ミニオンのダメージ +15%",
+		"stats": {"move_spd": 6, "atk_spd": 5, "crit": 2, "ally_dmg": 15},
+		"weapon": "短剣", "slots": ["throw_knives", "slash", "skeleton", "chain", "nova", "dash"], "gems": ["power", "haste"],
+		"ascs": ["necro", "shade", "hex"],
+		"look": {"armor": Color("#2c5a3c"), "dark": Color("#173222"), "trim": Color("#c8a060"), "cape": true}},
+]
+
+
+static func base_class(k: String) -> Dictionary:
+	for c in CLASSES:
+		if c.k == k:
+			return c
+	return {}
+
+
+## the base class an ascendancy belongs to ("" for none)
+static func class_of_asc(asc: String) -> String:
+	for c in CLASSES:
+		if asc in c.ascs:
+			return c.k
+	return ""
+
+
+## the ascendancies a base class can take, in its order
+static func class_ascs(k: String) -> Array:
+	return base_class(k).get("ascs", []).map(func(a): return ascendancy(a))
 
 
 ## points for the ascendancy: one every two character levels

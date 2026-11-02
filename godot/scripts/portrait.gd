@@ -7,6 +7,8 @@ extends VBoxContainer
 const PATH := "user://portrait.png"
 const SIZE := Vector2i(220, 300)
 
+var preview := false   # set before adding: only the live heroine, no image to load (the character screen's class preview)
+
 var frame := PanelContainer.new()
 var picture := TextureRect.new()
 var stage := SubViewportContainer.new()
@@ -38,6 +40,10 @@ func _ready() -> void:
 	view.msaa_3d = Viewport.MSAA_4X
 	stage.add_child(view)
 	_build_stage()
+	if preview:
+		for n: Node in [load_btn, reset_btn, dialog]:
+			n.free()
+		return
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
 	add_child(row)
@@ -93,10 +99,17 @@ func _build_stage() -> void:
 	doll.play("Idle")
 
 
-## dress the doll in the player's current gear
+## dress the doll in the player's current gear and class colors
 func show_player(p: Player) -> void:
+	if doll.cls != p.cls:
+		doll.set_class(p.cls)
 	doll.equip = p.equip
 	doll.refresh_gear()
+
+
+## the heroine as a new character of base class `k`, with its starting weapon
+func show_class(k: String) -> void:
+	doll.set_class(k, true)
 
 
 func _show_saved() -> void:

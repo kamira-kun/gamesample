@@ -1,31 +1,27 @@
 class_name Heroine
 extends RefCounted
 ## Dresses the Knight rig as the player's heroine: the Rogue's head with a softened face (no nose,
-## bigger blue eyes), pink bob hair with an ahoge, round glasses, and the armor recolored navy and silver.
+## bigger blue eyes), pink bob hair with an ahoge, round glasses, and the armor recolored by base class
+## (Data.CLASSES `look`: navy and silver for the swordswoman, crimson and gold or green and bronze with a cape).
 
 const HAIR := Color("#f59ac3")
 const EYES_TOP := Color("#7fb2ff")
 const EYES_BOTTOM := Color("#1f3388")
 const SKIN := Color("#fbd3bd")
-const ARMOR := Color("#2f3f8c")
-const ARMOR_DARK := Color("#1d2656")
-const TRIM := Color("#d3d8e2")
 const FRAME := Color("#6e5b78")
 
 static var _head_mesh: ArrayMesh
 static var _head_skin: Skin
 static var _head_mat: StandardMaterial3D
-static var _body_mat: StandardMaterial3D
+static var _knight_mat: StandardMaterial3D
+static var _body_mats := {}    # base class -> the recolored Knight material
 
 
-static func dress(a: Actor) -> void:
+static func dress(a: Actor, cls := Data.DEFAULT_CLASS) -> void:
 	var skel := a.rig.find_child("Skeleton3D", true, false) as Skeleton3D
 	_build()
-	a.rig.find_child("Knight_Cape", true, false).visible = false
 	a.rig.find_child("Knight_Helmet", true, false).visible = false
-	for mi in a.rig_meshes:
-		if String(mi.name).begins_with("Knight_"):
-			mi.material_override = _body_mat
+	paint(a, cls)
 	var head := a.rig.find_child("Knight_Head", true, false) as MeshInstance3D
 	head.mesh = _head_mesh
 	head.skin = _head_skin
@@ -66,6 +62,22 @@ static func dress(a: Actor) -> void:
 		a.rig_meshes.append(mi)
 
 
+## the armor colors and cape of base class `cls`
+static func paint(a: Actor, cls: String) -> void:
+	_build()
+	var look: Dictionary = Data.base_class(cls).get("look", Data.base_class(Data.DEFAULT_CLASS).look)
+	if not _body_mats.has(cls):
+		var m := _knight_mat.duplicate() as StandardMaterial3D
+		m.albedo_texture = _recolor(_knight_mat.albedo_texture, {
+			Vector2i(3, 0): look.armor, Vector2i(7, 1): look.dark, Vector2i(6, 0): look.trim, Vector2i(0, 1): Color("#fff6e0"),
+		}, {})
+		_body_mats[cls] = m
+	a.rig.find_child("Knight_Cape", true, false).visible = look.cape
+	for mi in a.rig_meshes:
+		if String(mi.name).begins_with("Knight_") and mi.name != "Knight_Head":
+			mi.material_override = _body_mats[cls]
+
+
 static func _part(parent: Node3D, to_bone: Transform3D, m: Mesh, material: Material, at: Vector3, rot: Vector3) -> MeshInstance3D:
 	var mi := Fx.mesh(parent, m, material)
 	mi.transform = to_bone * Transform3D(Basis.from_euler(rot), at)
@@ -76,11 +88,7 @@ static func _build() -> void:
 	if _head_mesh:
 		return
 	var knight := Assets.scene(Assets.ADVENTURERS + "Knight.glb").instantiate()
-	var km := (knight.find_child("Knight_Body", true, false) as MeshInstance3D).mesh.surface_get_material(0) as StandardMaterial3D
-	_body_mat = km.duplicate()
-	_body_mat.albedo_texture = _recolor(km.albedo_texture, {
-		Vector2i(3, 0): ARMOR, Vector2i(7, 1): ARMOR_DARK, Vector2i(6, 0): TRIM, Vector2i(0, 1): Color("#fff6e0"),
-	}, {})
+	_knight_mat = (knight.find_child("Knight_Body", true, false) as MeshInstance3D).mesh.surface_get_material(0) as StandardMaterial3D
 	knight.free()
 	var rogue := Assets.scene(Assets.ADVENTURERS + "Rogue.glb").instantiate()
 	var rh := rogue.find_child("Rogue_Head", true, false) as MeshInstance3D

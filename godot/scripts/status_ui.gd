@@ -95,6 +95,8 @@ func refresh() -> void:
 			stats.add_child(Control.new())
 		_row(stats, rows[i][0], rows[i][1])
 	_row(stats, "タレントポイント", str(p.talent_pts), Color("#ffe27a"))
+	var bc := Data.base_class(p.cls)
+	_row(stats, "ベースキャラ", "%s %s" % [bc.icon, bc.name], bc.color)
 	var a := Data.ascendancy(p.asc)
 	_row(stats, "アセンダンシー", "%s（残り %d）" % [a.name, p.asc_free()] if not a.is_empty() else "未選択 [%s]" % Keybinds.text("ascendancy"), a.get("color", Color("#776a58")))
 	_row(stats, "エネルギー", "%d / %d" % [p.energy_used(), p.energy_max()], Data.GEM_COLOR)

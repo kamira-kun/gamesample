@@ -1,6 +1,6 @@
 class_name AscUI
 extends BasePanel
-## Ascendancy (U): choose a lineage, spend the points every second level gives on its minor nodes,
+## Ascendancy (U): choose one of the three lineages of the character's base class, spend the points every second level gives on its minor nodes,
 ## and pick one core talent in each tier those points open. Core picks can be swapped at no cost.
 
 var points := Label.new()
@@ -47,13 +47,14 @@ func refresh() -> void:
 		_build_tree(p, Data.ascendancy(p.asc))
 
 
-## no lineage yet: one card per ascendancy
+## no lineage yet: one card per ascendancy of the base class
 func _build_pick() -> void:
-	content.add_child(sub("系譜を選ぶ（最初の選択は無料）", 15, Color("#f0dcb4")))
+	var bc := Data.base_class(hud.main.player.cls)
+	content.add_child(sub("%s %s の系譜を選ぶ（最初の選択は無料）" % [bc.icon, bc.name], 15, bc.color))
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 10)
 	content.add_child(row)
-	for a in Data.ASCENDANCIES:
+	for a in Data.class_ascs(bc.k):
 		var lines: Array = ["%s %s" % [a.icon, a.name], a.desc, ""]
 		for tier in a.cores:
 			lines.append("◇ " + " ／ ".join(PackedStringArray(tier.map(func(c): return c.name))))
@@ -118,7 +119,7 @@ func _card(text: String, col: Color, usable: bool, taken: bool, full := false) -
 
 func _choose(k: String) -> void:
 	var p: Player = hud.main.player
-	if p.asc != "":
+	if p.asc != "" or not k in Data.base_class(p.cls).ascs:   # another class's lineage is never offered
 		return
 	p.asc = k
 	p.asc_ranks = {}
