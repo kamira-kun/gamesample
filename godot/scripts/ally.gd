@@ -17,6 +17,7 @@ var skill := ""
 var t := 0.0
 var max_t := 10.0
 var cast_t := 0.4
+var casts := 0                # times it has cast its skill
 var orb: MeshInstance3D
 var trap := false            # a trap from a support gem: springs once when an enemy comes close
 

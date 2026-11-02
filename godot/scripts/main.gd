@@ -1087,6 +1087,7 @@ func _smoke_auras() -> void:
 ## the currency exchange, on an in-memory profile file (docs/economy-design.md section 9)
 func _smoke_market() -> void:
 	var sid: String = Data.SEASONS[0].id
+	Market.rng.seed = 1   # the same drift and fills every run
 	var d := Profiles.fresh()
 	Profiles.data = d
 	var std := Profiles.STANDARD
@@ -1115,7 +1116,9 @@ func _smoke_market() -> void:
 	var est := Market.limit_estimate(std, "divine", "sell", lim, 10)
 	err = Market.place_limit(std, "divine", "sell", lim, 10, w)
 	var held: int = w.divine
-	for i in 30:
+	for i in Market.ORDER_LIFE - 1:   # until it closes, short of expiring: each tick fills a random share
+		if Market.orders(std).is_empty():
+			break
 		Market.state(std).prices.divine = lim / 1.05   # hold the price so the test does not hang on luck
 		Market.tick(std, w)
 	var notes := Market.take_notes(std)
@@ -1426,11 +1429,38 @@ func _view_dummy() -> void:
 
 
 func _free_spot(c: Vector2, d: float) -> Vector2:
-	for k in 32:
-		var at := c + Vector2.from_angle(k * TAU / 32.0 - PI / 2) * (d + k / 8)
-		if not map.circle_hits(at, 1.6) and map.los(c, at):
-			return at
+	for room in [1.6, 0.9]:   # a narrow corridor has no 1.6 of room: settle for less rather than `c` itself
+		for k in 32:
+			var at := c + Vector2.from_angle(k * TAU / 32.0 - PI / 2) * (d + k / 8)
+			if not map.circle_hits(at, room) and map.los(c, at):
+				return at
 	return c
+
+
+## the nearest point with room around it (2.5, else 1.6), searched in rings out from `c`
+func _open_spot(c: Vector2) -> Vector2:
+	for room in [2.5, 1.6]:
+		for ring in 25:
+			for k in maxi(1, ring * 8):
+				var at := c + Vector2.from_angle(k * TAU / maxf(1.0, ring * 8.0)) * ring * 1.5
+				if not map.circle_hits(at, room):
+					return at
+	return c
+
+
+## whether a circle of radius `r` can go `length` straight along `dir` from `from` without touching a wall
+## (move_circle slides along walls, so a lane is clear only when every step moves the whole way)
+func _clear_lane(from: Vector2, dir: Vector2, r: float, length: float) -> bool:
+	var at := from
+	var left := length
+	while left > 0.0:
+		var s := minf(0.32, left)
+		left -= s
+		var to := map.move_circle(at, r, dir * s)
+		if to.distance_to(at + dir * s) > 0.001:
+			return false
+		at = to
+	return true
 
 
 ## cinder altars: placement and beacons, kindling with a vow, the waves and the guardian, the reward,
@@ -2008,6 +2038,7 @@ func _smoke_test() -> void:
 	enter_map("ash")
 	print("SMOKE entered=%s level=%d atlas_open=%s" % [area.id, floor_level, hud.atlas_ui.visible])
 	_expect("atlas_enter", {"entered": area.id == "ash", "closed": not hud.atlas_ui.visible, "boss": boss != null})
+	var ash_boss := boss
 	var e: Enemy = enemies.filter(func(q): return not q.boss)[0]
 	p.pos = map.move_circle(e.pos + Vector2(-4, -4), p.r, Vector2.ZERO)
 	await get_tree().create_timer(0.3).timeout
@@ -2061,13 +2092,15 @@ func _smoke_test() -> void:
 	dummy.max_life = 1e7
 	dummy.life = 1e7
 	var balls := 0
+	var casts0 := tot.casts
 	var until := Time.get_ticks_msec() + 1500
-	while balls == 0 and Time.get_ticks_msec() < until:   # every frame: a ball may hit a close enemy within a few
+	# counted by its casts: the pack crowds a totem, and a ball cast point-blank bursts the frame it is made, unseen
+	while tot.casts == casts0 and Time.get_ticks_msec() < until:
 		await get_tree().process_frame
-		balls = projs.filter(func(q): return q.kind == "fireball").size()
-	print("SMOKE totem fired fireballs=%d alive=%s t=%.1f/%.1f target_dist=%.1f los=%s" % [balls, tot.life > 0.0, tot.t, tot.max_t,
-		tot.pos.distance_to(dummy.pos), map.los(tot.pos, dummy.pos)])
-	_expect("totem_fired", {"fired": balls > 0})
+		balls = maxi(balls, projs.filter(func(q): return q.kind == "fireball").size())
+	print("SMOKE totem fired casts=%d fireballs=%d alive=%s t=%.1f/%.1f target_dist=%.1f los=%s" % [tot.casts - casts0, balls, tot.life > 0.0,
+		tot.t, tot.max_t, tot.pos.distance_to(dummy.pos), map.los(tot.pos, dummy.pos)])
+	_expect("totem_fired", {"fired": tot.casts > casts0})
 	hit_enemy(dummy, {"dmg": 1e9, "crit": false, "type": "phys"})
 	hud.skill_ui.open_slot(0)
 	hud.skill_ui._assign("fireball")
@@ -2157,15 +2190,41 @@ func _smoke_test() -> void:
 	_expect("filter_autosell", {"not_bagged": p.bag.size() == bag0})
 	hud.close_panels()
 	p.filter = Player.default_filter()
-	var fetch := map.move_circle(p.pos, 0.2, Vector2(6, 0))
-	_drop_currency("chaos", 1, fetch)
-	var chaos0: int = p.cur.chaos
-	for i in 30:   # it may be busy with another drop first
-		await get_tree().create_timer(0.2).timeout
-		if p.cur.chaos > chaos0:
+	# one shard in plain sight down an open lane, with the fox at heel and the loot left by the tests above
+	# out of its list: otherwise it may first run off after those, or never see a shard scattered behind a corner
+	var fetch := Vector2.INF
+	var p_at := p.pos
+	for from in [p.pos, _open_spot(p.pos)]:   # the tests above may have left the player in a corridor
+		for k in 96:
+			var dir := Vector2.from_angle(k * TAU / 32.0)
+			var dist := 6.0 - k / 32 * 1.5
+			if _clear_lane(from, dir, pet.r + 0.2, dist):
+				p.pos = from
+				fetch = from + dir * dist
+				break
+		if fetch.x != INF:
 			break
-	print("SMOKE pet fetched=%s pet_dist=%.1f" % [p.cur.chaos > chaos0, pet.pos.distance_to(p.pos)])
-	_expect("pet", {"fetched": p.cur.chaos > chaos0})
+	var pet_lane := fetch.x != INF
+	if not pet_lane:
+		fetch = p.pos
+	var skipped := (drops + ground).filter(func(g): return not g.get("pet_skip", false))
+	for g in skipped:
+		g.pet_skip = true
+	pet.pos = p.pos
+	pet.target = {}
+	pet.scan_t = 0.0
+	_drop_currency("chaos", 1, fetch)
+	drops[-1].pos = fetch   # not scattered
+	drops[-1].node.position = to3(fetch, 0.3)
+	var chaos0: int = p.cur.chaos
+	var pet_until := Time.get_ticks_msec() + 6000
+	while p.cur.chaos == chaos0 and Time.get_ticks_msec() < pet_until:
+		await get_tree().process_frame
+	for g in skipped:
+		g.erase("pet_skip")
+	print("SMOKE pet fetched=%s fetch_dist=%.1f pet_dist=%.1f moved=%.1f" % [p.cur.chaos > chaos0, fetch.distance_to(p.pos), pet.pos.distance_to(p.pos),
+		p_at.distance_to(p.pos)])
+	_expect("pet", {"lane": pet_lane, "fetched": p.cur.chaos > chaos0})
 	hud.toggle(hud.status_ui)
 	await get_tree().create_timer(0.2).timeout
 	print("SMOKE status open=%s rows=%d" % [hud.status_ui.visible, hud.status_ui.stats.get_child_count()])
@@ -2177,11 +2236,14 @@ func _smoke_test() -> void:
 	await get_tree().create_timer(1.0).timeout
 	var killed_before := enemies.size()
 	if boss:   # a totem or minion left from the tests above may already have finished it
-		hit_enemy(boss, {"dmg": 999999, "crit": false, "type": "phys"})
-	print("SMOKE enemies=%d level=%d portal=%s" % [killed_before, p.level, not portal.is_empty()])
-	_expect("boss_kill", {"portal": not portal.is_empty()})
-	p.pos = portal.pos
-	await get_tree().create_timer(0.3).timeout
+		hit_enemy(boss, {"dmg": maxi(999999, ceili(boss.life) + 1), "crit": false, "type": "phys"})
+	# killed earlier next to the player, its portal took the player home at once: it opened, and was used
+	var walked_in := portal.is_empty() and in_hideout()
+	print("SMOKE enemies=%d level=%d portal=%s walked_in=%s" % [killed_before, p.level, not portal.is_empty(), walked_in])
+	_expect("boss_kill", {"dead": not is_instance_valid(ash_boss) or ash_boss.dead, "portal": not portal.is_empty() or walked_in})
+	if not portal.is_empty():
+		p.pos = portal.pos
+		await get_tree().create_timer(0.3).timeout
 	print("SMOKE completed hideout=%s cleared=%s bone_unlocked=%s wail_unlocked=%s" % [in_hideout(), atlas.cleared, atlas.is_unlocked(Data.atlas_node("bone")), atlas.is_unlocked(Data.atlas_node("wail"))])
 	_expect("completed", {"hideout": in_hideout(), "cleared": "ash" in atlas.cleared, "bone": atlas.is_unlocked(Data.atlas_node("bone")),
 		"wail": atlas.is_unlocked(Data.atlas_node("wail"))})
@@ -2208,7 +2270,9 @@ func _smoke_test() -> void:
 		b.aggro = true
 		var chill := 0.0
 		var shots := 0
-		for i in 8:
+		for i in 24:   # 8 moves, then more until one shot: the colossus fires only on its eruption, picked at random (30%)
+			if i >= 8 and shots > 0:
+				break
 			b.act_t = 0.0
 			b.atk_cd = 9.0
 			for k in 10:
@@ -2218,14 +2282,35 @@ func _smoke_test() -> void:
 		if kind == "colossus":
 			await get_tree().create_timer(1.0).timeout
 			var hz_old := hazards.duplicate()   # its own earlier fire may burn out meanwhile: count the new patches only
-			b.pos = spot   # its moves above may have left it against a wall; the spawn spot sees the player
+			# a lane its whole body fits down: a ray in sight of the player can still graze a corner and stop the charge
+			# before it lays any fire. Toward the player when one of the spots allows it, else any open way.
+			var lane := {}
+			for dirs_to_player in [true, false]:
+				for k in 64:
+					var at := p.pos + Vector2.from_angle(k * TAU / 32.0) * (9.0 + k / 8)
+					if map.circle_hits(at, b.r + 0.1):
+						continue
+					for j in (1 if dirs_to_player else 16):
+						var dir := (p.pos - at).normalized() if dirs_to_player else Vector2.from_angle(j * TAU / 16.0)
+						if _clear_lane(at, dir, b.r, 8.0):
+							lane = {"at": at, "dir": dir}
+							break
+					if not lane.is_empty():
+						break
+				if not lane.is_empty():
+					break
+			b.pos = lane.get("at", spot)
 			b.windup = 0.0
 			b.act_t = 9.0
-			b.charge = {"dir": (p.pos - b.pos).normalized(), "left": 8.0, "hit": false, "trail": 0.0}
-			await get_tree().create_timer(0.6).timeout
+			b.stun = 0.0
+			b.frozen = 0.0
+			b.charge = {"dir": lane.get("dir", (p.pos - b.pos).normalized()), "left": 8.0, "hit": false, "trail": 0.0}
+			var charge_until := Time.get_ticks_msec() + 3000   # 8 tiles at 30 a second: a few frames, however slow they come
+			while not b.charge.is_empty() and Time.get_ticks_msec() < charge_until:
+				await get_tree().process_frame
 			var trail := hazards.filter(func(h): return not hz_old.any(func(o): return is_same(o, h))).size()
-			print("SMOKE charge done=%s trail+%d" % [b.charge.is_empty(), trail])
-			_expect("colossus_charge", {"done": b.charge.is_empty(), "trail": trail > 0})
+			print("SMOKE charge done=%s trail+%d lane=%s" % [b.charge.is_empty(), trail, not lane.is_empty()])
+			_expect("colossus_charge", {"lane": not lane.is_empty(), "done": b.charge.is_empty(), "trail": trail >= 3})   # a patch every 1.8-2.1 of the 8
 		b.life = b.max_life * 0.4
 		for k in 30:
 			if b.enraged:
@@ -4073,6 +4158,7 @@ func _update_totems(delta: float) -> void:
 		t.face = (best.pos - t.pos).angle()
 		var c := {"pos": t.pos, "aim": t.face, "to": best.pos, "player": false}
 		_with_sup(ts, func(): _cast(t.skill, c))
+		t.casts += 1
 	for t in totems:
 		if t.life <= 0.0:
 			_kill_ally(t)
@@ -4486,8 +4572,8 @@ func _update_charge(e: Enemy, delta: float) -> void:
 		step -= s
 		var before := e.pos
 		e.pos = map.move_circle(e.pos, e.r, c.dir * s)
-		if e.pos.distance_to(before) < 0.02:
-			c.left = 0.0   # ran into a wall
+		if e.pos.distance_to(before) < minf(0.02, s * 0.5):
+			c.left = 0.0   # ran into a wall (compared to the slice: a frame can end on a sliver of a step)
 			break
 		c.trail += s
 		if c.trail > 1.8:
