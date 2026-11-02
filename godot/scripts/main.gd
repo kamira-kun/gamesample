@@ -28,6 +28,7 @@ var texts: Array = []        # floating damage numbers, drawn by the HUD
 var ground: Array = []       # items lying on the floor
 var drops: Array = []        # currency lying on the floor
 var save_t := 0.0
+var talents_refunded := false   # the loaded save still had talents; they came back as passive points
 var smoke := false
 var portal: Dictionary = {}
 var atlas := Atlas.new()
@@ -100,6 +101,8 @@ func _ready() -> void:
 		if got > 0:
 			hud.message("スタッシュに戻っていた通貨 %d 個を受け取った" % got, Color("#e8d8b0"))
 		market_notes()   # left over if the game closed before they were shown
+		if talents_refunded:
+			hud.message("タレントはパッシブツリーに変わりました。振っていたポイントはパッシブポイントとして戻っています（%s）" % Keybinds.text("talents"), Color("#ffe27a"))
 	else:
 		hud.message("%sで移動、%sで斬撃、%sでファイアボール" % [move_keys(), Keybinds.text("skill_1"), Keybinds.text("skill_2")], Color("#e8d8b0"))
 	hud.message("　".join(PackedStringArray(PANEL_ACTIONS.map(func(a): return "%s：%s" % [Keybinds.text(a), Keybinds.action(a).name]))), Color("#b8a888"))
@@ -133,8 +136,13 @@ func _ready() -> void:
 				player.links[1] = ["totem", "multi"]
 				hud.skill_ui.open_slot(1)
 			elif kind in ["talents", "status", "filter", "passives", "ascend", "ascend_pick"]:
-				player.talent_pts = 3
 				atlas.cleared = ["ash", "bone"]
+				if kind == "talents":   # a level 24 character partway to the class's notable, a few points left
+					player.level = 24
+					var goal: String = {"ashblade": "n_stance", "sigil": "n_torrent", "lantern": "n_shadowstep"}[player.cls]
+					player.tree = PassiveTree.path_to([], player.cls, goal)
+					player.tree.append_array(PassiveTree.path_to(player.tree, player.cls, PassiveTree.SPOKES[(PassiveTree.SECTORS[player.cls].step + 2) % PassiveTree.STEPS].id))
+					player.recalc(true)
 				if kind == "ascend":
 					player.level = 14
 					if cls_arg == "":
@@ -143,7 +151,7 @@ func _ready() -> void:
 					player.asc_ranks = {"storm_elem": 3, "storm_sight": 2, "storm_step": 1}
 					player.asc_cores = ["shock", "crit_arc", ""]
 					player.recalc(true)
-				hud.toggle({"talents": hud.talent_ui, "status": hud.status_ui, "filter": hud.filter_ui, "passives": hud.passive_ui,
+				hud.toggle({"talents": hud.tree_ui, "status": hud.status_ui, "filter": hud.filter_ui, "passives": hud.passive_ui,
 					"ascend": hud.asc_ui, "ascend_pick": hud.asc_ui}[kind])
 			elif kind in ["colossus", "witch"]:   # a boss next to the player
 				enter_map("ash")
@@ -261,6 +269,62 @@ func _smoke_classes() -> void:
 
 
 ## season leagues and the stash, on an in-memory profile file (the real one is never touched)
+## passive tree: the web is whole, points follow the level, far nodes are taken along the shortest way, nodes only
+## go back while the rest stays joined, saves are cleaned up, and old talents come back as points
+func _smoke_tree() -> void:
+	var p := player
+	var keep := [p.level, p.tree.duplicate(), p.cls]
+	var all := PassiveTree.nodes()
+	var kinds := {}
+	for id in all:
+		kinds[all[id].kind] = kinds.get(all[id].kind, 0) + 1
+	var sym: bool = all.keys().all(func(id): return all[id].links.all(func(nb): return id in all[nb].links))
+	var reach: bool = Data.CLASSES.all(func(c): return all.keys().all(func(id): return all[id].kind == "start" or not PassiveTree.path_to([], c.k, id).is_empty()))
+	print("SMOKE tree nodes=%d kinds=%s symmetric=%s reach_all=%s" % [all.size(), kinds, sym, reach])
+	p.set_class("ashblade")
+	p.level = 10
+	p.tree = []
+	p.recalc(true)
+	hud.toggle(hud.tree_ui)
+	var atk0: float = p.s.atk_dmg
+	var path := PassiveTree.path_to(p.tree, p.cls, "n_stance")
+	var took: bool = hud.tree_ui._take("n_stance")
+	print("SMOKE tree take path=%d took=%s free=%d atk+%d" % [path.size(), took, p.tree_free(), p.s.atk_dmg - atk0])
+	var far: bool = hud.tree_ui._take("k_starlore")   # too many points for what is left
+	var other: bool = hud.tree_ui._take(PassiveTree.start_id("sigil"))
+	var mid: bool = hud.tree_ui._refund(p.tree[0])   # would cut n_stance off
+	var leaf: bool = hud.tree_ui._refund("n_stance")
+	print("SMOKE tree refused far=%s other_start=%s mid=%s leaf=%s size=%d" % [far, other, mid, leaf, p.tree.size()])
+	# a keystone's percentage life
+	p.level = 40
+	p.tree = []
+	p.recalc(true)
+	var life0: float = p.s.max_life
+	hud.tree_ui._take("k_ironheart")
+	print("SMOKE tree keystone life=%.2f move=%d" % [p.s.max_life / life0, PassiveTree.stats(p.tree).move_spd])
+	hud.tree_ui._reset()
+	print("SMOKE tree reset size=%d life_back=%s" % [p.tree.size(), is_equal_approx(p.s.max_life, life0)])
+	# saves: round trip, junk dropped, cut off or over-budget nodes pruned, another class's tree emptied
+	hud.tree_ui._take("n_stance")
+	var d := save_data()
+	var want: Array = p.tree.duplicate()
+	apply_save(JSON.parse_string(JSON.stringify(d)))
+	var rt: bool = p.tree == want
+	var junk := PassiveTree.sanitize(want + ["nope", "s_sigil", want[0], "k_starlore"], "ashblade", 40)
+	var over := PassiveTree.sanitize(want, "ashblade", 2)
+	var foreign := PassiveTree.sanitize(want, "sigil", 40)
+	d.erase("tree")
+	d.talents = {"might": 3}
+	apply_save(d)
+	print("SMOKE tree save round=%s junk=%d over=%s foreign=%d migrated=%s free=%d" % [rt, junk.size(), over == want.slice(0, 2), foreign.size(),
+		talents_refunded, p.tree_free()])
+	talents_refunded = false
+	hud.close_panels()
+	p.level = keep[0]
+	p.tree = keep[1]
+	p.set_class(keep[2])
+
+
 func _smoke_seasons() -> void:
 	var p := player
 	var sid: String = Data.SEASONS[0].id
@@ -743,13 +807,8 @@ func _smoke_test() -> void:
 	# every support gem changes some skill it fits
 	var unused := Data.SUPPORTS.filter(func(g): return not Data.SKILL_ORDER.any(func(id): return g.id in Data.build_sup(id, [g.id]).ids))
 	print("SMOKE supports=%d skills=%d unused=%s" % [Data.SUPPORTS.size(), Data.SKILL_ORDER.size(), unused.map(func(g): return g.id)])
-	# talents, the loot filter and the pet
-	p.talent_pts = 2
-	var dmg0: int = p.s.inc_dmg
-	hud.toggle(hud.talent_ui)
-	hud.talent_ui._spend("might")
-	hud.talent_ui._spend("fireball")
-	print("SMOKE talents pts=%d inc_dmg+%d fireball=%d" % [p.talent_pts, p.s.inc_dmg - dmg0, p.talents.fireball])
+	# the passive tree, the loot filter and the pet
+	_smoke_tree()
 	# ascendancy: pick the fire lineage, open two core tiers, then start over
 	p.set_class("sigil")
 	hud.toggle(hud.asc_ui)
@@ -1408,12 +1467,11 @@ func gain_xp(v: int) -> void:
 	while p.xp >= Data.xp_need(p.level):
 		p.xp -= Data.xp_need(p.level)
 		p.level += 1
-		p.talent_pts += 1
 		p.recalc(true)
 		add_text(p.pos, "LEVEL UP!", Color("#ffe27a"), 28)
 		Fx.ring(level_root, to3(p.pos), 5.0, Color("#ffe27a"), 0.6, false)
 		Fx.burst(level_root, to3(p.pos, 1.0), 40, Color("#ffe27a"), 6.0)
-		hud.message("レベル %d に到達！ タレントポイント +1（%s）" % [p.level, Keybinds.text("talents")], Color("#ffe27a"))
+		hud.message("レベル %d に到達！ パッシブポイント +1（%s）" % [p.level, Keybinds.text("talents")], Color("#ffe27a"))
 		if Data.asc_points(p.level) > Data.asc_points(p.level - 1):
 			hud.message("アセンダンシーポイント +1（%s）" % Keybinds.text("ascendancy"), Data.ascendancy(p.asc).get("color", Color("#ffcf7a")))
 		hud.message("エネルギー上限 +1（%d）" % p.energy_max(), Data.GEM_COLOR)
@@ -1421,7 +1479,7 @@ func gain_xp(v: int) -> void:
 			if Data.SKILLS[id].lvl == p.level:
 				hud.message("新スキル「%s」を習得！（%sで付け替え）" % [Data.SKILLS[id].name, Keybinds.text("skills")], Data.SKILLS[id].color)
 		hud.skill_ui.refresh()
-		hud.talent_ui.refresh()
+		hud.tree_ui.refresh()
 		hud.asc_ui.refresh()
 
 
@@ -1441,7 +1499,7 @@ func roll_damage(coef: float, type: String, spell := false) -> Dictionary:
 		inc += 50
 	if player.low_life():
 		inc += 40
-	d *= (1.0 + inc / 100.0) * sup.dmg * sup.get("m_" + type, 1.0) * (1.0 + 0.15 * player.talents.get(sup.skill, 0))
+	d *= (1.0 + inc / 100.0) * sup.dmg * sup.get("m_" + type, 1.0)
 	if sup.lowlife > 0.0 and player.life <= player.s.max_life * 0.5:
 		d *= 1.0 + sup.lowlife
 	var crit: bool = force_crit or (randf() * 100.0 < s.crit + sup.crit and not player.effects.has("no_crit"))
@@ -3684,7 +3742,7 @@ func save_data() -> Dictionary:
 	var p := player
 	return {"floor": floor_level, "level": p.level, "xp": p.xp, "potions": p.potions,
 		"equip": p.equip, "bag": p.bag, "cur": p.cur, "atlas": atlas.to_dict(), "shop": shop,
-		"slots": p.slots, "links": p.links, "gems": p.gems, "talent_pts": p.talent_pts, "talents": p.talents, "filter": p.filter,
+		"slots": p.slots, "links": p.links, "gems": p.gems, "tree": p.tree, "filter": p.filter,
 		"cls": p.cls, "asc": p.asc, "asc_ranks": p.asc_ranks, "asc_cores": p.asc_cores, "auras": p.auras}
 
 
@@ -3715,10 +3773,10 @@ func apply_save(data: Dictionary) -> void:
 	if ln.size() == Data.SLOT_COUNT:
 		p.links = ln.map(func(l): return Array(l).filter(func(id): return not Data.support(id).is_empty()))
 	p.gems = Array(data.get("gems", Data.DEFAULT_GEMS)).filter(func(id): return not Data.support(id).is_empty())
-	p.talent_pts = int(data.get("talent_pts", 0))
-	var tl: Dictionary = data.get("talents", {})
-	for t in Data.talents():
-		p.talents[t.k] = clampi(int(tl.get(t.k, 0)), 0, t.max)
+	# talents came before the passive tree: their points come back as passive points
+	p.tree = PassiveTree.sanitize(data.get("tree", []), p.cls, p.tree_points())
+	var tl = data.get("talents", {})
+	talents_refunded = not data.has("tree") and typeof(tl) == TYPE_DICTIONARY and tl.values().any(func(v): return int(v) > 0)
 	# only an ascendancy of the character's base class comes back (Profiles.normalize keeps them matched)
 	var a := Data.ascendancy(str(data.get("asc", "")))
 	p.asc = ""

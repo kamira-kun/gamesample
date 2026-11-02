@@ -4,8 +4,7 @@ extends Actor
 var cls := Data.DEFAULT_CLASS   # base class (Data.CLASSES): the stat lean, the look and the three ascendancies on offer
 var level := 1
 var xp := 0
-var talent_pts := 0
-var talents := {}            # talent key -> rank
+var tree: Array = []         # passive tree nodes taken (PassiveTree), in the order they were taken
 # ascendancy: the chosen lineage, ranks of its minor nodes, the core talent picked in each tier
 var asc := ""
 var asc_ranks := {}
@@ -56,8 +55,6 @@ var filter := default_filter()
 
 func _init() -> void:
 	super()
-	for t in Data.talents():
-		talents[t.k] = 0
 	for c in Data.CURRENCIES:
 		cur[c.k] = 0
 	var sword := Items.generate(1, 0.0, 0, "weapon")
@@ -114,7 +111,7 @@ func max_potions() -> int:
 	return BASE_POTIONS + (roundi(atlas.val("flask")) if atlas else 0)
 
 
-## derived stats from level, talents and gear
+## derived stats from level, the passive tree and gear
 func recalc(full := false) -> void:
 	var L := level
 	var old_l: float = life / s.max_life if s else 1.0
@@ -125,6 +122,7 @@ func recalc(full := false) -> void:
 		"inc_dmg": 0, "flat_dmg": 0, "atk_spd": 0, "cast_spd": 0, "move_spd": 0, "armor": 0, "fire_dmg": 0, "cold_dmg": 0,
 		"light_dmg": 0, "spell_dmg": 0, "life_on_kill": 0, "cdr": 0, "life": 0, "mana": 0,
 		"atk_dmg": 0, "ally_dmg": 0, "ally_life": 0, "energy": 0, "chaos_dmg": 0, "dr_pct": 0,
+		"life_pct": 0, "mana_pct": 0,
 	}
 	var bc := Data.base_class(cls)
 	for k in bc.get("stats", {}):
@@ -142,6 +140,9 @@ func recalc(full := false) -> void:
 				st[k] = st.get(k, 0) + src[k]
 		if it.has("effect"):
 			effects[it.effect] = true
+	var ts := PassiveTree.stats(tree)
+	for k in ts:
+		st[k] = st.get(k, 0) + ts[k]
 	var a := Data.ascendancy(asc)
 	if not a.is_empty():
 		for n in a.minors:
@@ -155,16 +156,9 @@ func recalc(full := false) -> void:
 					st[sk] = st.get(sk, 0) + c.stats[sk]
 	st.dmg_min += st.flat_dmg
 	st.dmg_max += st.flat_dmg
-	var tl := talents
-	st.max_life += st.life + tl.vitality * 20
-	st.max_mana += st.mana + tl.spirit * 12
-	st.mana_regen += tl.spirit * 0.5
+	st.max_life = (st.max_life + st.life) * (1.0 + st.life_pct / 100.0)
+	st.max_mana = (st.max_mana + st.mana) * (1.0 + st.mana_pct / 100.0)
 	st.life_regen += atlas.val("ward") if atlas else 0.0
-	st.inc_dmg += tl.might * 8
-	st.move_spd += tl.swift * 3
-	st.atk_spd += tl.swift * 3
-	st.crit += tl.precision * 1.5
-	st.crit_multi += tl.precision * 8
 	if effects.has("chant_power"):
 		st.spell_dmg += st.cast_spd
 	# unique-item keystones that reshape the stats above
@@ -256,6 +250,16 @@ func active_links(i: int) -> Array:
 		if j == i:
 			return on
 	return []
+
+
+# ---- passive tree ----
+## one point per level after the first
+func tree_points() -> int:
+	return maxi(0, level - 1)
+
+
+func tree_free() -> int:
+	return tree_points() - tree.size()
 
 
 # ---- ascendancy ----
