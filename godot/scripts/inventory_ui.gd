@@ -2,7 +2,8 @@ class_name InventoryUI
 extends PanelContainer
 ## Inventory panel: equipment, bag, stats and currency crafting.
 ## Click a bag item to equip, click equipment to take it off, right-click to sell.
-## Click a crafting currency, then click items to use it (right-click cancels).
+## Click a crafting currency, then click items to use it (right-click cancels). 一行クラフト picks an item
+## instead and lists its lines to work one at a time (LineCraft).
 
 var hud: Hud
 var equip_grid := GridContainer.new()
@@ -11,7 +12,9 @@ var stats := Label.new()
 var cur_grid := GridContainer.new()
 var banner := Label.new()
 var bag_count := Label.new()
-var craft_key := ""
+var craft_key := ""           # a currency, or "line" for one-line crafting
+var line_item := {}            # the item one-line crafting works on
+var line_box := LineCraft.Box.new()
 
 const EQUIP_LAYOUT := ["", "helm", "amulet", "weapon", "armor", "gloves", "ring", "boots", ""]
 
@@ -70,6 +73,8 @@ func _ready() -> void:
 	banner.add_theme_color_override("font_color", Color("#ffd36a"))
 	banner.visible = false
 	right.add_child(banner)
+	line_box.crafted.connect(_on_line_crafted)
+	right.add_child(line_box)
 	right.add_child(bag_count)
 	bag_count.add_theme_font_size_override("font_size", 13)
 	bag_count.add_theme_color_override("font_color", Color("#b8a888"))
@@ -151,8 +156,24 @@ func refresh() -> void:
 		b.tooltip_text = "%s\n%s\n所持数 %d" % [cdef.name, cdef.desc, p.cur[cdef.k]]
 		b.pressed.connect(_pick_currency.bind(cdef.k))
 		cur_grid.add_child(b)
+	var lb := Button.new()
+	lb.text = "一行クラフト"
+	lb.add_theme_color_override("font_color", Color("#ffd36a"))
+	lb.add_theme_font_size_override("font_size", 13)
+	lb.custom_minimum_size = Vector2(76, 30)
+	lb.toggle_mode = true
+	lb.button_pressed = craft_key == "line"
+	lb.tooltip_text = "アイテムの1行だけを付け替える・数値を磨き直す。
+必要なカレンシーはアイテムレベルで変わり、高いほど多く要る。"
+	lb.pressed.connect(_pick_currency.bind("line"))
+	cur_grid.add_child(lb)
+	if craft_key != "line" or not _holds(line_item):
+		line_item = {}
+	line_box.show_for(p, line_item)
 	banner.visible = craft_key != ""
-	if craft_key != "":
+	if craft_key == "line":
+		banner.text = "一行クラフト：アイテムをクリックして行を選ぶ。右クリックで解除" if line_item.is_empty() else "一行クラフト：行ごとにボタンで加工。別のアイテムをクリックで切り替え"
+	elif craft_key != "":
 		var cd := Data.currency(craft_key)
 		banner.text = "%s %s を使用中（残り %d）：アイテムをクリック。右クリックで解除" % [cd.icon, cd.name, p.cur[craft_key]]
 	var s := p.s
@@ -166,9 +187,17 @@ func refresh() -> void:
 	])
 
 
+## whether the player still has item `it` in the bag or wears it
+func _holds(it: Dictionary) -> bool:
+	var p: Player = hud.main.player
+	return p.bag.any(func(x): return is_same(x, it)) or p.equip.values().any(func(x): return is_same(x, it))
+
+
 func _pick_currency(k: String) -> void:
 	var p: Player = hud.main.player
-	if p.cur[k] <= 0:
+	if k == "line":
+		craft_key = "" if craft_key == k else k
+	elif p.cur[k] <= 0:
 		hud.message("%sを持っていない" % Data.currency(k).name, Color("#ff8080"))
 		craft_key = ""
 	else:
@@ -186,6 +215,11 @@ func _cancel_craft() -> void:
 func _try_craft(it: Dictionary) -> bool:
 	if craft_key == "" or it.is_empty():
 		return false
+	if craft_key == "line":
+		line_item = it
+		refresh()
+		hud.show_tip(Items.lines(it))
+		return true
 	var p: Player = hud.main.player
 	var err := Items.craft(craft_key, it)
 	if err != "":
@@ -198,6 +232,12 @@ func _try_craft(it: Dictionary) -> bool:
 	refresh()
 	hud.show_tip(Items.lines(it))
 	return true
+
+
+func _on_line_crafted() -> void:
+	hud.main.player.recalc()
+	refresh()
+	hud.show_tip(Items.lines(line_item))
 
 
 func _on_bag_click(i: int) -> void:

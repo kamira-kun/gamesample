@@ -3,7 +3,7 @@ extends BasePanel
 ## The tablet board (see Tablets): the 6x6 board on the left, the tablets owned on the right.
 ## Pick a tablet, turn it (R or the button) and click a cell to set it there with its top-left at that cell;
 ## click a tablet on the board to pick it up again, right-click it to take it off. Crafting currencies carve
-## the picked tablet's lines.
+## the picked tablet's lines, and one-line crafting (LineCraft) works on a single line of it.
 
 const CELL := 50.0
 const CRAFTS := [["whet", "刻む"], ["chaos", "刻み直す"], ["divine", "数値を振り直す"]]
@@ -15,6 +15,7 @@ var list := GridContainer.new()
 var info := Label.new()
 var actions := HBoxContainer.new()
 var error := Label.new()
+var line_box := LineCraft.Box.new()
 var sel := ""             # uid of the picked tablet
 var rot := 0              # the turn the picked tablet is set with
 
@@ -67,6 +68,8 @@ func _build() -> void:
 	error.add_theme_font_size_override("font_size", 13)
 	error.add_theme_color_override("font_color", Color("#ff8a70"))
 	right.add_child(error)
+	line_box.crafted.connect(_on_line_crafted)
+	right.add_child(line_box)
 
 
 func tablets() -> Array:
@@ -136,6 +139,7 @@ func refresh() -> void:
 		off.tooltip_text = "盤から外す" if t.placed else "砕いて灰燼の欠片 %d にする" % Tablets.shard_value(t)
 		off.pressed.connect(take_off.bind(t.uid) if t.placed else shatter)
 		actions.add_child(off)
+	line_box.show_for(p, t)
 	board.queue_redraw()
 
 
@@ -216,6 +220,12 @@ func craft(k: String) -> void:
 		p.cur[k] -= 1
 		changed()
 		hud.show_tip(Tablets.lines(t))
+	refresh()
+
+
+func _on_line_crafted() -> void:
+	changed()
+	hud.show_tip(Tablets.lines(line_box.target))
 	refresh()
 
 
