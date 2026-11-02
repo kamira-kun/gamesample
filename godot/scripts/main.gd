@@ -30,6 +30,8 @@ var drops: Array = []        # currency lying on the floor
 var save_t := 0.0
 var talents_refunded := false   # the loaded save still had talents; they came back as passive points
 var smoke := false
+var smoke_checks := 0            # `--smoke`: expectations tested so far, and the names of those that failed
+var smoke_failed: Array = []
 var portal: Dictionary = {}
 var atlas := Atlas.new()
 var area: Dictionary = Data.HIDEOUT   # current atlas node, or the hideout
@@ -85,6 +87,7 @@ func _ready() -> void:
 	var notes := [] if smoke else Profiles.load_all()
 	if smoke:
 		Profiles.data = Profiles.fresh()
+		Profiles.read_only = true
 	# the base class comes from the profile; a new character (and a `--class=<k>` view) gets its starting kit
 	var cls_arg := ""
 	for x in args:
@@ -235,6 +238,16 @@ func _ready() -> void:
 		_smoke_test()
 
 
+## a smoke expectation group: each entry of `checks` must be true; a false one prints `SMOKE FAIL <tag> <name>`
+## and fails the run (see the SMOKE RESULT line and the exit code at the end of `_smoke_test`)
+func _expect(tag: String, checks: Dictionary) -> void:
+	for k in checks:
+		smoke_checks += 1
+		if not checks[k]:
+			smoke_failed.append("%s.%s" % [tag, k])
+			print("SMOKE FAIL %s %s" % [tag, k])
+
+
 ## the data reference (docs/db): every unique, affix, class, ascendancy node, passive node and gem is in it,
 ## each unique on its own slot's page, and no line is left with an unfilled number
 func _smoke_docs() -> void:
@@ -270,6 +283,8 @@ func _smoke_docs() -> void:
 	var tree_rows: int = pages.filter(func(p): return p.file == "passives.md")[0].sections.reduce(func(b, s): return b + s.rows.size(), 0)
 	print("SMOKE docs files=%d uniques=%d tree=%d/%d names=%d missing=%s leftover=%s" % [files.size(), unique_rows, tree_rows,
 		PassiveTree.nodes().size(), names.size(), missing.slice(0, 5), leftover])
+	_expect("docs", {"uniques": unique_rows == Data.LEGENDARY.size(), "tree": tree_rows == PassiveTree.nodes().size(),
+		"missing": missing.is_empty(), "leftover": leftover.is_empty()})
 
 
 ## skill gems: a new character owns only the class's starting bar, other skills are found or bought, skills
@@ -310,6 +325,8 @@ func _smoke_unique_tiers() -> void:
 	var tip: Array = Items.lines(top)
 	print("SMOKE unique tiers count=%s drops=%s rate_down=%s share_down=%s stronger=%s dearer=%s tip=%s" % [count, drops,
 		rate_down, share_drops, stronger, dearer, tip[1][0].begins_with("希少度：")])
+	_expect("unique_tiers", {"all_tiers": not count.has(0), "rate_down": rate_down, "share_down": share_drops, "stronger": stronger,
+		"dearer": dearer, "tip": tip[1][0].begins_with("希少度：")})
 
 
 func _smoke_gems() -> void:
@@ -321,6 +338,8 @@ func _smoke_gems() -> void:
 	print("SMOKE gems kit owned=%s kit_ok=%s lv1_skills=%d all_kits_lv1=%s gem_lvls=%s" % [p.skills.size(), p.skills == Data.base_class("sigil").slots,
 		lv1.size(), Data.CLASSES.all(func(c): return c.slots.all(func(id): return Data.SKILLS[id].lvl == 1) and c.gems.all(func(g): return Data.support(g).lvl == 1)),
 		Data.SUPPORTS.all(func(g): return g.lvl >= 1 and g.lvl <= 18)])
+	_expect("gems_kit", {"kit": p.skills == Data.base_class("sigil").slots, "kits_lv1": Data.CLASSES.all(func(c): return c.slots.all(func(id): return Data.SKILLS[id].lvl == 1)),
+		"gem_lvls": Data.SUPPORTS.all(func(g): return g.lvl >= 1 and g.lvl <= 18)})
 	# the panel refuses a skill gem not owned, then one owned but above the level, until the level is reached
 	hud.skill_ui.open_slot(0)
 	hud.skill_ui._assign("whirl")   # Lv 4
@@ -331,6 +350,7 @@ func _smoke_gems() -> void:
 	p.level = 4
 	hud.skill_ui._assign("whirl")
 	print("SMOKE gems skill unowned_refused=%s low_refused=%s at_level=%s" % [unowned_refused, low_refused, p.slots[0]])
+	_expect("gems_skill", {"unowned_refused": unowned_refused, "low_refused": low_refused, "at_level": p.slots[0] == "whirl"})
 	# support gems: owned but under-levelled is refused, then links at its level
 	unlock_gem("echo")   # Lv 10
 	hud.skill_ui._toggle_gem("echo")
@@ -339,6 +359,7 @@ func _smoke_gems() -> void:
 	p.recalc()
 	hud.skill_ui._toggle_gem("echo")
 	print("SMOKE gems support low_refused=%s at_level=%s" % [gem_low, p.links[0]])
+	_expect("gems_support", {"low_refused": gem_low, "at_level": p.links[0] == ["echo"]})
 	hud.close_panels()
 	# drops: a gem the player lacks, needing at most the area level + GEM_DROP_AHEAD; picking it up owns it
 	var lvls := []
@@ -353,6 +374,7 @@ func _smoke_gems() -> void:
 		if not had and dr.gem in (p.skills if dr.skill else p.gems):
 			got += 1
 	print("SMOKE gems drop n=30 max_lvl=%d new=%d skills=%d gems=%d" % [lvls.max(), got, p.skills.size(), p.gems.size()])
+	_expect("gems_drop", {"max_lvl": lvls.max() <= 3 + GEM_DROP_AHEAD, "new": got == 30})
 	# the merchant: only gems up to level + GEM_AHEAD, priced by level, bought into the owned list
 	p.level = 2
 	p.cur.ember = 5000
@@ -362,6 +384,8 @@ func _smoke_gems() -> void:
 	hud.shop_ui._buy_skill(want)
 	print("SMOKE gems shop listed_max=%d buttons=%d bought=%s paid=%d price_lv1=%d price_lv10=%d" % [listed.map(func(g): return Data.gem_info(g.skill, g.id).lvl).max(),
 		hud.shop_ui.gem_grid.get_child_count(), want in p.skills, 5000 - p.cur.ember, Items.gem_price(1), Items.gem_price(10)])
+	_expect("gems_shop", {"listed_max": listed.all(func(g): return Data.gem_info(g.skill, g.id).lvl <= p.level + ShopUI.GEM_AHEAD), "bought": want in p.skills,
+		"paid": 5000 - p.cur.ember == Items.gem_price(Data.SKILLS[want].lvl), "price_rises": Items.gem_price(10) > Items.gem_price(1)})
 	hud.close_panels()
 	# saves: skills round-trip; a save from before skill gems keeps every skill its level taught,
 	# and links above the level come off (the gems stay owned)
@@ -376,6 +400,8 @@ func _smoke_gems() -> void:
 	apply_save(sd)
 	print("SMOKE gems save round=%s migrated=%d expected=%d whirl=%s links0=%s echo_owned=%s" % [round_ok, p.skills.size(),
 		Data.SKILL_ORDER.filter(func(id): return Data.SKILLS[id].lvl <= 7).size(), "whirl" in p.skills, p.links[0], "echo" in p.gems])
+	_expect("gems_save", {"round": round_ok, "migrated": p.skills.size() == Data.SKILL_ORDER.filter(func(id): return Data.SKILLS[id].lvl <= 7).size(),
+		"whirl": "whirl" in p.skills, "links_trimmed": p.links[0] == ["power"], "echo_owned": "echo" in p.gems})
 	p.set_class(keep[6])
 	p.level = keep[0]
 	p.slots = keep[1]
@@ -397,6 +423,8 @@ func _smoke_classes() -> void:
 			owned[k] = owned.get(k, 0) + 1
 	print("SMOKE classes n=%d per=%s ascs=%d each_once=%s" % [Data.CLASSES.size(), Data.CLASSES.map(func(c): return c.ascs.size()),
 		Data.ASCENDANCIES.size(), Data.ASCENDANCIES.all(func(a): return owned.get(a.k, 0) == 1)])
+	_expect("classes", {"three": Data.CLASSES.size() == 3 and Data.CLASSES.all(func(c): return c.ascs.size() == 3),
+		"each_once": Data.ASCENDANCIES.all(func(a): return owned.get(a.k, 0) == 1)})
 	# every core's stats and effects compute
 	var cores_ok := true
 	for a in Data.ASCENDANCIES:
@@ -415,6 +443,7 @@ func _smoke_classes() -> void:
 		p.set_class(bc.k, true)
 		kits.append("%s:%s/%s/life%d/mana%d" % [bc.k, p.equip.weapon.base, p.slots[0], p.s.max_life, p.s.max_mana])
 	print("SMOKE classes kits=%s cores_ok=%s" % [kits, cores_ok])
+	_expect("classes_kits", {"cores_ok": cores_ok, "kits": kits.size() == Data.CLASSES.size()})
 	# the ascendancy screen offers only the class's three and refuses another class's
 	p.set_class("lantern")
 	p.level = 4
@@ -423,12 +452,14 @@ func _smoke_classes() -> void:
 	var refused := p.asc == ""
 	hud.asc_ui._choose("shade")
 	print("SMOKE classes restrict refused_other=%s took=%s offered=%s" % [refused, p.asc, Data.class_ascs(p.cls).map(func(a): return a.k)])
+	_expect("classes_restrict", {"refused_other": refused, "took": p.asc == "shade"})
 	hud.close_panels()
 	# a save whose ascendancy is not the class's own comes back without it
 	var sd := save_data()
 	sd.asc = "blade"
 	apply_save(sd)
 	print("SMOKE classes load_foreign asc='%s' cls=%s" % [p.asc, p.cls])
+	_expect("classes_load_foreign", {"asc": p.asc == "", "cls": p.cls == "lantern"})
 	p.asc = ""
 	p.asc_ranks = {}
 	# migration: old characters get the class of their ascendancy, else the default; seasons keep it
@@ -447,9 +478,12 @@ func _smoke_classes() -> void:
 	var file = JSON.parse_string(JSON.stringify(d))
 	Profiles.normalize(file)
 	print("SMOKE classes migrate=%s odd=%s bad=%s" % [file.chars.slice(0, 4).map(func(c): return c.cls), file.chars[4].cls, file.chars[5].cls])
+	_expect("classes_migrate", {"inferred": file.chars.slice(0, 4).map(func(c): return c.cls) == ["lantern", "sigil", "ashblade", Data.DEFAULT_CLASS],
+		"odd": file.chars[4].cls == "lantern", "bad": file.chars[5].cls == Data.DEFAULT_CLASS})
 	Profiles.migrate(file, Data.SEASONS[0].end)
 	var moved: Dictionary = file.chars[1]
 	print("SMOKE classes season_end league=%s from=%s cls=%s" % [moved.league, moved.from_season, moved.cls])
+	_expect("classes_season_end", {"league": moved.league == Profiles.STANDARD, "from": moved.from_season == sid, "cls": moved.cls == "sigil"})
 	Profiles.data = Profiles.fresh()
 	p.level = keep[0]
 	p.equip = keep[1]
@@ -473,6 +507,7 @@ func _smoke_tree() -> void:
 	var sym: bool = all.keys().all(func(id): return all[id].links.all(func(nb): return id in all[nb].links))
 	var reach: bool = Data.CLASSES.all(func(c): return all.keys().all(func(id): return all[id].kind == "start" or not PassiveTree.path_to([], c.k, id).is_empty()))
 	print("SMOKE tree nodes=%d kinds=%s symmetric=%s reach_all=%s" % [all.size(), kinds, sym, reach])
+	_expect("tree", {"symmetric": sym, "reach_all": reach, "starts": kinds.get("start", 0) == Data.CLASSES.size()})
 	p.set_class("ashblade")
 	p.level = 10
 	p.tree = []
@@ -482,11 +517,13 @@ func _smoke_tree() -> void:
 	var path := PassiveTree.path_to(p.tree, p.cls, "n_stance")
 	var took: bool = hud.tree_ui._take("n_stance")
 	print("SMOKE tree take path=%d took=%s free=%d atk+%d" % [path.size(), took, p.tree_free(), p.s.atk_dmg - atk0])
+	_expect("tree_take", {"took": took, "path_taken": p.tree.size() == path.size(), "free": p.tree_free() == p.tree_points() - path.size(), "atk": p.s.atk_dmg > atk0})
 	var far: bool = hud.tree_ui._take("k_starlore")   # too many points for what is left
 	var other: bool = hud.tree_ui._take(PassiveTree.start_id("sigil"))
 	var mid: bool = hud.tree_ui._refund(p.tree[0])   # would cut n_stance off
 	var leaf: bool = hud.tree_ui._refund("n_stance")
 	print("SMOKE tree refused far=%s other_start=%s mid=%s leaf=%s size=%d" % [far, other, mid, leaf, p.tree.size()])
+	_expect("tree_refused", {"far": not far, "other_start": not other, "mid": not mid, "leaf": leaf, "size": p.tree.size() == path.size() - 1})
 	# a keystone's percentage life
 	p.level = 40
 	p.tree = []
@@ -494,8 +531,10 @@ func _smoke_tree() -> void:
 	var life0: float = p.s.max_life
 	hud.tree_ui._take("k_ironheart")
 	print("SMOKE tree keystone life=%.2f move=%d" % [p.s.max_life / life0, PassiveTree.stats(p.tree).move_spd])
+	_expect("tree_keystone", {"life": p.s.max_life > life0, "drawback": PassiveTree.stats(p.tree).move_spd < 0})
 	hud.tree_ui._reset()
 	print("SMOKE tree reset size=%d life_back=%s" % [p.tree.size(), is_equal_approx(p.s.max_life, life0)])
+	_expect("tree_reset", {"empty": p.tree.is_empty(), "life_back": is_equal_approx(p.s.max_life, life0)})
 	# saves: round trip, junk dropped, cut off or over-budget nodes pruned, another class's tree emptied
 	hud.tree_ui._take("n_stance")
 	var d := save_data()
@@ -510,6 +549,8 @@ func _smoke_tree() -> void:
 	apply_save(d)
 	print("SMOKE tree save round=%s junk=%d over=%s foreign=%d migrated=%s free=%d" % [rt, junk.size(), over == want.slice(0, 2), foreign.size(),
 		talents_refunded, p.tree_free()])
+	_expect("tree_save", {"round": rt, "junk": junk.size() == want.size(), "over": over == want.slice(0, 2), "foreign": foreign.is_empty(), "migrated": talents_refunded,
+		"free": p.tree_free() == p.tree_points()})
 	talents_refunded = false
 	hud.close_panels()
 	p.level = keep[0]
@@ -528,9 +569,12 @@ func _smoke_seasons() -> void:
 	Profiles.stash_tabs(Profiles.STANDARD)
 	var running := Profiles.migrate(d, Data.SEASONS[0].start)
 	print("SMOKE season running moved=%d league=%s" % [running.size(), sc.league])
+	_expect("season_running", {"moved": running.is_empty(), "league": sc.league == sid})
 	var notes := Profiles.migrate(d, Data.SEASONS[0].end)
 	print("SMOKE season ended notes=%d league=%s from=%s std_tabs=%d season_stash=%s" % [notes.size(), sc.league, sc.from_season,
 		d.stash[Profiles.STANDARD].size(), d.stash.has(sid)])
+	_expect("season_ended", {"notes": not notes.is_empty(), "league": sc.league == Profiles.STANDARD, "from": sc.from_season == sid,
+		"tabs_moved": d.stash[Profiles.STANDARD].size() > Profiles.TABS, "season_stash_gone": not d.stash.has(sid)})
 	Profiles.data = Profiles.fresh()
 	hud.toggle(hud.stash_ui)
 	p.bag.append(Items.generate(3, 1.0, 1))
@@ -539,6 +583,7 @@ func _smoke_seasons() -> void:
 	var put: int = Profiles.stash_tabs(Profiles.STANDARD)[0].items.size()
 	hud.stash_ui._take(0)
 	print("SMOKE stash put=%d back=%s open=%s" % [put, p.bag.size() == n, hud.stash_ui.visible])
+	_expect("stash", {"put": put == 1, "back": p.bag.size() == n, "open": hud.stash_ui.visible})
 	hud.close_panels()
 
 
@@ -555,25 +600,32 @@ func _smoke_keys() -> void:
 	ui._input(ev)
 	print("SMOKE keys rebound=%s text='%s' inputmap=%s" % [Keybinds.binds.inventory[0] == {"key": KEY_J}, Keybinds.text("inventory"),
 		ev.is_action_pressed("inventory")])
+	_expect("keys_rebind", {"rebound": Keybinds.binds.inventory[0] == {"key": KEY_J}, "inputmap": ev.is_action_pressed("inventory")})
 	ui.listen("skill_4", 0)
 	var mb := InputEventMouseButton.new()
 	mb.button_index = MOUSE_BUTTON_MIDDLE
 	mb.pressed = true
 	ui._input(mb)
 	print("SMOKE keys mouse=%s short='%s'" % [Keybinds.text("skill_4"), Keybinds.short("skill_4")])
+	_expect("keys_mouse", {"bound": Keybinds.binds.skill_4[0] == {"mouse": MOUSE_BUTTON_MIDDLE}})
 	# F is the potion's: binding it to slot 3 swaps, so the potion takes Q and no duplicate is left
 	var lost := Keybinds.assign("skill_3", 0, {"key": KEY_F})
 	print("SMOKE keys swap lost=%s potion='%s' skill_3='%s' conflicts=%d" % [lost, Keybinds.text("potion"), Keybinds.text("skill_3"),
 		Keybinds.conflicts().size()])
+	_expect("keys_swap", {"lost": lost == "potion", "potion": Keybinds.text("potion") == "Q", "skill_3": Keybinds.text("skill_3") == "F",
+		"no_conflict": Keybinds.conflicts().is_empty()})
 	Keybinds.binds.talents[1] = {"key": KEY_J}   # as a hand-edited file could have it
 	Keybinds.apply()
 	print("SMOKE keys duplicate detected=%s flagged=%s" % [Keybinds.conflicts().size() == 1, Keybinds.conflicted("inventory", 0)])
+	_expect("keys_duplicate", {"detected": Keybinds.conflicts().size() == 1, "flagged": Keybinds.conflicted("inventory", 0)})
 	Keybinds.assign("talents", 1, {})
 	hud.close_panels()
 	hud.refresh()
 	hud.pause_ui.refresh()
 	print("SMOKE keys hud potion='%s' slot3='%s' tip=%s pause=%s" % [hud.potion.text, Keybinds.short("skill_3"),
 		hud.skill_ui.skill_tip(player.slots[2], 2)[1][0].contains("F"), hud.pause_ui.controls.get_child(1).text.begins_with("Q：回復薬")])
+	_expect("keys_hud", {"potion": hud.potion.text.ends_with("[Q]"), "slot3": Keybinds.short("skill_3") == "F",
+		"tip": hud.skill_ui.skill_tip(player.slots[2], 2)[1][0].contains("F"), "pause": hud.pause_ui.controls.get_child(1).text.begins_with("Q：回復薬")})
 	# a real J press now opens the inventory; I no longer does
 	for k in [KEY_I, KEY_J]:
 		var press := InputEventKey.new()
@@ -586,6 +638,7 @@ func _smoke_keys() -> void:
 		up.pressed = false
 		Input.parse_input_event(up)
 		print("SMOKE keys press %s inventory_open=%s" % [OS.get_keycode_string(k), hud.inventory.visible])
+		_expect("keys_press_" + OS.get_keycode_string(k), {"inventory": hud.inventory.visible == (k == KEY_J)})
 	hud.close_panels()
 	# save, scramble, load: the same bindings come back (an unknown action and a junk entry are ignored)
 	var path := "user://smoke_keys.cfg"
@@ -601,11 +654,13 @@ func _smoke_keys() -> void:
 	var ev2 := InputEventKey.new()
 	ev2.physical_keycode = KEY_F
 	print("SMOKE keys saved roundtrip=%s inputmap=%s filter='%s'" % [Keybinds.binds == before, ev2.is_action("skill_3"), Keybinds.text("filter")])
+	_expect("keys_saved", {"roundtrip": Keybinds.binds == before, "inputmap": ev2.is_action("skill_3"), "junk_ignored": Keybinds.text("filter") == "L"})
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
 	ui.open_close()
 	ui.bind_to("potion", 0, {"key": KEY_G})
 	ui.reset.pressed.emit()
 	print("SMOKE keys reset=%s potion='%s'" % [Keybinds.binds == Keybinds.defaults(), Keybinds.text("potion")])
+	_expect("keys_reset", {"reset": Keybinds.binds == Keybinds.defaults(), "potion": Keybinds.text("potion") == "F"})
 	hud.close_panels()
 
 
@@ -630,35 +685,44 @@ func _smoke_auras() -> void:
 	await get_tree().create_timer(0.2).timeout
 	print("SMOKE aura on=%s reserved=%d cap=%d/%d mana_capped=%s dmg+%.0f ring=%s" % [p.auras, p.reserved("mana"), p.cap("mana"), mx,
 		p.mana <= p.cap("mana"), p.bonus("dmg") - dmg0, p.aura_fx != null and p.aura_fx.get_child_count() == 1])
+	_expect("aura_on", {"on": p.auras == ["ember_heart"], "reserved": p.reserved("mana") > 0, "mana_capped": p.mana <= p.cap("mana"),
+		"dmg": p.bonus("dmg") > dmg0, "ring": p.aura_fx != null and p.aura_fx.get_child_count() == 1})
 	toggle.call(1)
 	print("SMOKE aura off=%s reserved=%d cap=%d" % [p.auras, p.reserved("mana"), p.cap("mana")])
+	_expect("aura_off", {"off": p.auras.is_empty(), "reserved": p.reserved("mana") == 0, "cap": is_equal_approx(p.cap("mana"), mx)})
 	# stack three mana auras (80% of the pool); the flat 30 of the fourth would pass the max and is refused
 	for i in [1, 2, 3, 5]:
 		toggle.call(i)
 	print("SMOKE aura stack on=%s reserved=%d/%d refused=%s" % [p.auras, p.reserved("mana"), mx, not "hearth_ward" in p.auras])
+	_expect("aura_stack", {"three": p.auras.size() == 3, "within": p.reserved("mana") <= mx, "refused": not "hearth_ward" in p.auras})
 	toggle.call(4)
 	print("SMOKE aura life on=%s reserved_life=%d cap_life=%d/%d life_capped=%s" % ["crimson_pact" in p.auras, p.reserved("life"), p.cap("life"),
 		p.s.max_life, p.life <= p.cap("life")])
+	_expect("aura_life", {"on": "crimson_pact" in p.auras, "reserved": p.reserved("life") > 0, "life_capped": p.life <= p.cap("life")})
 	# 効率化 shrinks the flat 30 enough to fit; unlinking it again switches off the aura that no longer fits
 	p.links[5] = ["efficient"]
 	var cut := p.aura_reserve("hearth_ward", "mana")
 	toggle.call(5)
 	print("SMOKE aura gem reserve=%d on=%s total=%d/%d" % [cut, "hearth_ward" in p.auras, p.reserved("mana"), mx])
+	_expect("aura_gem", {"on": "hearth_ward" in p.auras, "within": p.reserved("mana") <= mx})
 	p.links[5] = []
 	var off := p.fix_auras()
 	print("SMOKE aura overflow off=%s left=%d" % [off, p.auras.size()])
+	_expect("aura_overflow", {"off": off == ["hearth_ward"], "within": p.reserved("mana") <= mx})
 	# an ally inside the reach shares the auras, one far away does not
 	var near := Ally.new()
 	near.pos = p.pos + Vector2(2, 0)
 	var far := Ally.new()
 	far.pos = p.pos + Vector2(30, 0)
 	print("SMOKE aura allies near=%s far=%s dr=%.0f" % [in_aura(near), in_aura(far), p.astat("dr")])
+	_expect("aura_allies", {"near": in_aura(near), "far": not in_aura(far)})
 	near.free()
 	far.free()
 	hud.refresh()
 	await get_tree().process_frame
 	print("SMOKE aura hud mana_reserve=%.2f text='%s' life_reserve=%.2f text='%s'" % [hud.mana_orb.reserve, hud.mana_orb.text,
 		hud.life_orb.reserve, hud.life_orb.reserve_text])
+	_expect("aura_hud", {"mana": hud.mana_orb.reserve > 0.0, "life": hud.life_orb.reserve > 0.0 and hud.life_orb.reserve_text != ""})
 	# save round trip: the auras that were on come back on, with the same reservation
 	var held := [p.reserved("life"), p.reserved("mana")]
 	var on := p.auras.duplicate()
@@ -668,6 +732,8 @@ func _smoke_auras() -> void:
 	apply_save(data)
 	print("SMOKE aura save restored=%s same=%s mana_capped=%s life_capped=%s" % [p.auras == on, held == [p.reserved("life"), p.reserved("mana")],
 		p.mana <= p.cap("mana"), p.life <= p.cap("life")])
+	_expect("aura_save", {"restored": p.auras == on, "same": held == [p.reserved("life"), p.reserved("mana")], "mana_capped": p.mana <= p.cap("mana"),
+		"life_capped": p.life <= p.cap("life")})
 	p.auras.clear()
 	p.slots = keep_slots
 	p.links = keep_links
@@ -691,13 +757,16 @@ func _smoke_market() -> void:
 			var pr := Market.price(lg, k)
 			inside = inside and pr >= Market.floor_price(k) - 1e-6 and pr <= Market.ceil_price(k) + 1e-6
 	print("SMOKE market drift ticks=%d in_range=%s hist=%d" % [Market.state(sid).tick, inside, Market.history(sid, "whet", 60).size()])
+	_expect("market_drift", {"ticks": Market.state(sid).tick == 300, "in_range": inside, "hist": Market.history(sid, "whet", 60).size() > 0})
 	var ev := Market.events(sid)
 	print("SMOKE market events n=%d same=%s std=%d" % [ev.size(), ev == Market.events(sid), Market.events(std).size()])
+	_expect("market_events", {"some": ev.size() > 0, "same": ev == Market.events(sid), "std_none": Market.events(std).is_empty()})
 	w = {"chaos": 100, "ember": 1000}
 	var err := Market.market_trade(std, "whet", "buy", 20, w)
 	var got: int = w.get("whet", 0)
 	var err2 := Market.market_trade(std, "whet", "sell", got, w)
 	print("SMOKE market roundtrip ok=%s chaos=%d lost=%s whet=%d" % [err == "" and err2 == "", w.chaos, w.chaos < 100, w.get("whet", 0)])
+	_expect("market_roundtrip", {"ok": err == "" and err2 == "", "spread_lost": w.chaos < 100, "sold_all": w.get("whet", 0) == 0})
 	w = {"chaos": 0, "ember": 1000, "divine": 10}
 	var lim := Market.price(std, "divine") * 1.05
 	var est := Market.limit_estimate(std, "divine", "sell", lim, 10)
@@ -709,6 +778,7 @@ func _smoke_market() -> void:
 	var notes := Market.take_notes(std)
 	print("SMOKE market limit ok=%s held=%d chaos=%d notes=%d orders=%d est_ticks=%d" % [err == "", held, w.chaos, notes.size(),
 		Market.orders(std).size(), est.ticks])
+	_expect("market_limit", {"ok": err == "", "escrowed": held == 0, "filled": w.chaos > 0 and Market.orders(std).is_empty(), "noted": notes.size() > 0})
 	w = {"chaos": 50, "ember": 1000, "whet": 5}
 	Market.place_limit(sid, "whet", "sell", Market.price(sid, "whet") * 3.0, 5, w)
 	Market.place_limit(sid, "whet", "buy", Market.price(sid, "whet") * 0.3, 10, w)
@@ -716,9 +786,11 @@ func _smoke_market() -> void:
 	var sc := Profiles.stash_cur(std)
 	print("SMOKE market season end notes=%d market_gone=%s std_whet=%d std_chaos=%d" % [mig.size(), not d.market.has(sid),
 		sc.get("whet", 0), sc.get("chaos", 0)])
+	_expect("market_season_end", {"gone": not d.market.has(sid), "whet_back": sc.get("whet", 0) == 5, "chaos_back": sc.get("chaos", 0) > 0})
 	var into := {}
 	Profiles.take_stash_cur(std, into)
 	print("SMOKE market stash taken whet=%d left=%d" % [into.get("whet", 0), Profiles.stash_cur(std).size()])
+	_expect("market_stash", {"taken": into.get("whet", 0) == 5, "emptied": Profiles.stash_cur(std).is_empty()})
 	Profiles.data = Profiles.fresh()
 
 
@@ -733,6 +805,8 @@ func _smoke_trade() -> void:
 	var tagged := Trade.tags({"rarity": 3, "name": "", "desc": "骸骨を召喚する", "mods": {"fire_dmg": 10, "life": -5}})
 	print("SMOKE trade setup offers=%d requests=%d tags=%s events=%d same=%s std_events=%d" % [m.offers.size(), m.requests.size(), tagged,
 		Trade.events(sid).size(), Trade.events(sid) == Trade.events(sid), Trade.events(std).size()])
+	_expect("trade_setup", {"offers": m.offers.size() > 0, "requests": m.requests.size() > 0, "tags": "fire" in tagged and "minion" in tagged,
+		"std_events": Trade.events(std).is_empty()})
 	# a unique worth a few chaos (and so likely to sell at its value), a rare, a normal item
 	var uq := {}
 	for i in 400:
@@ -743,6 +817,7 @@ func _smoke_trade() -> void:
 	var normal := Items.generate(20, 0.0, 0)
 	var v := Trade.value(std, uq)
 	print("SMOKE trade value unique=%.2f rare=%s normal=%s" % [v, Trade.value(std, rare) > 0.0, Trade.value(std, normal) == 0.0])
+	_expect("trade_value", {"unique": v > 0.0, "rare": Trade.value(std, rare) > 0.0, "normal": Trade.value(std, normal) == 0.0})
 	var w := {"chaos": 0, "ember": 100000}
 	var bag := [normal, uq, rare]
 	var refused := Trade.list_item(std, bag, 0, 5, w)
@@ -757,22 +832,27 @@ func _smoke_trade() -> void:
 	var notes := Market.take_notes(std)
 	print("SMOKE trade listing refused=%s ok=%s fee=%d bag=%d sold=%s chaos=%d noted=%s" % [refused != "", err == "" and err2 == "", paid,
 		bag.size(), m.listings.size() == 1, w.chaos, notes.any(func(t): return "売れました" in t)])
+	_expect("trade_listing", {"refused_normal": refused != "", "ok": err == "" and err2 == "", "fee": paid > 0, "bag": bag.size() == 1,
+		"sold": m.listings.size() == 1, "noted": notes.any(func(t): return "売れました" in t)})
 	for i in Trade.LISTING_LIFE:
 		Market.tick(std, w)
 	var expired: bool = m.listings.is_empty() and m.held.size() == 1
 	var took := Trade.take_held(std, 0, bag, Player.BAG_SIZE)
 	print("SMOKE trade expired=%s took=%s bag=%d offers=%d" % [expired, took == "", bag.size(), m.offers.size()])
+	_expect("trade_expired", {"expired": expired, "took": took == "", "bag": bag.size() == 2})
 	# the dealer, and another adventurer's offer
 	w = {"chaos": 999, "ember": 5000}
 	bag = [uq]
 	var dealer := Trade.dealer_price(std, uq)
 	err = Trade.dealer_sell(std, bag, 0, w)
 	print("SMOKE trade dealer ok=%s got=%d below_value=%s" % [err == "", w.chaos - 999, dealer < Trade.value(std, uq)])
+	_expect("trade_dealer", {"ok": err == "", "below_value": dealer < Trade.value(std, uq), "bag": bag.is_empty()})
 	var o: Dictionary = m.offers[0]
 	var c0: int = w.chaos
 	var e0: int = w.ember
 	err = Trade.buy_offer(std, o.id, bag, Player.BAG_SIZE, w)
 	print("SMOKE trade bought ok=%s paid=%s fee=%s bag=%d" % [err == "", c0 - w.chaos == o.price, e0 - w.ember == Market.fee(o.price), bag.size()])
+	_expect("trade_bought", {"ok": err == "", "paid": c0 - w.chaos == o.price, "fee": e0 - w.ember == Market.fee(o.price), "bag": bag.size() == 1})
 	# buy requests: a fitting rare is taken for the reward, nothing fitting is refused
 	var ring := Items.generate(20, 0.0, 2, "ring")
 	ring.mods.life = 999
@@ -783,14 +863,18 @@ func _smoke_trade() -> void:
 	var no := Trade.deliver(std, 9002, bag, w)
 	err = Trade.deliver(std, 9001, bag, w)
 	print("SMOKE trade request refused=%s ok=%s reward=%d bag=%d left=%d" % [no != "", err == "", w.chaos - c0, bag.size(), m.requests.size()])
+	_expect("trade_request", {"refused": no != "", "ok": err == "", "reward": w.chaos - c0 == 3, "bag": bag.is_empty(), "left": m.requests.size() == 1})
 	for i in Trade.REQUEST_LIFE + 1:
 		Market.tick(std, w)
 	print("SMOKE trade requests kept=%d max=%d" % [m.requests.size(), Trade.MAX_REQUESTS])
+	_expect("trade_requests", {"kept": m.requests.size() > 0 and m.requests.size() <= Trade.MAX_REQUESTS})
 	# a save round trip keeps the gear and the integer fields
 	Trade.list_item(std, [rare], 0, 3, w)
 	var back = JSON.parse_string(JSON.stringify(m))
 	Market.normalize(std, back)
 	print("SMOKE trade save listings=%d offers=%d int_ask=%s" % [back.listings.size(), back.offers.size(), typeof(back.listings[0].ask) == TYPE_INT])
+	_expect("trade_save", {"listings": back.listings.size() == m.listings.size(), "offers": back.offers.size() == m.offers.size(),
+		"int_ask": typeof(back.listings[0].ask) == TYPE_INT})
 	# a season ends: its listed gear and pickup box go to a standard stash tab
 	var ms := Market.state(sid)
 	Trade.ensure(sid, 5)
@@ -800,6 +884,7 @@ func _smoke_trade() -> void:
 	var tab: Array = Profiles.stash_tabs(std).filter(func(t): return t.name.ends_with("取引所"))
 	print("SMOKE trade season end tab=%d items=%d noted=%s" % [tab.size(), tab[0].items.size() if tab.size() > 0 else 0,
 		mig.any(func(t): return "装備" in t)])
+	_expect("trade_season_end", {"tab": tab.size() == 1, "items": tab.size() == 1 and tab[0].items.size() == 2, "noted": mig.any(func(t): return "装備" in t)})
 	Profiles.data = Profiles.fresh()
 
 
@@ -814,6 +899,7 @@ func _smoke_exchange() -> void:
 	var haggled := Items.currency_price(Data.currency("chaos"), lg)
 	Items.discount = d0
 	print("SMOKE merchant chaos=%d want=%d haggled=%d whet_ok=%s" % [chaos_cost, roundi(250 * d0), haggled, whet_ok])
+	_expect("merchant", {"chaos": chaos_cost == roundi(Market.price(lg, "chaos") * 250 * d0), "haggled": haggled < chaos_cost, "whet": whet_ok})
 	p.cur.ember = 2000
 	p.cur.chaos = 30
 	p.cur.whet = 0
@@ -822,6 +908,7 @@ func _smoke_exchange() -> void:
 	var ex := hud.exchange_ui
 	print("SMOKE exchange open=%s rows=%d board=%d orders_box=%d" % [ex.visible, ex.price_grid.get_child_count() / 4 - 1,
 		ex.board_box.get_child_count(), ex.order_box.get_child_count()])
+	_expect("exchange_open", {"open": ex.visible, "rows": ex.price_grid.get_child_count() / 4 - 1 == Market.keys().size()})
 	ex.select("whet")
 	ex.side = "buy"
 	ex.mode = "market"
@@ -830,9 +917,11 @@ func _smoke_exchange() -> void:
 	ex.execute()
 	print("SMOKE exchange market buy whet=%d chaos=%d paid=%d err='%s'" % [p.cur.whet, p.cur.chaos, 30 - p.cur.chaos, ex.error.text])
 	print("SMOKE exchange quote_matches=%s" % (30 - p.cur.chaos == quoted.chaos))
+	_expect("exchange_market", {"bought": p.cur.whet == 3, "quote": 30 - p.cur.chaos == quoted.chaos, "no_error": ex.error.text == ""})
 	ex.qty.value = 500
 	ex.execute()
 	print("SMOKE exchange refused err=%s whet=%d" % [ex.error.text != "", p.cur.whet])
+	_expect("exchange_refused", {"error": ex.error.text != "", "unchanged": p.cur.whet == 3})
 	ex.side = "sell"
 	ex.mode = "limit"
 	ex.qty.value = 2
@@ -843,8 +932,10 @@ func _smoke_exchange() -> void:
 	var orders := Market.orders(lg)
 	print("SMOKE exchange limit placed=%d whet=%d rows=%d est=%s" % [orders.size(), p.cur.whet, ex.order_box.get_child_count(),
 		est_lines.any(func(t): return "ティックで成立しそう" in t)])
+	_expect("exchange_limit", {"placed": orders.size() == 1, "escrowed": p.cur.whet == 1, "row": ex.order_box.get_child_count() == 1})
 	ex.cancel(orders[0].id if orders.size() > 0 else -1)
 	print("SMOKE exchange cancelled orders=%d whet=%d" % [Market.orders(lg).size(), p.cur.whet])
+	_expect("exchange_cancel", {"gone": Market.orders(lg).is_empty(), "refunded": p.cur.whet == 3})
 	# the gear page: list a unique from the bag, buy another adventurer's offer
 	ex.page = "gear"
 	ex.refresh()
@@ -857,12 +948,16 @@ func _smoke_exchange() -> void:
 	var mk := Market.state(lg)
 	print("SMOKE exchange gear offers=%d listed=%d bag=%d err='%s' rows=%d" % [ex.offer_grid.get_child_count(), mk.listings.size(),
 		bag0 - p.bag.size(), ex.gear_error.text, ex.listing_box.get_child_count()])
+	_expect("exchange_gear", {"offers": ex.offer_grid.get_child_count() > 0, "listed": mk.listings.size() == 1, "left_bag": bag0 - p.bag.size() == 1,
+		"no_error": ex.gear_error.text == ""})
 	var offer: Dictionary = mk.offers[0]
 	var chaos0: int = p.cur.chaos
 	ex.buy_offer(offer.id)
 	print("SMOKE exchange gear bought=%s paid=%s" % [p.bag.has(offer.item), chaos0 - p.cur.chaos == offer.price])
+	_expect("exchange_gear_buy", {"bought": p.bag.has(offer.item), "paid": chaos0 - p.cur.chaos == offer.price})
 	ex.unlist(mk.listings[0].id if mk.listings.size() > 0 else -1)
 	print("SMOKE exchange gear unlisted back=%s" % p.bag.has(uq))
+	_expect("exchange_unlist", {"back": p.bag.has(uq)})
 	# the requests page: a request the bag can fill is delivered for its reward
 	var ring := Items.generate(10, 0.0, 2, "ring")
 	ring.mods.life = 999
@@ -874,12 +969,14 @@ func _smoke_exchange() -> void:
 	chaos0 = p.cur.chaos
 	ex.deliver(9000)
 	print("SMOKE exchange request rows=%d delivered=%s reward=%d" % [rows, not p.bag.has(ring), p.cur.chaos - chaos0])
+	_expect("exchange_request", {"rows": rows > 0, "delivered": not p.bag.has(ring), "reward": p.cur.chaos - chaos0 == 4})
 	ex.page = "currency"
 	hud.close_panels()
 	Market.state(lg).pending.append("テスト通知")
 	var msgs0 := hud.messages.get_child_count()
 	market_notes()
 	print("SMOKE exchange notes shown=%s left=%d" % [hud.messages.get_child_count() > msgs0 or msgs0 >= 5, Market.state(lg).pending.size()])
+	_expect("exchange_notes", {"taken": Market.state(lg).pending.is_empty()})
 
 
 ## `--view=altar` a dormant altar beside the player, `altar_vow` its vow panel, `altar_wave` kindled with a vow
@@ -952,6 +1049,7 @@ func _smoke_farm() -> void:
 	f.beacons = 1
 	enter_map("ash")
 	print("SMOKE farm placed=%d labels=%d floor=%s beacon_map=%d beacons_left=%d" % [placed, dormant, on_floor, altars.size(), f.beacons])
+	_expect("farm_placed", {"labels": dormant == placed, "floor": on_floor, "beacon_map": altars.size() > placed or altars.size() >= 3, "beacon_spent": f.beacons == 0})
 	# a locked vow is refused; 烈火の誓約 kindles the first altar
 	var a: Dictionary = altars[0]
 	p.pos = map.move_circle(a.pos + Vector2(0, 2.0), p.r, Vector2.ZERO)
@@ -963,6 +1061,8 @@ func _smoke_farm() -> void:
 	var boosted: bool = a.spawned.all(func(e): return e.aggro and e.has_meta("cinder"))
 	print("SMOKE farm kindle refused=%s state=%s panel_closed=%s wave=%d first=%d planned=%d boosted=%s label_gone=%s" % [refused, a.state,
 		not hud.cinder_ui.visible, a.wave, first, a.plan.waves[0], boosted, not interacts.any(func(o): return o.get("altar") == a)])
+	_expect("farm_kindle", {"refused": refused, "active": a.state == "active", "panel_closed": not hud.cinder_ui.visible, "first": first == a.plan.waves[0],
+		"boosted": boosted, "label_gone": not interacts.any(func(o): return o.get("altar") == a)})
 	var guards := 0
 	for i in 120:
 		if a.state != "active":
@@ -976,9 +1076,12 @@ func _smoke_farm() -> void:
 	var crystals: int = drops.filter(func(d): return d.k == Farm.KEY).map(func(d): return d.n).reduce(func(x, y): return x + y, 0)
 	print("SMOKE farm waves=%d/%d killed=%d guards=%d state=%s renown=%d lit=%d rank=%d on_ground=%d reward=%d" % [a.wave,
 		a.plan.waves.size(), a.spawned.size(), guards, a.state, f.renown, f.lit, Farm.rank(f), crystals, reward.get("cinder", -1)])
+	_expect("farm_waves", {"all": a.wave == a.plan.waves.size(), "guard": guards >= 1, "done": a.state == "done", "renown": f.renown > 0, "lit": f.lit == 1,
+		"reward": reward.get("cinder", 0) > 0})
 	p.pos = a.pos + Vector2(0, 2.0)
 	_collect_nearby(60.0)
 	print("SMOKE farm collected cinder=%d char_cur_clean=%s status='%s'" % [f.cinder, not p.cur.has(Farm.KEY), altar_status()])
+	_expect("farm_collected", {"cinder": f.cinder >= reward.get("cinder", 1), "char_cur_clean": not p.cur.has(Farm.KEY)})
 	# 灼刻の誓約 opens at rank 2; running out of time leaves the altar cold and pays nothing
 	if altars.size() < 2:
 		place_altar(_free_spot(p.pos, 6.0))
@@ -989,12 +1092,15 @@ func _smoke_farm() -> void:
 	b.t = Farm.TRIAL_TIME + 1.0
 	await get_tree().create_timer(0.2).timeout
 	print("SMOKE farm trial state=%s renown_same=%s status='%s'" % [b.state, f.renown == r0, altar_status()])
+	_expect("farm_trial", {"failed": b.state == "failed", "renown_same": f.renown == r0})
 	for e in b.spawned:
 		hit_enemy(e, {"dmg": 999999, "crit": false, "type": "phys"})
 	# the forge in the hideout: crystals buy loot, gated by renown
 	enter_hideout()
 	f.cinder = 200
 	f.renown = 0
+	var keep_bag := p.bag   # the loot run before leaves the bag full; the forge needs room
+	p.bag = []
 	var bag0 := p.bag.size()
 	open_interact("forge")
 	hud.cinder_ui.buy("rare")
@@ -1007,6 +1113,9 @@ func _smoke_farm() -> void:
 	var legends := p.bag.slice(bag0).filter(func(it): return it.rarity == 3).size()
 	print("SMOKE farm forge open=%s bag+%d cinder=%d->%d->%d locked='%s' legends=%d beacons=%d cards=%d" % [hud.cinder_ui.visible,
 		p.bag.size() - bag0, 200, after_rare, f.cinder, refused_legend, legends, f.beacons, hud.cinder_ui.cards.get_child_count()])
+	_expect("farm_forge", {"open": hud.cinder_ui.visible, "bought": p.bag.size() - bag0 == 2, "paid": after_rare < 200, "locked": refused_legend != "",
+		"legend": legends == 1, "beacon": f.beacons > 0})
+	p.bag = keep_bag
 	hud.close_panels()
 	# leagues keep their own progress; a finished season hands its crystals and the higher renown to standard
 	var sid: String = Data.SEASONS[0].id
@@ -1023,6 +1132,8 @@ func _smoke_farm() -> void:
 	var std := Farm.state(Profiles.STANDARD)
 	print("SMOKE farm leagues split=%s json=%s season_end cinder=%d->%d rank=%d beacons=%d season_gone=%s note=%s" % [split, round_trip,
 		std0, std.cinder, Farm.rank(std), std.beacons, not Profiles.data.farm.has(sid), notes.any(func(t): return "燼晶" in t)])
+	_expect("farm_leagues", {"split": split, "json": round_trip, "cinder_added": std.cinder == std0 + 70, "rank": Farm.rank(std) == 6,
+		"season_gone": not Profiles.data.farm.has(sid), "note": notes.any(func(t): return "燼晶" in t)})
 	Profiles.data = Profiles.fresh()
 
 
@@ -1043,6 +1154,7 @@ func _smoke_tablets() -> void:
 	print("SMOKE tablets shapes=%d sizes=%d-%d turns=%s line4_upright=%s" % [Tablets.SHAPES.size(),
 		Tablets.SHAPES.map(func(sh): return sh.cells.size()).min(), Tablets.SHAPES.map(func(sh): return sh.cells.size()).max(), turns_ok,
 		tall.all(func(c): return c.x == 0) and tall.size() == 4])
+	_expect("tablets_shapes", {"turns": turns_ok, "line4_upright": tall.all(func(c): return c.x == 0) and tall.size() == 4})
 	# nothing may hang off the edge, a tablet may turn over its own cells, and six 3x2 slabs fill the whole board
 	var probe := Tablets.generate(10, "slab6", 0)
 	var edge_err := Tablets.fit([probe], probe, 4, 0, 0)
@@ -1061,6 +1173,8 @@ func _smoke_tablets() -> void:
 	var full_err := Tablets.place(p.tablets, extra, 2, 2, 0)
 	print("SMOKE tablets board used=%d/36 all_set=%s overlap='%s' edge='%s' turned_over_own=%s" % [Tablets.used_cells(p.tablets),
 		errs.all(func(e): return e == ""), full_err, edge_err, turned_fit])
+	_expect("tablets_board", {"full": Tablets.used_cells(p.tablets) == 36, "all_set": errs.all(func(e): return e == ""), "overlap": full_err != "",
+		"edge": edge_err != "", "turned_over_own": turned_fit})
 	# lines reach the stats only while the tablet is on the board
 	p.tablets = []
 	var life_t := Tablets.generate(10, "cross5", 0)
@@ -1078,6 +1192,8 @@ func _smoke_tablets() -> void:
 	ui.right_cell(cells[0])
 	print("SMOKE tablets panel open=%s placed_rot=%d life %d->%d->%d cards=%d off=%s" % [ui.visible, life_t.rot, life0, life1,
 		p.s.max_life, ui.list.get_child_count(), not life_t.placed])
+	_expect("tablets_panel", {"open": ui.visible, "rot": life_t.rot == 1, "life_on": life1 > life0, "life_off": is_equal_approx(p.s.max_life, life0),
+		"lifted": not life_t.placed})
 	# carving: 鍛錬の砥石 adds lines up to the limit, 混沌の残光 recarves them, both spend the currency
 	var blank := Tablets.generate(12, "hook5", 0)
 	p.tablets.append(blank)
@@ -1092,8 +1208,11 @@ func _smoke_tablets() -> void:
 	ui.craft("chaos")
 	print("SMOKE tablets craft lines=%d/%d whet_left=%d limit='%s' chaos_kept=%d chaos_left=%d mono_max=%d" % [carved, Tablets.max_mods(blank),
 		p.cur.whet, limit_err, blank.mods.size(), p.cur.chaos, Tablets.max_mods(Tablets.generate(1, "mono", 0))])
+	_expect("tablets_craft", {"to_limit": carved == Tablets.max_mods(blank), "whet_spent": p.cur.whet == 5 - carved, "limit": limit_err != "",
+		"chaos_kept": blank.mods.size() == carved, "chaos_spent": p.cur.chaos == 1})
 	ui.shatter()
 	print("SMOKE tablets shatter gone=%s" % [not p.tablets.has(blank)])
+	_expect("tablets_shatter", {"gone": not p.tablets.has(blank)})
 	hud.close_panels()
 	# a save keeps them; a hand-edited overlap comes off the board
 	life_t.placed = false
@@ -1104,6 +1223,8 @@ func _smoke_tablets() -> void:
 	var kept: Dictionary = back[0]
 	print("SMOKE tablets save kept=%d same=%s rot=%d clash_off=%s bogus_gone=%s" % [back.size(), kept.mods == life_t.mods and kept.placed,
 		kept.rot, not back[1].placed, not back[1].mods.has("bogus")])
+	_expect("tablets_save", {"kept": back.size() == 2, "same": kept.mods == life_t.mods and kept.placed, "rot": kept.rot == 2, "clash_off": not back[1].placed,
+		"bogus_gone": not back[1].mods.has("bogus")})
 	# a boss drops one
 	enter_map("ash")
 	var n0 := p.tablets.size()
@@ -1112,6 +1233,7 @@ func _smoke_tablets() -> void:
 	for d in drops.filter(func(d): return d.k == "tablet"):
 		_take(d)
 	print("SMOKE tablets boss_drop owned+%d" % (p.tablets.size() - n0))
+	_expect("tablets_boss_drop", {"owned": p.tablets.size() - n0 == 1})
 	enter_hideout()
 
 
@@ -1145,6 +1267,9 @@ func _smoke_brand() -> void:
 	print("SMOKE brand magic='%s' first=%s second_differs=%s affixes_same=%s left=%d life_pct_up=%s after_chaos=%s json=%s tip=%s" % [magic_err,
 		first != "", second != first and second != "", Items.affix_count(rare) <= Data.RARITY[2].aff[1] and n0 > 0, p.cur.brand, pct_up,
 		rare.has("special"), back.get("special") == rare.special, tip])
+	_expect("brand", {"magic_refused": magic_err != "", "first": first != "", "second_differs": second != first and second != "",
+		"affixes": Items.affix_count(rare) <= Data.RARITY[2].aff[1] and n0 > 0, "spent": p.cur.brand == 0, "stats": pct_up,
+		"after_chaos": rare.has("special"), "json": back.get("special") == rare.special, "tip": tip})
 	if old:
 		p.equip.armor = old
 	else:
@@ -1168,6 +1293,7 @@ func _smoke_line_craft() -> void:
 	print("SMOKE line_craft cost lv1=%s lv8=%s lv9=%s lv17=%s lv40=%s rising=%s kinds=%d" % [LineCraft.cost_text(LineCraft.cost(1, "swap")),
 		LineCraft.cost_text(LineCraft.cost(8, "swap")), LineCraft.cost_text(LineCraft.cost(9, "swap")), LineCraft.cost_text(LineCraft.cost(17, "swap")),
 		LineCraft.cost_text(LineCraft.cost(40, "swap")), rising, kinds.size()])
+	_expect("line_craft_cost", {"rising": rising, "kinds": kinds.size() >= 3})
 	# gear, through the inventory panel
 	var rare := Items.generate(20, 0.0, 2, "amulet")
 	p.bag = [rare]
@@ -1209,6 +1335,9 @@ func _smoke_line_craft() -> void:
 		picked, swapped, others, spent, sc.n, sc.k, have_t - p.cur[tc.k], tc.n * 3, tuned_only, still_rows,
 		LineCraft.can(normal, "life", "swap"), LineCraft.can(uq, uq.mods.keys()[0] if not uq.mods.is_empty() else "life", "swap"),
 		LineCraft.apply(poor, poor.mods.keys()[0], "swap", {}), magic_err, renamed])
+	_expect("line_craft_gear", {"picked": picked, "swapped": swapped, "others_kept": others, "spent": spent == sc.n, "tune_spent": have_t - p.cur[tc.k] == tc.n * 3,
+		"tuned_only": tuned_only, "normal_refused": LineCraft.can(normal, "life", "swap") != "", "poor_refused": LineCraft.apply(poor, poor.mods.keys()[0], "swap", {}) != "",
+		"magic": magic_err == "", "renamed": renamed})
 	p.bag = []
 	# a tablet, through the board
 	p.tablets = []
@@ -1228,6 +1357,8 @@ func _smoke_line_craft() -> void:
 	print("SMOKE line_craft tablet box=%s swapped=%s kept=%s lines=%d/%d spent=%d/%d stat_moved=%s" % [ui.line_box.visible, tk1[2] != tk0[2],
 		tk1[0] == tk0[0] and tk1[1] == tk0[1], t.mods.size(), Tablets.max_mods(t), th - p.cur[tsc.k], tsc.n,
 		stat0 > 0 and not Tablets.stats(p.tablets).has(tk0[2])])
+	_expect("line_craft_tablet", {"box": ui.line_box.visible, "swapped": tk1[2] != tk0[2], "kept": tk1[0] == tk0[0] and tk1[1] == tk0[1],
+		"spent": th - p.cur[tsc.k] == tsc.n, "stat_moved": stat0 > 0 and not Tablets.stats(p.tablets).has(tk0[2])})
 	hud.close_panels()
 	p.tablets = []
 	p.recalc(true)
@@ -1261,7 +1392,177 @@ func _smoke_seal() -> void:
 	print("SMOKE seal label=%s wardens=%d/%d named=%s status='%s' blast=%s state=%s stones=%d got=%d label_gone=%s no_shop=%s" % [label, wardens,
 		Seal.wardens(floor_level), named, status, blasted, sl.state, stones, p.cur.brand - c0, not interacts.any(func(o): return o.get("seal") == sl),
 		Data.currency("brand").w == 0.0])
+	_expect("seal", {"label": label, "wardens": wardens == Seal.wardens(floor_level), "named": named, "status": status != "", "blast": blasted,
+		"done": sl.state == "done", "stones": stones > 0 and p.cur.brand - c0 == stones, "label_gone": not interacts.any(func(o): return o.get("seal") == sl),
+		"no_shop": Data.currency("brand").w == 0.0})
 	enter_hideout()
+
+
+## levelling, potions and damage: experience carries over several level-ups, each level adds a passive point
+## and energy; a potion heals half the life up to the cap, is kept at full life and refused when none are left;
+## damage is taken unless invulnerable, and retrying a floor costs 30% of the experience
+func _smoke_progress() -> void:
+	var p := player
+	var keep := [p.level, p.xp, p.potions, p.invuln]
+	p.level = 3
+	p.xp = 0
+	p.recalc(true)
+	var pts0 := p.tree_points()
+	var en0 := p.energy_max()
+	gain_xp(Data.xp_need(3) + Data.xp_need(4) + 5)
+	print("SMOKE progress level=%d xp=%d points+%d energy+%d" % [p.level, p.xp, p.tree_points() - pts0, p.energy_max() - en0])
+	_expect("progress_level", {"two_levels": p.level == 5, "carry": p.xp == 5, "points": p.tree_points() == pts0 + 2, "energy": p.energy_max() == en0 + 2})
+	p.potions = 2
+	p.life = p.cap("life")
+	_use_potion()
+	var kept := p.potions == 2
+	p.life = 1.0
+	_use_potion()
+	var healed := is_equal_approx(p.life, minf(p.cap("life"), 1.0 + p.s.max_life * 0.5))
+	p.potions = 0
+	p.life = 1.0
+	_use_potion()
+	print("SMOKE progress potion kept_at_full=%s healed=%s left=%d refused=%s" % [kept, healed, p.potions, p.life == 1.0])
+	_expect("progress_potion", {"kept_at_full": kept, "healed": healed, "never_negative": p.potions == 0, "refused": p.life == 1.0})
+	p.life = p.cap("life")
+	p.invuln = 1e9
+	damage_player(30.0)
+	var shielded := p.life == p.cap("life")
+	p.invuln = 0.0
+	damage_player(30.0)
+	var hurt := p.cap("life") - p.life
+	p.invuln = 1e9
+	p.xp = 100
+	retry_floor()
+	print("SMOKE progress damage shielded=%s hurt=%.0f retry_xp=%d" % [shielded, hurt, p.xp])
+	_expect("progress_damage", {"shielded": shielded, "hurt": hurt >= 1.0 and hurt <= 30.0, "retry_xp": p.xp == 70})
+	p.level = keep[0]
+	p.xp = keep[1]
+	p.potions = keep[2]
+	p.invuln = keep[3]
+	p.recalc(true)
+
+
+## currency on items (Items.craft): each currency's rarity rules and affix counts, the cap on 鍛錬の砥石,
+## 神聖の核 rerolling values only (a unique's lines stay in their fixed ranges), and refusals leave the item alone
+func _smoke_craft() -> void:
+	var aff := func(r: int, it: Dictionary) -> bool: return it.mods.size() >= Data.RARITY[r].aff[0] and it.mods.size() <= Data.RARITY[r].aff[1]
+	var it := Items.generate(10, 0.0, 0, "ring")
+	var errs := {}
+	errs.ascend_normal = Items.craft("ascend", it)
+	errs.chaos_normal = Items.craft("chaos", it)
+	errs.transmute = Items.craft("transmute", it)
+	var magic_ok: bool = it.rarity == 1 and aff.call(1, it)
+	errs.transmute_again = Items.craft("transmute", it)
+	errs.ascend = Items.craft("ascend", it)
+	var rare_ok: bool = it.rarity == 2 and aff.call(2, it)
+	for i in 3:
+		errs["whet%d" % i] = Items.craft("whet", it)
+	var whet_capped: bool = it.mods.size() == Data.RARITY[2].aff[1]
+	var keys: Array = it.mods.keys()
+	errs.divine = Items.craft("divine", it)
+	var divine_keys: bool = it.mods.keys() == keys
+	errs.chaos = Items.craft("chaos", it)
+	var chaos_ok: bool = it.rarity == 2 and aff.call(2, it)
+	var snap := it.duplicate(true)
+	errs.not_item = Items.craft("ember", it)
+	var untouched: bool = it == snap
+	Items.brand(it)
+	errs.purify = Items.craft("purify", it)
+	var purified: bool = it.rarity == 0 and it.mods.is_empty() and not it.has("special")
+	errs.divine_normal = Items.craft("divine", it)
+	var uq := {}
+	for l in Data.LEGENDARY:
+		if l.has("mods") and not l.mods.is_empty():
+			uq = Items.generate(10, 0.0, 3, "", l.name)
+			break
+	var fixed: Dictionary = Data.legend(uq.name).mods
+	errs.divine_unique = Items.craft("divine", uq)
+	var in_range: bool = fixed.keys().all(func(k): return not uq.mods.has(k) or (uq.mods[k] >= Items.roll_fixed(uq, k, [mini(fixed[k][0], fixed[k][1]), mini(fixed[k][0], fixed[k][1])])
+		and uq.mods[k] <= Items.roll_fixed(uq, k, [maxi(fixed[k][0], fixed[k][1]), maxi(fixed[k][0], fixed[k][1])])))
+	var refused := ["ascend_normal", "chaos_normal", "transmute_again", "not_item", "divine_normal"]
+	var ok := ["transmute", "ascend", "divine", "chaos", "purify", "divine_unique"]
+	print("SMOKE craft magic=%s rare=%s whet_capped=%s cap_err='%s' divine_keys=%s chaos=%s untouched=%s purified=%s unique_in_range=%s refused=%s" % [
+		magic_ok, rare_ok, whet_capped, errs.whet2 if errs.whet2 != "" else errs.whet1, divine_keys, chaos_ok, untouched, purified, in_range,
+		errs.keys().filter(func(k): return errs[k] != "")])
+	_expect("craft", {"magic": magic_ok, "rare": rare_ok, "whet_capped": whet_capped, "cap_refused": errs.whet0 != "" or errs.whet1 != "" or errs.whet2 != "",
+		"divine_keys": divine_keys, "chaos": chaos_ok, "untouched": untouched, "purified": purified, "unique_in_range": in_range,
+		"refused": refused.all(func(k): return errs[k] != ""), "ok": ok.all(func(k): return errs[k] == "")})
+
+
+## the whole character save: a JSON round trip gives back the same save, field by field, and a hand-broken
+## save (unknown skills, gems and lineages, bad filter values, numbers as strings) loads without breaking anything
+func _smoke_save() -> void:
+	var p := player
+	var sd := save_data()
+	var text := JSON.stringify(sd)
+	apply_save(JSON.parse_string(text))
+	var again := save_data()
+	var differs := sd.keys().filter(func(k): return JSON.stringify(again[k]) != JSON.stringify(sd[k]))
+	print("SMOKE save fields=%d differs=%s" % [sd.size(), differs])
+	_expect("save_roundtrip", {"same": differs.is_empty(), "all_fields": again.keys() == sd.keys()})
+	var junk = JSON.parse_string(text)
+	junk.level = "12"
+	junk.slots = ["nope", "slash", "slash", "slash", "slash", "slash"]
+	junk.links = [["nope", "power"], [], [], [], [], []]
+	junk.gems = ["power", "nope"]
+	junk.skills = ["slash", "nope"]
+	junk.asc = "nope"
+	junk.filter = {"rarity": ["pick", "eat", "pick", "pick"], "slots": {"ring": false, "nope": true}}
+	junk.auras = ["nope", "slash"]
+	apply_save(junk)
+	print("SMOKE save junk level=%d slots_kept=%s gems=%s skills=%s asc='%s' filter=%s ring_hidden=%s auras=%s" % [p.level, p.slots == sd.slots, p.gems,
+		p.skills.size(), p.asc, p.filter.rarity, not p.filter.slots.ring, p.auras])
+	_expect("save_junk", {"level": p.level == 12, "slots_kept": p.slots == sd.slots, "links": p.links[0] == ["power"], "gems": not "nope" in p.gems,
+		"skills": not "nope" in p.skills and p.slots.all(func(id): return id in p.skills), "asc": p.asc == "", "filter_kept": p.filter.rarity == sd.filter.rarity,
+		"ring_hidden": not p.filter.slots.ring, "no_unknown_slot": not p.filter.slots.has("nope"), "auras": p.auras.is_empty()})
+	apply_save(JSON.parse_string(text))
+
+
+## generated maps: every floor tile can be walked to from the start, the boss room is the farthest room,
+## and the hideout is a single hall
+func _smoke_dungeon() -> void:
+	var cut := 0
+	var boss_far := true
+	var sizes := []
+	for i in 12:
+		var m := Dungeon.new(72, 72, 1 + i * 2)
+		m.compute_flow(m.tile_center(m.start.cx, m.start.cy), 99999)
+		for t in m.tiles.size():
+			if m.tiles[t] == 1 and m.flow[t] == -1:
+				cut += 1
+		var far: int = m.flow[m.idx(m.boss_room.cx, m.boss_room.cy)]
+		boss_far = boss_far and far > 0 and m.rooms.all(func(r): return m.flow[m.idx(r.cx, r.cy)] <= far)
+		sizes.append(m.rooms.size())
+	var h := Dungeon.new(28, 26, 1, "hideout")
+	print("SMOKE dungeon maps=12 unreachable=%d boss_farthest=%s rooms=%d-%d hideout_rooms=%d" % [cut, boss_far, sizes.min(), sizes.max(), h.rooms.size()])
+	_expect("dungeon", {"connected": cut == 0, "boss_farthest": boss_far, "rooms": sizes.min() >= 2, "hideout": h.rooms.size() == 1 and h.start == h.boss_room})
+
+
+## the character screen, on an in-memory profile file: a row per character, the base class picked for a new one
+## (an unknown one falls back to the default), and deleting takes a second press
+func _smoke_chars() -> void:
+	Profiles.data = Profiles.fresh()
+	Profiles.add_char("one", Profiles.STANDARD, "sigil")
+	var two := Profiles.add_char("two", Profiles.STANDARD, "lantern")
+	var ui: CharUI = hud.char_ui
+	ui.open(["テスト通知"])
+	var rows := ui.list.get_child_count()
+	ui.pick_class("lantern")
+	var picked := ui.cls
+	ui.pick_class("nope")
+	var fallback := ui.cls
+	var del: Button = ui.list.get_child(1).get_child(2)
+	del.pressed.emit()
+	var after_one := Profiles.chars().size()
+	del = ui.list.get_child(1).get_child(2)
+	del.pressed.emit()
+	print("SMOKE chars rows=%d picked=%s fallback=%s first_press_kept=%s deleted=%s left=%d" % [rows, picked, fallback, after_one == 2,
+		Profiles.find(two.id).is_empty(), Profiles.chars().size()])
+	_expect("chars", {"rows": rows == 2, "picked": picked == "lantern", "fallback": fallback == Data.DEFAULT_CLASS, "confirm": after_one == 2,
+		"deleted": Profiles.find(two.id).is_empty() and Profiles.chars().size() == 1, "notes": ui.notes_box.get_child_count() == 1})
+	ui.visible = false
+	Profiles.data = Profiles.fresh()
 
 
 ## automated run used during development: `godot -- --smoke`
@@ -1270,6 +1571,7 @@ func _smoke_test() -> void:
 	p.invuln = 1e9
 	# hideout: merchant and atlas
 	print("SMOKE hideout=%s interacts=%d stock=%d" % [in_hideout(), interacts.size(), shop.items.size()])
+	_expect("hideout", {"in": in_hideout(), "interacts": interacts.size() == 5, "stock": shop.items.size() > 0})
 	await get_tree().create_timer(0.5).timeout
 	p.cur.ember = 2000
 	open_interact("merchant")
@@ -1279,10 +1581,13 @@ func _smoke_test() -> void:
 	hud.shop_ui._buy_potion()
 	hud.shop_ui._buy_currency("chaos", Items.currency_price(Data.currency("chaos"), league()))
 	print("SMOKE bought bag=%d stock=%d potions+%d chaos=%d ember=%d" % [p.bag.size(), shop.items.size(), p.potions - pots, p.cur.chaos, p.cur.ember])
+	_expect("shop_buy", {"bag": p.bag.size() == 1, "potion": p.potions - pots == 1, "chaos": p.cur.chaos == 1, "paid": p.cur.ember < 2000})
 	hud.shop_ui._buy_gem("leech")
 	print("SMOKE shop gem gems=%s" % [p.gems])
+	_expect("shop_gem", {"bought": "leech" in p.gems})
 	hud.shop_ui._sell(0)
 	print("SMOKE shop sold bag=%d" % p.bag.size())
+	_expect("shop_sell", {"sold": p.bag.is_empty()})
 	hud.close_panels()
 	await _smoke_exchange()
 	_smoke_seasons()
@@ -1297,8 +1602,10 @@ func _smoke_test() -> void:
 	await get_tree().create_timer(0.4).timeout
 	enter_map("wail")
 	print("SMOKE locked map ignored=%s" % in_hideout())
+	_expect("atlas_locked", {"ignored": in_hideout()})
 	enter_map("ash")
 	print("SMOKE entered=%s level=%d atlas_open=%s" % [area.id, floor_level, hud.atlas_ui.visible])
+	_expect("atlas_enter", {"entered": area.id == "ash", "closed": not hud.atlas_ui.visible, "boss": boss != null})
 	var e: Enemy = enemies.filter(func(q): return not q.boss)[0]
 	p.pos = map.move_circle(e.pos + Vector2(-4, -4), p.r, Vector2.ZERO)
 	await get_tree().create_timer(0.3).timeout
@@ -1315,6 +1622,7 @@ func _smoke_test() -> void:
 		_try_cast(0)
 		await get_tree().create_timer(0.4).timeout
 	print("SMOKE skills minions=%d storms=%d hazards=%d auras=%s" % [minions.size(), storms.size(), hazards.size(), p.auras])
+	_expect("skills_all", {"minions": minions.size() > 0})
 	await _smoke_auras()
 	# effect-block skills with supports that change projectiles, repeat the cast or set traps
 	p.links[0] = ["fork", "pchain", "echo"]
@@ -1325,11 +1633,13 @@ func _smoke_test() -> void:
 		_try_cast(0)
 		await get_tree().create_timer(0.35).timeout
 	print("SMOKE fx zones=%d projs=%d minions=%d buffs=%s sup0=%s" % [zones.size(), projs.size(), minions.size(), p.tbuffs.keys(), slot_sup(0).ids])
+	_expect("fx", {"zones": zones.size() > 0, "buffs": "tailwind" in p.tbuffs})
 	p.slots[0] = "ice_shards"
 	p.links[0] = ["trap"]
 	p.action_t = 0.0
 	_try_cast(0)
 	print("SMOKE trap placed=%d" % totems.filter(func(t): return t.trap).size())
+	_expect("trap", {"placed": totems.filter(func(t): return t.trap).size() == 1})
 	p.links[0] = []
 	p.invuln = 1e9
 	p.invuln = 1e9   # the dash cast above replaced it
@@ -1340,17 +1650,34 @@ func _smoke_test() -> void:
 	p.mana = p.s.max_mana
 	_try_cast(1)
 	print("SMOKE totem totems=%d sup=%s cost=%d" % [totems.size(), slot_sup(1).ids, slot_cost(1)])
-	await get_tree().create_timer(1.0).timeout
-	print("SMOKE totem fired projs=%d" % projs.size())
+	_expect("totem", {"placed": totems.any(func(t): return t.skill == "fireball" and not t.trap), "sup": slot_sup(1).ids == ["totem", "multi", "power"]})
+	# a sturdy target in its sight: the fireballs in flight can only be the totem's (the player cast none)
+	var tot: Ally = totems.filter(func(t): return t.skill == "fireball" and not t.trap)[-1]
+	tot.max_life = 1e7   # the pack around it must not fell it first
+	tot.life = 1e7
+	var dummy := _make_enemy("ghoul", _free_spot(tot.pos, 5.0), 999)
+	dummy.max_life = 1e7
+	dummy.life = 1e7
+	var balls := 0
+	var until := Time.get_ticks_msec() + 1500
+	while balls == 0 and Time.get_ticks_msec() < until:   # every frame: a ball may hit a close enemy within a few
+		await get_tree().process_frame
+		balls = projs.filter(func(q): return q.kind == "fireball").size()
+	print("SMOKE totem fired fireballs=%d alive=%s t=%.1f/%.1f target_dist=%.1f los=%s" % [balls, tot.life > 0.0, tot.t, tot.max_t,
+		tot.pos.distance_to(dummy.pos), map.los(tot.pos, dummy.pos)])
+	_expect("totem_fired", {"fired": balls > 0})
+	hit_enemy(dummy, {"dmg": 1e9, "crit": false, "type": "phys"})
 	hud.skill_ui.open_slot(0)
 	hud.skill_ui._assign("fireball")
 	hud.skill_ui._toggle_gem("multi")
 	print("SMOKE panel slot0=%s slot1=%s links0=%s" % [p.slots[0], p.slots[1], p.links[0]])
+	_expect("skill_panel", {"slot0": p.slots[0] == "fireball", "swapped": p.slots[1] == "ice_shards", "links_moved": p.links[0] == ["totem", "power"]})
 	hud.close_panels()
 	p.slots = Data.DEFAULT_SLOTS.duplicate()
 	p.links = [[], [], [], [], [], []]
 	# support gem energy: 2 + level shared by the bar, at most 6 links a skill, linking past the pool is refused
 	print("SMOKE energy max=%d base=%d used=%d link_max=%d" % [p.energy_max(), Data.energy_base(p.level), p.energy_used(), Data.LINK_MAX])
+	_expect("energy", {"max": p.energy_max() == 2 + p.level, "used": p.energy_used() == 0, "link_max": Data.LINK_MAX == 6})
 	hud.skill_ui.open_slot(0)
 	for gid in ["leech", "frostbite", "mleech", "loh", "hexhit", "cull", "efficient"]:   # 7 one-energy gems
 		hud.skill_ui._toggle_gem(gid)
@@ -1358,23 +1685,28 @@ func _smoke_test() -> void:
 	for gid in ["power", "haste", "heavy"]:   # 3 each: the third one is past the pool
 		hud.skill_ui._toggle_gem(gid)
 	print("SMOKE energy links0=%d links1=%s used=%d/%d" % [p.links[0].size(), p.links[1], p.energy_used(), p.energy_max()])
+	_expect("energy_links", {"six": p.links[0].size() == Data.LINK_MAX, "over_refused": p.links[1].size() == 2, "within": p.energy_used() <= p.energy_max()})
 	hud.skill_ui._toggle_gem("power")
 	hud.skill_ui._toggle_gem("leech")
 	print("SMOKE energy unlink links1=%s used=%d" % [p.links[1], p.energy_used()])
+	_expect("energy_unlink", {"power_off": not "power" in p.links[1], "within": p.energy_used() <= p.energy_max()})
 	hud.skill_ui._toggle_gem("leech")
 	hud.skill_ui._toggle_gem("power")
 	# the pool shrinks: links power up in bar order and those past it go dark
 	p.level = 5
 	p.recalc()
 	print("SMOKE energy shrunk max=%d active0=%d active1=%s sup1=%s" % [p.energy_max(), p.active_links(0).size(), p.active_links(1), slot_sup(1).ids])
+	_expect("energy_shrunk", {"dark": p.active_links(1).is_empty() and slot_sup(1).ids.is_empty(), "first_kept": p.active_links(0).size() > 0})
 	p.level = 10
 	p.recalc()
 	print("SMOKE energy restored active1=%s sup1=%s" % [p.active_links(1), slot_sup(1).ids])
+	_expect("energy_restored", {"active": p.active_links(1).size() == 2 and slot_sup(1).ids.size() == 2})
 	hud.close_panels()
 	p.links = [[], [], [], [], [], []]
 	# every support gem changes some skill it fits
 	var unused := Data.SUPPORTS.filter(func(g): return not Data.SKILL_ORDER.any(func(id): return g.id in Data.build_sup(id, [g.id]).ids))
 	print("SMOKE supports=%d skills=%d unused=%s" % [Data.SUPPORTS.size(), Data.SKILL_ORDER.size(), unused.map(func(g): return g.id)])
+	_expect("supports", {"all_used": unused.is_empty()})
 	# the passive tree, the loot filter and the pet
 	_smoke_tree()
 	# ascendancy: pick the fire lineage, open two core tiers, then start over
@@ -1389,6 +1721,8 @@ func _smoke_test() -> void:
 	hud.asc_ui._pick_core(1, "kill_burst")
 	hud.asc_ui._pick_core(2, "inferno")
 	print("SMOKE ascend free=%d fire+%d cores=%s cost %d->%d" % [p.asc_free(), p.s.fire_dmg - fire0, p.asc_cores, cost0, slot_cost(1)])
+	_expect("ascend", {"took": p.asc == "pyre", "spent": p.asc_free() == 0, "fire": p.s.fire_dmg > fire0, "cores": p.asc_cores == ["fire_cost", "kill_burst", ""],
+		"cost_down": slot_cost(1) < cost0})
 	# a second lineage is refused while one is held; at Lv16 the third core tier opens
 	hud.asc_ui._choose(Data.ASCENDANCIES[1].k)
 	var aoe0: float = slot_sup(1).aoe
@@ -1397,11 +1731,14 @@ func _smoke_test() -> void:
 		hud.asc_ui._rank_up(id)
 	hud.asc_ui._pick_core(2, "inferno")
 	print("SMOKE ascend lv16 asc=%s ranks=%s cores=%s fire_aoe x%.2f" % [p.asc, p.asc_ranks, p.asc_cores, slot_sup(1).aoe / aoe0])
+	_expect("ascend_lv16", {"second_refused": p.asc == "pyre", "third_core": p.asc_cores[2] == "inferno", "aoe": slot_sup(1).aoe > aoe0,
+		"capped": Data.ascendancy("pyre").minors.all(func(n): return p.asc_rank(n.id) <= n.max)})
 	p.level = 10
 	var em_asc: int = p.cur.ember
 	hud.asc_ui._reset()
 	hud.asc_ui._reset()
 	print("SMOKE ascend reset asc='%s' free=%d cores=%s ember-%d" % [p.asc, p.asc_free(), p.asc_cores, em_asc - p.cur.ember])
+	_expect("ascend_reset", {"asc": p.asc == "", "cores": p.asc_cores == ["", "", ""], "paid": em_asc - p.cur.ember > 0})
 	hud.close_panels()
 	hud.toggle(hud.filter_ui)
 	hud.filter_ui._set_rarity(0, "hide")
@@ -1411,39 +1748,52 @@ func _smoke_test() -> void:
 	var g0 := ground.size()
 	drop_item(Items.generate(3, 0.0, 0), p.pos)
 	print("SMOKE filter hidden ground+%d ember+%d legend_pending=%s" % [ground.size() - g0, p.cur.ember - em0, p.filter.rarity[3]])
+	_expect("filter_hide", {"not_dropped": ground.size() == g0, "legend_never_sold": p.filter.rarity[3] == "pick"})
 	var bag0 := p.bag.size()
 	pickup_item(Items.generate(3, 0.0, 1), p.pos)
 	print("SMOKE filter autosell bag+%d" % (p.bag.size() - bag0))
+	_expect("filter_autosell", {"not_bagged": p.bag.size() == bag0})
 	hud.close_panels()
 	p.filter = Player.default_filter()
 	var fetch := map.move_circle(p.pos, 0.2, Vector2(6, 0))
 	_drop_currency("chaos", 1, fetch)
 	var chaos0: int = p.cur.chaos
-	await get_tree().create_timer(2.0).timeout
+	for i in 30:   # it may be busy with another drop first
+		await get_tree().create_timer(0.2).timeout
+		if p.cur.chaos > chaos0:
+			break
 	print("SMOKE pet fetched=%s pet_dist=%.1f" % [p.cur.chaos > chaos0, pet.pos.distance_to(p.pos)])
+	_expect("pet", {"fetched": p.cur.chaos > chaos0})
 	hud.toggle(hud.status_ui)
 	await get_tree().create_timer(0.2).timeout
 	print("SMOKE status open=%s rows=%d" % [hud.status_ui.visible, hud.status_ui.stats.get_child_count()])
+	_expect("status", {"open": hud.status_ui.visible, "rows": hud.status_ui.stats.get_child_count() > 0})
 	hud.toggle(hud.pause_ui)
 	print("SMOKE pause open=%s status_closed=%s" % [hud.pause_ui.visible, not hud.status_ui.visible])
+	_expect("pause", {"open": hud.pause_ui.visible, "status_closed": not hud.status_ui.visible})
 	hud.close_panels()
 	await get_tree().create_timer(1.0).timeout
 	var killed_before := enemies.size()
 	if boss:   # a totem or minion left from the tests above may already have finished it
 		hit_enemy(boss, {"dmg": 999999, "crit": false, "type": "phys"})
 	print("SMOKE enemies=%d level=%d portal=%s" % [killed_before, p.level, not portal.is_empty()])
+	_expect("boss_kill", {"portal": not portal.is_empty()})
 	p.pos = portal.pos
 	await get_tree().create_timer(0.3).timeout
 	print("SMOKE completed hideout=%s cleared=%s bone_unlocked=%s wail_unlocked=%s" % [in_hideout(), atlas.cleared, atlas.is_unlocked(Data.atlas_node("bone")), atlas.is_unlocked(Data.atlas_node("wail"))])
+	_expect("completed", {"hideout": in_hideout(), "cleared": "ash" in atlas.cleared, "bone": atlas.is_unlocked(Data.atlas_node("bone")),
+		"wail": atlas.is_unlocked(Data.atlas_node("wail"))})
 	hud.toggle(hud.passive_ui)
 	hud.passive_ui._rank_up("find")   # locked until 黄金の嗅覚 has a rank
 	hud.passive_ui._rank_up("gold")
 	hud.passive_ui._rank_up("flask")  # no points left
 	print("SMOKE passives free=%d gold=%d find=%d flask=%d gold_fx=%.2f" % [atlas.points_free(), atlas.rank("gold"), atlas.rank("find"), atlas.rank("flask"), atlas.map_effects([]).gold])
+	_expect("atlas_passives", {"gold": atlas.rank("gold") == 1, "locked": atlas.rank("find") == 0, "no_points": atlas.rank("flask") == 0, "gold_fx": atlas.map_effects([]).gold > 1.0})
 	hud.close_panels()
 	atlas.mods["wail"] = ["life", "swarm"]
 	enter_map("wail")
 	print("SMOKE wail level=%d mods=%s enemies=%d rarity=%.2f" % [floor_level, run_mods, enemies.size(), mod_fx.rarity])
+	_expect("map_mods", {"mods": run_mods == ["life", "swarm"], "rarity": mod_fx.rarity > 0.0, "enemies": enemies.size() > 0})
 	# the colossus and the witch go through their moves
 	for kind in ["colossus", "witch"]:
 		var spot := p.pos
@@ -1465,27 +1815,33 @@ func _smoke_test() -> void:
 				shots = maxi(shots, eprojs.size())
 		if kind == "colossus":
 			await get_tree().create_timer(1.0).timeout
-			var hz0 := hazards.size()
+			var hz_old := hazards.duplicate()   # its own earlier fire may burn out meanwhile: count the new patches only
+			b.pos = spot   # its moves above may have left it against a wall; the spawn spot sees the player
 			b.windup = 0.0
 			b.act_t = 9.0
 			b.charge = {"dir": (p.pos - b.pos).normalized(), "left": 8.0, "hit": false, "trail": 0.0}
 			await get_tree().create_timer(0.6).timeout
-			print("SMOKE charge done=%s trail+%d" % [b.charge.is_empty(), hazards.size() - hz0])
+			var trail := hazards.filter(func(h): return not hz_old.any(func(o): return is_same(o, h))).size()
+			print("SMOKE charge done=%s trail+%d" % [b.charge.is_empty(), trail])
+			_expect("colossus_charge", {"done": b.charge.is_empty(), "trail": trail > 0})
 		b.life = b.max_life * 0.4
 		for k in 30:
 			if b.enraged:
 				break
 			await get_tree().create_timer(0.1).timeout
 		print("SMOKE %s alive=%s enraged=%s max_shots=%d max_chill=%.1f" % [kind, not b.dead, b.enraged, shots, chill])
+		_expect("boss_" + kind, {"alive": not b.dead, "enraged": b.enraged, "shots": shots > 0})   # the chill is printed only: it needs a random shard to land
 		hit_enemy(b, {"dmg": 999999, "crit": false, "type": "phys"})
 		await get_tree().create_timer(0.3).timeout
 	p.invuln = 0.0
 	damage_player(1e9)
 	await get_tree().create_timer(1.2).timeout
 	print("SMOKE dead=%s death_screen=%s" % [p.dead, hud.death.visible])
+	_expect("death", {"dead": p.dead, "screen": hud.death.visible})
 	retry_floor()
 	hud.death.visible = false
 	print("SMOKE retry dead=%s life=%d" % [p.dead, p.life])
+	_expect("retry", {"alive": not p.dead, "life": p.life > 0.0})
 	# loot, inventory, crafting and save round trip
 	for i in 3:
 		drop_item(Items.generate(3, 1.0, 1), p.pos)
@@ -1496,22 +1852,27 @@ func _smoke_test() -> void:
 		p.pos = g.pos
 		await get_tree().create_timer(0.1).timeout
 	print("SMOKE bag=%d chaos=%d ember=%d ground=%d" % [p.bag.size(), p.cur.chaos, p.cur.ember, ground.size()])
+	_expect("loot", {"picked": p.bag.size() >= 3, "ground": ground.is_empty()})
 	hud.toggle_inventory()
 	var mi := p.bag.find(p.bag.filter(func(x): return x.rarity == 1)[0])
 	var before: Dictionary = p.bag[mi].mods.duplicate()
 	hud.inventory._pick_currency("chaos")
 	hud.inventory._on_bag_click(mi)
 	print("SMOKE chaos rerolled=%s left=%d" % [before != p.bag[mi].mods or p.bag[mi].mods.size() != before.size(), p.cur.chaos])
+	_expect("chaos", {"rerolled": before != p.bag[mi].mods or p.bag[mi].mods.size() != before.size()})
 	hud.inventory._cancel_craft()
 	var slot: String = p.bag[0].slot
 	hud.inventory._on_bag_click(0)
 	print("SMOKE equipped=%s life=%d" % [p.equip.has(slot), p.s.max_life])
+	_expect("equip", {"equipped": p.equip.has(slot)})
 	var e0: int = p.cur.ember
 	hud.inventory._on_bag_right(0)
 	print("SMOKE sold ember+%d" % (p.cur.ember - e0))
+	_expect("inv_sell", {"ember": p.cur.ember > e0})
 	var it := Items.generate(5, 2.0, 2)
 	var back := Items.normalize(JSON.parse_string(JSON.stringify(it)))
 	print("SMOKE json roundtrip=%s" % (back == it))
+	_expect("item_json", {"roundtrip": back == it})
 	await get_tree().create_timer(0.5).timeout
 	hud.toggle_inventory()
 	await _smoke_farm()
@@ -1519,7 +1880,13 @@ func _smoke_test() -> void:
 	_smoke_brand()
 	_smoke_line_craft()
 	await _smoke_seal()
-	get_tree().quit()
+	_smoke_progress()
+	_smoke_craft()
+	_smoke_save()
+	_smoke_dungeon()
+	_smoke_chars()
+	print("SMOKE RESULT checks=%d failed=%d %s" % [smoke_checks, smoke_failed.size(), smoke_failed])
+	get_tree().quit(1 if smoke_failed.size() > 0 else 0)
 
 
 func _setup_environment() -> void:
