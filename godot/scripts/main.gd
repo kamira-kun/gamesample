@@ -83,6 +83,12 @@ func _ready() -> void:
 	var notes := [] if smoke else Profiles.load_all()
 	if smoke:
 		Profiles.data = Profiles.fresh()
+	# the base class comes from the profile; a new character (and a `--class=<k>` view) gets its starting kit
+	var cls_arg := ""
+	for x in args:
+		if x.begins_with("--class="):
+			cls_arg = x.trim_prefix("--class=")
+	player.set_class(cls_arg if cls_arg != "" else str(Profiles.current().get("cls", Data.DEFAULT_CLASS)), not smoke or cls_arg != "")
 	var loaded := false if smoke else load_game()
 	passives_changed()
 	enter_hideout()
@@ -110,6 +116,13 @@ func _ready() -> void:
 				Market.take_notes(league())
 				hud.exchange_ui.side = "sell"
 				hud.exchange_ui.mode = "limit"
+			if kind == "chars":   # the character screen over a few sample characters, one of each base class
+				for c in [["ミナ", "ashblade", "blade", 24], ["ルカ", "sigil", "storm", 31], ["ソラ", "lantern", "", 7]]:
+					var ch := Profiles.add_char(c[0], Profiles.STANDARD, c[1])
+					ch.data = {"level": c[3], "asc": c[2]}
+				hud.char_ui.open([])
+				if cls_arg != "":
+					hud.char_ui.pick_class(cls_arg)
 			if kind in ["merchant", "device", "stash", "exchange"]:
 				open_interact(kind)
 			if kind == "exchange":
@@ -124,6 +137,8 @@ func _ready() -> void:
 				atlas.cleared = ["ash", "bone"]
 				if kind == "ascend":
 					player.level = 14
+					if cls_arg == "":
+						player.set_class("sigil")
 					player.asc = "storm"
 					player.asc_ranks = {"storm_elem": 3, "storm_sight": 2, "storm_step": 1}
 					player.asc_cores = ["shock", "crit_arc", ""]
@@ -170,6 +185,79 @@ func _ready() -> void:
 				get_tree().quit())
 	if "--smoke" in args:
 		_smoke_test()
+
+
+## base classes: three ascendancies each, every ascendancy in exactly one class, the starting kit, only the
+## class's own lineages can be taken, and characters from before classes get one from their ascendancy
+func _smoke_classes() -> void:
+	var p := player
+	var keep := [p.level, p.equip, p.slots, p.links, p.gems]
+	var owned := {}
+	for bc in Data.CLASSES:
+		for k in bc.ascs:
+			owned[k] = owned.get(k, 0) + 1
+	print("SMOKE classes n=%d per=%s ascs=%d each_once=%s" % [Data.CLASSES.size(), Data.CLASSES.map(func(c): return c.ascs.size()),
+		Data.ASCENDANCIES.size(), Data.ASCENDANCIES.all(func(a): return owned.get(a.k, 0) == 1)])
+	# every core's stats and effects compute
+	var cores_ok := true
+	for a in Data.ASCENDANCIES:
+		p.set_class(Data.class_of_asc(a.k))
+		p.asc = a.k
+		for i in a.cores.size():
+			for c in a.cores[i]:
+				p.asc_cores = ["", "", ""]
+				p.asc_cores[i] = c.id
+				p.recalc(true)
+				cores_ok = cores_ok and p.effects.has(c.id) and p.s.max_life > 0 and p.s.max_mana > 0
+	p.asc = ""
+	p.asc_cores = ["", "", ""]
+	var kits := []
+	for bc in Data.CLASSES:
+		p.set_class(bc.k, true)
+		kits.append("%s:%s/%s/life%d/mana%d" % [bc.k, p.equip.weapon.base, p.slots[0], p.s.max_life, p.s.max_mana])
+	print("SMOKE classes kits=%s cores_ok=%s" % [kits, cores_ok])
+	# the ascendancy screen offers only the class's three and refuses another class's
+	p.set_class("lantern")
+	p.level = 4
+	hud.toggle(hud.asc_ui)
+	hud.asc_ui._choose("pyre")
+	var refused := p.asc == ""
+	hud.asc_ui._choose("shade")
+	print("SMOKE classes restrict refused_other=%s took=%s offered=%s" % [refused, p.asc, Data.class_ascs(p.cls).map(func(a): return a.k)])
+	hud.close_panels()
+	# a save whose ascendancy is not the class's own comes back without it
+	var sd := save_data()
+	sd.asc = "blade"
+	apply_save(sd)
+	print("SMOKE classes load_foreign asc='%s' cls=%s" % [p.asc, p.cls])
+	p.asc = ""
+	p.asc_ranks = {}
+	# migration: old characters get the class of their ascendancy, else the default; seasons keep it
+	var d := Profiles.fresh()
+	Profiles.data = d
+	var sid: String = Data.SEASONS[0].id
+	var olds := []
+	for asc in ["necro", "storm", "bulwark", ""]:
+		var c := Profiles.add_char("old_" + asc, sid if asc == "storm" else Profiles.STANDARD)
+		c.erase("cls")
+		c.data = {"level": 12, "asc": asc}
+		olds.append(c)
+	var odd := Profiles.add_char("odd", Profiles.STANDARD, "sigil")
+	odd.data = {"asc": "shade"}   # hand-edited: the ascendancy decides
+	var bad := Profiles.add_char("bad", Profiles.STANDARD, "nope")
+	var file = JSON.parse_string(JSON.stringify(d))
+	Profiles.normalize(file)
+	print("SMOKE classes migrate=%s odd=%s bad=%s" % [file.chars.slice(0, 4).map(func(c): return c.cls), file.chars[4].cls, file.chars[5].cls])
+	Profiles.migrate(file, Data.SEASONS[0].end)
+	var moved: Dictionary = file.chars[1]
+	print("SMOKE classes season_end league=%s from=%s cls=%s" % [moved.league, moved.from_season, moved.cls])
+	Profiles.data = Profiles.fresh()
+	p.level = keep[0]
+	p.equip = keep[1]
+	p.slots = keep[2]
+	p.links = keep[3]
+	p.gems = keep[4]
+	p.set_class(Data.DEFAULT_CLASS)
 
 
 ## season leagues and the stash, on an in-memory profile file (the real one is never touched)
@@ -571,6 +659,7 @@ func _smoke_test() -> void:
 	hud.close_panels()
 	await _smoke_exchange()
 	_smoke_seasons()
+	_smoke_classes()
 	_smoke_market()
 	await _smoke_keys()
 	open_interact("device")
@@ -662,6 +751,7 @@ func _smoke_test() -> void:
 	hud.talent_ui._spend("fireball")
 	print("SMOKE talents pts=%d inc_dmg+%d fireball=%d" % [p.talent_pts, p.s.inc_dmg - dmg0, p.talents.fireball])
 	# ascendancy: pick the fire lineage, open two core tiers, then start over
+	p.set_class("sigil")
 	hud.toggle(hud.asc_ui)
 	var fire0: int = p.s.fire_dmg
 	var cost0 := slot_cost(1)
@@ -712,7 +802,8 @@ func _smoke_test() -> void:
 	hud.close_panels()
 	await get_tree().create_timer(1.0).timeout
 	var killed_before := enemies.size()
-	hit_enemy(boss, {"dmg": 999999, "crit": false, "type": "phys"})
+	if boss:   # a totem or minion left from the tests above may already have finished it
+		hit_enemy(boss, {"dmg": 999999, "crit": false, "type": "phys"})
 	print("SMOKE enemies=%d level=%d portal=%s" % [killed_before, p.level, not portal.is_empty()])
 	p.pos = portal.pos
 	await get_tree().create_timer(0.3).timeout
@@ -1287,7 +1378,8 @@ func damage_player(amount: float) -> void:
 	var p := player
 	if p.dead or p.invuln > 0.0:
 		return
-	var d := maxi(1, roundi(amount * (1.0 - p.s.dr) * (0.85 if p.effects.has("iron_stance") else 1.0) * (1.0 - p.bonus("dr") / 100.0)))
+	var d := maxi(1, roundi(amount * (1.0 - p.s.dr) * (0.85 if p.effects.has("iron_stance") else 1.0) * (1.0 - p.bonus("dr") / 100.0)
+		* (1.0 - p.s.dr_pct / 100.0)))
 	p.life -= d
 	p.hit_t = 0.15
 	add_text(p.pos, str(d), Color("#ff5050"), 18)
@@ -1339,7 +1431,7 @@ func roll_damage(coef: float, type: String, spell := false) -> Dictionary:
 	var d: float = randf_range(s.dmg_min, s.dmg_max) * coef
 	if sup.conv != "" and (type == "phys" or sup.conv == "chaos"):
 		type = sup.conv
-	var elem: float = {"fire": s.fire_dmg, "cold": s.cold_dmg, "light": s.light_dmg}.get(type, 0)
+	var elem: float = {"fire": s.fire_dmg, "cold": s.cold_dmg, "light": s.light_dmg, "chaos": s.chaos_dmg}.get(type, 0)
 	var ally: bool = sup.totem > 0 or "minion" in Data.SKILLS.get(sup.skill, {}).get("tags", [])
 	var inc: float = s.inc_dmg + (s.spell_dmg if spell else s.atk_dmg) + elem + (s.ally_dmg if ally else 0) + player.tstat("dmg")
 	# auras reach the player's own skills everywhere, allies only while they stand inside them
@@ -1376,7 +1468,7 @@ func hit_enemy(e: Enemy, hit: Dictionary, freeze := 0.0) -> void:
 	if sup.vsfrozen > 0.0 and (e.frozen > 0.0 or e.slow > 0.0):
 		mul += sup.vsfrozen
 	if e.vuln_t > 0.0:
-		mul += e.vuln
+		mul += e.vuln + (0.3 if fx.has("hex_deep") else 0.0)
 	if mul > 1.0:
 		hit = hit.merged({"dmg": roundi(hit.dmg * mul)}, true)
 	e.life -= hit.dmg
@@ -1460,6 +1552,19 @@ func _asc_on_hit(e: Enemy, hit: Dictionary) -> void:
 		p.life = minf(p.cap("life"), p.life + hit.dmg * 0.03)
 	if not spell and fx.has("fervor"):
 		p.add_buff("fervor", 15, 3.0)
+	if not spell and fx.has("ember_edge"):
+		_apply_burn(e, hit.dmg * 0.25 / 3.0)
+	if hit.type == "chaos" and fx.has("soul_drain"):
+		p.life = minf(p.cap("life"), p.life + hit.dmg * 0.05)
+	# hexing cores mark the enemy as cursed for a while, without cutting short a stronger curse
+	var mark := 0.0
+	if spell and fx.has("hex_touch"):
+		mark = 0.12
+	if hit.crit and fx.has("shade_mark"):
+		mark = 0.15
+	if mark > 0.0 and (e.vuln_t <= 0.0 or e.vuln <= mark):
+		e.vuln = mark
+		e.vuln_t = 4.0
 	if hit.type == "light" and fx.has("shock"):
 		e.shock = 4.0
 	if hit.type == "fire" and fx.has("ignite"):
@@ -1488,6 +1593,8 @@ func _asc_on_kill(e: Enemy, hit: Dictionary) -> void:
 	var fx := player.effects
 	if fx.has("spell_frenzy") and hit.get("spell", true):
 		player.add_buff("spell_frenzy", 8, 4.0)
+	if fx.has("rage_kill") and not hit.get("spell", true):
+		player.add_buff("rage_kill", 5, 4.0)
 	var at := e.pos
 	var s := sup
 	if fx.has("kill_burst") and hit.type == "fire" and not hit.get("burst", false):
@@ -3578,7 +3685,7 @@ func save_data() -> Dictionary:
 	return {"floor": floor_level, "level": p.level, "xp": p.xp, "potions": p.potions,
 		"equip": p.equip, "bag": p.bag, "cur": p.cur, "atlas": atlas.to_dict(), "shop": shop,
 		"slots": p.slots, "links": p.links, "gems": p.gems, "talent_pts": p.talent_pts, "talents": p.talents, "filter": p.filter,
-		"asc": p.asc, "asc_ranks": p.asc_ranks, "asc_cores": p.asc_cores, "auras": p.auras}
+		"cls": p.cls, "asc": p.asc, "asc_ranks": p.asc_ranks, "asc_cores": p.asc_cores, "auras": p.auras}
 
 
 func load_game() -> bool:
@@ -3612,8 +3719,12 @@ func apply_save(data: Dictionary) -> void:
 	var tl: Dictionary = data.get("talents", {})
 	for t in Data.talents():
 		p.talents[t.k] = clampi(int(tl.get(t.k, 0)), 0, t.max)
+	# only an ascendancy of the character's base class comes back (Profiles.normalize keeps them matched)
 	var a := Data.ascendancy(str(data.get("asc", "")))
-	if not a.is_empty():
+	p.asc = ""
+	p.asc_ranks = {}
+	p.asc_cores = ["", "", ""]
+	if not a.is_empty() and a.k in Data.base_class(p.cls).ascs:
 		p.asc = a.k
 		var ar: Dictionary = data.get("asc_ranks", {})
 		for n in a.minors:

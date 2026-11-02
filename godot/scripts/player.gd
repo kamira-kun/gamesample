@@ -1,6 +1,7 @@
 class_name Player
 extends Actor
 
+var cls := Data.DEFAULT_CLASS   # base class (Data.CLASSES): the stat lean, the look and the three ascendancies on offer
 var level := 1
 var xp := 0
 var talent_pts := 0
@@ -67,13 +68,31 @@ func _init() -> void:
 func _ready() -> void:
 	r = 0.45
 	use_rig(Assets.ADVENTURERS + "Knight.glb", 1.0, ["1H_Sword", "Round_Shield"])
-	Heroine.dress(self)
+	Heroine.dress(self, cls)
 	torch = OmniLight3D.new()
 	torch.position = Vector3(0, 3.2, 0)
 	torch.omni_range = 15.0
 	torch.light_energy = 2.2
 	torch.shadow_enabled = true
 	add_child(torch)
+	recalc(true)
+
+
+## become base class `k`; with `kit`, also take its starting weapon, skill bar and gems (a new character)
+func set_class(k: String, kit := false) -> void:
+	cls = k if not Data.base_class(k).is_empty() else Data.DEFAULT_CLASS
+	var bc := Data.base_class(cls)
+	if kit:
+		var b: Dictionary = Data.BASES.weapon.filter(func(x): return x.name == bc.weapon)[0]
+		var w := Items.generate(1, 0.0, 0, "weapon")
+		w.merge({"base": b.name, "name": b.name, "min": b.min + 1, "max": b.max + 1, "aps": b.aps,
+			"implicit": b.get("implicit", {}).duplicate()}, true)
+		equip = {"weapon": w}
+		slots = bc.slots.duplicate()
+		links = [[], [], [], [], [], []]
+		gems = bc.gems.duplicate()
+	if rig:
+		Heroine.paint(self, cls)
 	recalc(true)
 
 
@@ -105,8 +124,11 @@ func recalc(full := false) -> void:
 		"dmg_min": 2.0 + L, "dmg_max": 4.0 + L * 2, "aps": 1.3, "crit": 5.0, "crit_multi": 150.0,
 		"inc_dmg": 0, "flat_dmg": 0, "atk_spd": 0, "cast_spd": 0, "move_spd": 0, "armor": 0, "fire_dmg": 0, "cold_dmg": 0,
 		"light_dmg": 0, "spell_dmg": 0, "life_on_kill": 0, "cdr": 0, "life": 0, "mana": 0,
-		"atk_dmg": 0, "ally_dmg": 0, "ally_life": 0, "energy": 0,
+		"atk_dmg": 0, "ally_dmg": 0, "ally_life": 0, "energy": 0, "chaos_dmg": 0, "dr_pct": 0,
 	}
+	var bc := Data.base_class(cls)
+	for k in bc.get("stats", {}):
+		st[k] += bc.stats[k]
 	effects = {}
 	for slot in equip:
 		var it: Dictionary = equip[slot]
@@ -128,6 +150,9 @@ func recalc(full := false) -> void:
 		for k in asc_cores:
 			if k != "":
 				effects[k] = true
+				var c := Data.asc_core(a, k)
+				for sk in c.get("stats", {}):
+					st[sk] = st.get(sk, 0) + c.stats[sk]
 	st.dmg_min += st.flat_dmg
 	st.dmg_max += st.flat_dmg
 	var tl := talents
@@ -395,7 +420,7 @@ func low_life() -> bool:
 
 ## attacks per second right now, with the core talents' temporary boosts
 func attack_rate_now() -> float:
-	return s.aps * (1.0 + (s.atk_spd + buff("fervor") * 2 + (20 if low_life() else 0) + bonus("atk_spd")) / 100.0)
+	return s.aps * (1.0 + (s.atk_spd + buff("fervor") * 2 + buff("rage_kill") * 4 + (20 if low_life() else 0) + bonus("atk_spd")) / 100.0)
 
 
 func cast_speed_now() -> float:

@@ -55,6 +55,7 @@ static func normalize(d: Dictionary) -> void:
 		c.from_season = str(c.get("from_season", ""))
 		if typeof(c.get("data")) != TYPE_DICTIONARY:
 			c.data = {}
+		c.cls = infer_class(c)
 	if typeof(d.get("stash")) != TYPE_DICTIONARY:
 		d.stash = {}
 	for lg in d.stash.keys():
@@ -81,6 +82,18 @@ static func normalize(d: Dictionary) -> void:
 		for k in w.keys():
 			w[k] = int(w[k])
 	Farm.normalize(d)
+
+
+## the base class of a character: the one it was made with, or for a character from before base classes
+## (or a hand-edited one that does not match its ascendancy) the class its chosen ascendancy belongs to,
+## else the default one
+static func infer_class(c: Dictionary) -> String:
+	var asc := str(c.data.get("asc", ""))
+	var by_asc := Data.class_of_asc(asc)
+	for k in [str(c.get("cls", "")), str(c.data.get("cls", ""))]:
+		if not Data.base_class(k).is_empty() and (by_asc == "" or by_asc == k):
+			return k
+	return by_asc if by_asc != "" else Data.DEFAULT_CLASS
 
 
 ## move the characters and stash of every season that is no longer running into standard
@@ -155,8 +168,8 @@ static func current() -> Dictionary:
 	return find(active)
 
 
-static func add_char(cname: String, league: String) -> Dictionary:
-	var c := {"id": "c%d" % data.next_id, "name": cname, "league": league, "from_season": "",
+static func add_char(cname: String, league: String, cls := Data.DEFAULT_CLASS) -> Dictionary:
+	var c := {"id": "c%d" % data.next_id, "name": cname, "league": league, "from_season": "", "cls": cls,
 		"created": int(Time.get_unix_time_from_system()), "data": {}}
 	data.next_id += 1
 	data.chars.append(c)
