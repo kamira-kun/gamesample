@@ -9,7 +9,8 @@ func _process(_delta: float) -> bool:
 	var files: Dictionary = docs.files()
 	var stale := []
 	for name in files:
-		if FileAccess.get_file_as_string(docs.DIR + name) != files[name]:
+		# a checkout may turn LF into CRLF
+		if FileAccess.get_file_as_string(docs.DIR + name).replace("\r\n", "\n") != files[name]:
 			stale.append(name)
 	print("DOCS files=%d stale=%s" % [files.size(), stale])
 	if not stale.is_empty():
