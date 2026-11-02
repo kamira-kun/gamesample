@@ -1,7 +1,7 @@
 class_name Market
-## The currency exchange (docs/economy-design.md, phase 1). Every league has one market, kept in
-## Profiles.data.market[league] so it saves with the league stash. Prices are in chaos ("c");
-## ember is never traded here, it only pays the fees. Time is play: one tick per map completed.
+## The currency exchange (docs/economy-design.md, phase 1; the gear trading of phases 2 and 3 is in Trade).
+## Every league has one market, kept in Profiles.data.market[league] so it saves with the league stash.
+## Prices are in chaos ("c"); ember is never traded here, it only pays the fees. Time is play: one tick per map completed.
 ## A `wallet` is a currency dictionary like `player.cur` that trades take from and pay into.
 
 const TICKS_PER_DAY := 10
@@ -52,6 +52,7 @@ static func fresh(league: String) -> Dictionary:
 	for k in keys():
 		m.prices[k] = target(league, k, 0.0)
 		m.history[k] = []
+	Trade.normalize(m)
 	return m
 
 
@@ -72,6 +73,7 @@ static func normalize(league: String, m: Dictionary) -> void:
 			"placed_tick": int(o.get("placed_tick", 0)), "escrow": int(o.get("escrow", 0)), "fee_escrow": int(o.get("fee_escrow", 0)),
 			"value": float(o.get("value", 0.0)), "paid": int(o.get("paid", 0))})
 	m.pending = Array(m.get("pending", [])).map(func(s): return str(s))
+	Trade.normalize(m)
 
 
 static func day(m: Dictionary) -> float:
@@ -173,6 +175,7 @@ static func tick(league: String, wallet: Dictionary, m := state(league)) -> void
 	for e in events(league):
 		if int(d) == e.start - 1 and m.tick % TICKS_PER_DAY == 0:
 			m.pending.append("相場掲示板：明日から %s" % event_text(e))
+	Trade.tick(league, wallet, m)
 
 
 static func _side_name(side: String) -> String:
@@ -360,7 +363,8 @@ static func orders(league: String) -> Array:
 		return v)
 
 
-## events for the notice board: running ones and those starting tomorrow, each with `state` "active" or "soon" and `text`
+## events for the notice board: running ones and those starting tomorrow, each with `state` "active" or "soon" and `text`;
+## the currency events come first, then the item trends (those have `tag` instead of `k`)
 static func board(league: String) -> Array:
 	var d := floorf(day(state(league)))
 	var out := []
@@ -371,7 +375,7 @@ static func board(league: String) -> Array:
 			v.state = st
 			v.text = event_text(e)
 			out.append(v)
-	return out
+	return out + Trade.board(league)
 
 
 ## the fill lines piled up since the player last came back; clears them

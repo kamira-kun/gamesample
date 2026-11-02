@@ -126,6 +126,15 @@ func _ready() -> void:
 				hud.char_ui.open([])
 				if cls_arg != "":
 					hud.char_ui.pick_class(cls_arg)
+			if kind in ["exchange_gear", "exchange_requests"]:   # the gear and request pages, with a few things in the bag to trade
+				player.cur.ember = 2000
+				player.cur.chaos = 40
+				player.bag.append_array([Items.generate(12, 0.0, 3), Items.generate(12, 0.0, 2), Items.generate(12, 0.0, 1, "ring")])
+				open_interact("exchange")
+				hud.exchange_ui.page = "gear" if kind == "exchange_gear" else "requests"
+				if kind == "exchange_gear":
+					hud.exchange_ui.pick_bag(player.bag.size() - 3)
+				hud.exchange_ui.refresh()
 			if kind in ["merchant", "device", "stash", "exchange"]:
 				open_interact(kind)
 			if kind == "exchange":
@@ -644,6 +653,87 @@ func _smoke_market() -> void:
 	Profiles.data = Profiles.fresh()
 
 
+## gear trading and buy requests (docs/economy-design.md phases 2 and 3), on an in-memory profile file
+func _smoke_trade() -> void:
+	var sid: String = Data.SEASONS[0].id
+	var d := Profiles.fresh()
+	Profiles.data = d
+	var std := Profiles.STANDARD
+	Trade.ensure(std, 20)
+	var m := Market.state(std)
+	var tagged := Trade.tags({"rarity": 3, "name": "", "desc": "骸骨を召喚する", "mods": {"fire_dmg": 10, "life": -5}})
+	print("SMOKE trade setup offers=%d requests=%d tags=%s events=%d same=%s std_events=%d" % [m.offers.size(), m.requests.size(), tagged,
+		Trade.events(sid).size(), Trade.events(sid) == Trade.events(sid), Trade.events(std).size()])
+	# a unique worth a few chaos (and so likely to sell at its value), a rare, a normal item
+	var uq := {}
+	for i in 400:
+		uq = Items.generate(20, 0.0, 3)
+		if Trade.value(std, uq) >= 2.0:
+			break
+	var rare := Items.generate(20, 0.0, 2)
+	var normal := Items.generate(20, 0.0, 0)
+	var v := Trade.value(std, uq)
+	print("SMOKE trade value unique=%.2f rare=%s normal=%s" % [v, Trade.value(std, rare) > 0.0, Trade.value(std, normal) == 0.0])
+	var w := {"chaos": 0, "ember": 100000}
+	var bag := [normal, uq, rare]
+	var refused := Trade.list_item(std, bag, 0, 5, w)
+	var ask := maxi(1, floori(v))
+	var err := Trade.list_item(std, bag, 1, ask, w)
+	var paid: int = 100000 - w.ember
+	var err2 := Trade.list_item(std, bag, 1, 999, w)   # the rare, far over its value
+	for i in 40:
+		if m.listings.size() < 2:
+			break
+		Market.tick(std, w)
+	var notes := Market.take_notes(std)
+	print("SMOKE trade listing refused=%s ok=%s fee=%d bag=%d sold=%s chaos=%d noted=%s" % [refused != "", err == "" and err2 == "", paid,
+		bag.size(), m.listings.size() == 1, w.chaos, notes.any(func(t): return "売れました" in t)])
+	for i in Trade.LISTING_LIFE:
+		Market.tick(std, w)
+	var expired: bool = m.listings.is_empty() and m.held.size() == 1
+	var took := Trade.take_held(std, 0, bag, Player.BAG_SIZE)
+	print("SMOKE trade expired=%s took=%s bag=%d offers=%d" % [expired, took == "", bag.size(), m.offers.size()])
+	# the dealer, and another adventurer's offer
+	w = {"chaos": 999, "ember": 5000}
+	bag = [uq]
+	var dealer := Trade.dealer_price(std, uq)
+	err = Trade.dealer_sell(std, bag, 0, w)
+	print("SMOKE trade dealer ok=%s got=%d below_value=%s" % [err == "", w.chaos - 999, dealer < Trade.value(std, uq)])
+	var o: Dictionary = m.offers[0]
+	var c0: int = w.chaos
+	var e0: int = w.ember
+	err = Trade.buy_offer(std, o.id, bag, Player.BAG_SIZE, w)
+	print("SMOKE trade bought ok=%s paid=%s fee=%s bag=%d" % [err == "", c0 - w.chaos == o.price, e0 - w.ember == Market.fee(o.price), bag.size()])
+	# buy requests: a fitting rare is taken for the reward, nothing fitting is refused
+	var ring := Items.generate(20, 0.0, 2, "ring")
+	ring.mods.life = 999
+	m.requests = [{"id": 9001, "kind": "affix", "slot": "ring", "k": "life", "need": 40, "tag": "", "reward": 3, "who": "テスト", "placed_tick": m.tick},
+		{"id": 9002, "kind": "unique", "slot": "", "k": "", "need": 0, "tag": "minion", "reward": 2, "who": "テスト", "placed_tick": m.tick}]
+	bag = [ring]
+	c0 = w.chaos
+	var no := Trade.deliver(std, 9002, bag, w)
+	err = Trade.deliver(std, 9001, bag, w)
+	print("SMOKE trade request refused=%s ok=%s reward=%d bag=%d left=%d" % [no != "", err == "", w.chaos - c0, bag.size(), m.requests.size()])
+	for i in Trade.REQUEST_LIFE + 1:
+		Market.tick(std, w)
+	print("SMOKE trade requests kept=%d max=%d" % [m.requests.size(), Trade.MAX_REQUESTS])
+	# a save round trip keeps the gear and the integer fields
+	Trade.list_item(std, [rare], 0, 3, w)
+	var back = JSON.parse_string(JSON.stringify(m))
+	Market.normalize(std, back)
+	print("SMOKE trade save listings=%d offers=%d int_ask=%s" % [back.listings.size(), back.offers.size(), typeof(back.listings[0].ask) == TYPE_INT])
+	# a season ends: its listed gear and pickup box go to a standard stash tab
+	var ms := Market.state(sid)
+	Trade.ensure(sid, 5)
+	Trade.list_item(sid, [Items.generate(5, 0.0, 2)], 0, 50, w)
+	ms.held.append(Items.generate(5, 0.0, 3))
+	var mig := Profiles.migrate(d, Data.SEASONS[0].end)
+	var tab: Array = Profiles.stash_tabs(std).filter(func(t): return t.name.ends_with("取引所"))
+	print("SMOKE trade season end tab=%d items=%d noted=%s" % [tab.size(), tab[0].items.size() if tab.size() > 0 else 0,
+		mig.any(func(t): return "装備" in t)])
+	Profiles.data = Profiles.fresh()
+
+
 ## the merchant's currency prices follow the exchange, and the exchange screen trades (docs/economy-design.md sections 4 and 7)
 func _smoke_exchange() -> void:
 	var p := player
@@ -686,6 +776,36 @@ func _smoke_exchange() -> void:
 		est_lines.any(func(t): return "ティックで成立しそう" in t)])
 	ex.cancel(orders[0].id if orders.size() > 0 else -1)
 	print("SMOKE exchange cancelled orders=%d whet=%d" % [Market.orders(lg).size(), p.cur.whet])
+	# the gear page: list a unique from the bag, buy another adventurer's offer
+	ex.page = "gear"
+	ex.refresh()
+	p.cur.chaos = 500
+	var uq := Items.generate(10, 0.0, 3)
+	p.bag.append(uq)
+	ex.pick_bag(p.bag.size() - 1)
+	var bag0 := p.bag.size()
+	ex.list_picked()
+	var mk := Market.state(lg)
+	print("SMOKE exchange gear offers=%d listed=%d bag=%d err='%s' rows=%d" % [ex.offer_grid.get_child_count(), mk.listings.size(),
+		bag0 - p.bag.size(), ex.gear_error.text, ex.listing_box.get_child_count()])
+	var offer: Dictionary = mk.offers[0]
+	var chaos0: int = p.cur.chaos
+	ex.buy_offer(offer.id)
+	print("SMOKE exchange gear bought=%s paid=%s" % [p.bag.has(offer.item), chaos0 - p.cur.chaos == offer.price])
+	ex.unlist(mk.listings[0].id if mk.listings.size() > 0 else -1)
+	print("SMOKE exchange gear unlisted back=%s" % p.bag.has(uq))
+	# the requests page: a request the bag can fill is delivered for its reward
+	var ring := Items.generate(10, 0.0, 2, "ring")
+	ring.mods.life = 999
+	p.bag.append(ring)
+	mk.requests = [{"id": 9000, "kind": "affix", "slot": "ring", "k": "life", "need": 30, "tag": "", "reward": 4, "who": "テスト", "placed_tick": mk.tick}]
+	ex.page = "requests"
+	ex.refresh()
+	var rows := ex.req_box.get_child_count()
+	chaos0 = p.cur.chaos
+	ex.deliver(9000)
+	print("SMOKE exchange request rows=%d delivered=%s reward=%d" % [rows, not p.bag.has(ring), p.cur.chaos - chaos0])
+	ex.page = "currency"
 	hud.close_panels()
 	Market.state(lg).pending.append("テスト通知")
 	var msgs0 := hud.messages.get_child_count()
@@ -841,6 +961,7 @@ func _smoke_test() -> void:
 	_smoke_gems()
 	_smoke_docs()
 	_smoke_market()
+	_smoke_trade()
 	await _smoke_keys()
 	open_interact("device")
 	await get_tree().create_timer(0.4).timeout
@@ -1312,6 +1433,7 @@ func complete_map() -> void:
 		atlas.abyss += 1
 	atlas.mods.erase(n.id)
 	shop = {}   # the merchant restocks after every run
+	Trade.ensure(league(), atlas.hideout_level())   # the gear others put up is made at the hideout level
 	Market.tick(league(), player.cur)   # one market tick per map completed
 	enter_hideout()
 	hud.message("%s を踏破した！" % n.name, Color("#ffd36a"))
