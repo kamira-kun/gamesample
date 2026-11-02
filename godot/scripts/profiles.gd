@@ -15,6 +15,7 @@ const TABS := 4
 
 static var data := {}
 static var active := ""        # id of the character being played; survives the scene reload that starts it
+static var read_only := false   # dev runs (`--smoke`, `--view=`): never write the file
 
 
 ## read the file (or turn a v1 save into the first standard character), then end finished seasons;
@@ -152,6 +153,8 @@ static func migrate(d: Dictionary, today: String) -> Array:
 
 
 static func save_all() -> void:
+	if read_only:
+		return
 	var tmp := PATH + ".tmp"
 	var f := FileAccess.open(tmp, FileAccess.WRITE)
 	if not f:

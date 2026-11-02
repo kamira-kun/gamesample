@@ -69,9 +69,12 @@ static func sub(text: String, size := 13, color := Color("#b8a888")) -> Label:
 	return l
 
 
+## empty a box to rebuild it; the old children leave at once but are freed at the end of the frame, since the
+## rebuild often runs from a button inside the box (the character screen's delete button), still emitting its signal
 static func clear(node: Node) -> void:
 	for c in node.get_children():
-		c.free()
+		node.remove_child(c)
+		c.queue_free()
 
 
 func hover(c: Control, lines: Array) -> void:
