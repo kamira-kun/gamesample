@@ -152,9 +152,8 @@ func _ready() -> void:
 				atlas.cleared = ["ash", "bone"]
 				if kind == "talents":   # a level 24 character partway to the class's notable, a few points left
 					player.level = 24
-					var goal: String = {"ashblade": "n_stance", "sigil": "n_torrent", "lantern": "n_shadowstep"}[player.cls]
-					player.tree = PassiveTree.path_to([], player.cls, goal)
-					player.tree.append_array(PassiveTree.path_to(player.tree, player.cls, PassiveTree.SPOKES[(PassiveTree.SECTORS[player.cls].step + 2) % PassiveTree.STEPS].id))
+					for goal in _view_tree_goals(2):
+						player.tree.append_array(PassiveTree.path_to(player.tree, player.cls, goal))
 					player.recalc(true)
 				if kind == "ascend":
 					player.level = 14
@@ -193,6 +192,8 @@ func _ready() -> void:
 					hud.keyconfig_ui.listen("skill_4", 0)
 			elif kind.begins_with("altar") or kind == "forge":
 				_view_altar(kind)
+			elif kind in ["tree_all", "jewels", "jewel_craft"]:   # the whole tree; a tree with jewels in and a ring jewel's ring grown; the jewel side with currencies
+				_view_jewels(kind)
 			elif kind.begins_with("tablets"):   # the board with a few tablets set and one picked: `tablets_full` with all 36 cells taken
 				_view_tablets(kind)
 			elif kind.begins_with("seal"):   # a sealed monolith next to the player: `seal_open` with its wardens out
@@ -495,48 +496,85 @@ func _smoke_classes() -> void:
 
 
 ## season leagues and the stash, on an in-memory profile file (the real one is never touched)
-## passive tree: the web is whole, points follow the level, far nodes are taken along the shortest way, nodes only
-## go back while the rest stays joined, saves are cleaned up, and old talents come back as points
+## passive tree: exactly PassiveTree.TOTAL nodes, the web is whole and laid out without overlaps, points follow the
+## level, far nodes are taken along the shortest way, nodes only go back while the rest stays joined, saves are
+## cleaned up, and old talents come back as points
 func _smoke_tree() -> void:
 	var p := player
-	var keep := [p.level, p.tree.duplicate(), p.cls]
+	var keep := [p.level, p.tree.duplicate(), p.cls, p.jewels]
+	p.jewels = []
+	p.recalc()
 	var all := PassiveTree.nodes()
 	var kinds := {}
 	for id in all:
 		kinds[all[id].kind] = kinds.get(all[id].kind, 0) + 1
 	var sym: bool = all.keys().all(func(id): return all[id].links.all(func(nb): return id in all[nb].links))
-	var reach: bool = Data.CLASSES.all(func(c): return all.keys().all(func(id): return all[id].kind == "start" or not PassiveTree.path_to([], c.k, id).is_empty()))
-	print("SMOKE tree nodes=%d kinds=%s symmetric=%s reach_all=%s" % [all.size(), kinds, sym, reach])
-	_expect("tree", {"symmetric": sym, "reach_all": reach, "starts": kinds.get("start", 0) == Data.CLASSES.size()})
+	var reach: bool = Data.CLASSES.all(func(c): return _tree_dist(c.k).size() == all.size() - Data.CLASSES.size() + 1)
+	var names := {}
+	for id in all:
+		if all[id].kind in ["notable", "keystone"]:
+			names[all[id].name] = true
+	var tight := INF
+	var ids: Array = all.keys()
+	for i in ids.size():
+		var a: Vector2 = all[ids[i]].pos
+		for k in range(i + 1, ids.size()):
+			var d2: float = a.distance_squared_to(all[ids[k]].pos)
+			if d2 < tight:
+				tight = d2
+	var ks: Array = ids.filter(func(id): return all[id].kind == "keystone")
+	var ks_trade: bool = ks.all(func(id): return all[id].stats.values().any(func(v): return v > 0) and all[id].stats.values().any(func(v): return v < 0))
+	print("SMOKE tree nodes=%d kinds=%s symmetric=%s reach_all=%s unique_names=%s closest=%.2f keystones_trade=%s" % [all.size(), kinds, sym, reach,
+		names.size() == kinds.get("notable", 0) + kinds.get("keystone", 0), sqrt(tight), ks_trade])
+	_expect("tree", {"count": all.size() == PassiveTree.TOTAL and PassiveTree.TOTAL == 2000, "symmetric": sym, "reach_all": reach,
+		"starts": kinds.get("start", 0) == Data.CLASSES.size(), "unique_names": names.size() == kinds.get("notable", 0) + kinds.get("keystone", 0),
+		"spaced": sqrt(tight) > 0.6, "keystones": ks.size() >= 24 and ks_trade, "sockets": kinds.get("socket", 0) >= 12 and kinds.get("ring_socket", 0) == 6})
 	p.set_class("ashblade")
-	p.level = 10
+	p.level = 20
 	p.tree = []
 	p.recalc(true)
 	hud.toggle(hud.tree_ui)
+	var dist := _tree_dist(p.cls)
+	var goal := _nearest(dist, "notable", "atk_dmg")
 	var atk0: float = p.s.atk_dmg
-	var path := PassiveTree.path_to(p.tree, p.cls, "n_stance")
-	var took: bool = hud.tree_ui._take("n_stance")
-	print("SMOKE tree take path=%d took=%s free=%d atk+%d" % [path.size(), took, p.tree_free(), p.s.atk_dmg - atk0])
-	_expect("tree_take", {"took": took, "path_taken": p.tree.size() == path.size(), "free": p.tree_free() == p.tree_points() - path.size(), "atk": p.s.atk_dmg > atk0})
+	var path := PassiveTree.path_to(p.tree, p.cls, goal)
+	var took: bool = hud.tree_ui._take(goal)
+	print("SMOKE tree take %s path=%d took=%s free=%d atk+%d" % [goal, path.size(), took, p.tree_free(), p.s.atk_dmg - atk0])
+	_expect("tree_take", {"took": took, "path_taken": p.tree.size() == path.size() and path.size() == dist[goal], "free": p.tree_free() == p.tree_points() - path.size(),
+		"atk": p.s.atk_dmg > atk0})
 	var far: bool = hud.tree_ui._take("k_starlore")   # too many points for what is left
 	var other: bool = hud.tree_ui._take(PassiveTree.start_id("sigil"))
-	var mid: bool = hud.tree_ui._refund(p.tree[0])   # would cut n_stance off
-	var leaf: bool = hud.tree_ui._refund("n_stance")
+	var mid: bool = hud.tree_ui._refund(p.tree[0])   # would cut the notable off
+	var leaf: bool = hud.tree_ui._refund(goal)
 	print("SMOKE tree refused far=%s other_start=%s mid=%s leaf=%s size=%d" % [far, other, mid, leaf, p.tree.size()])
 	_expect("tree_refused", {"far": not far, "other_start": not other, "mid": not mid, "leaf": leaf, "size": p.tree.size() == path.size() - 1})
-	# a keystone's percentage life
-	p.level = 40
+	# a keystone's percentage life, out on the edge; and how long the far searches take on the whole web
+	p.level = 100
 	p.tree = []
 	p.recalc(true)
 	var life0: float = p.s.max_life
+	var t0 := Time.get_ticks_usec()
+	var kpath := PassiveTree.path_to(p.tree, p.cls, "k_ironheart")
+	var path_ms := (Time.get_ticks_usec() - t0) / 1000.0
 	hud.tree_ui._take("k_ironheart")
-	print("SMOKE tree keystone life=%.2f move=%d" % [p.s.max_life / life0, PassiveTree.stats(p.tree).move_spd])
-	_expect("tree_keystone", {"life": p.s.max_life > life0, "drawback": PassiveTree.stats(p.tree).move_spd < 0})
+	t0 = Time.get_ticks_usec()
+	var refundable := p.tree.filter(func(id): return PassiveTree.can_refund(p.tree, p.cls, id))
+	var refund_ms := (Time.get_ticks_usec() - t0) / 1000.0
+	t0 = Time.get_ticks_usec()
+	for i in 200:
+		hud.tree_ui.view.node_at(Vector2(randf() * 860, randf() * 620))
+	var hit_ms := (Time.get_ticks_usec() - t0) / 1000.0
+	print("SMOKE tree keystone path=%d life=%.2f move=%d refundable=%s path_ms=%.1f refund_all_ms=%.1f hit200_ms=%.1f" % [kpath.size(), p.s.max_life / life0,
+		PassiveTree.stats(p.tree).move_spd, refundable, path_ms, refund_ms, hit_ms])
+	_expect("tree_keystone", {"life": p.s.max_life > life0, "drawback": PassiveTree.stats(p.tree).move_spd < 0, "only_tip": refundable == ["k_ironheart"],
+		"path_fast": path_ms < 250.0, "hit_fast": hit_ms < 250.0})
 	hud.tree_ui._reset()
 	print("SMOKE tree reset size=%d life_back=%s" % [p.tree.size(), is_equal_approx(p.s.max_life, life0)])
 	_expect("tree_reset", {"empty": p.tree.is_empty(), "life_back": is_equal_approx(p.s.max_life, life0)})
 	# saves: round trip, junk dropped, cut off or over-budget nodes pruned, another class's tree emptied
-	hud.tree_ui._take("n_stance")
+	p.level = 20
+	p.recalc(true)
+	hud.tree_ui._take(goal)
 	var d := save_data()
 	var want: Array = p.tree.duplicate()
 	apply_save(JSON.parse_string(JSON.stringify(d)))
@@ -555,7 +593,179 @@ func _smoke_tree() -> void:
 	hud.close_panels()
 	p.level = keep[0]
 	p.tree = keep[1]
+	p.jewels = keep[3]
 	p.set_class(keep[2])
+
+
+## steps from class `cls`'s start to every node it can reach (other classes' starts are walls)
+func _tree_dist(cls: String) -> Dictionary:
+	var st := PassiveTree.start_id(cls)
+	var dist := {st: 0}
+	var queue := [st]
+	var head := 0
+	while head < queue.size():
+		var cur: String = queue[head]
+		head += 1
+		for nb in PassiveTree.node(cur).links:
+			if not dist.has(nb) and PassiveTree.node(nb).kind != "start":
+				dist[nb] = dist[cur] + 1
+				queue.append(nb)
+	return dist
+
+
+## the closest node of `kind` (giving stat `stat`, if one is named) by steps in `dist`
+func _nearest(dist: Dictionary, kind: String, stat := "") -> String:
+	var best := ""
+	for id in dist:
+		var n := PassiveTree.node(id)
+		if n.kind == kind and (stat == "" or n.stats.has(stat)) and (best == "" or dist[id] < dist[best]):
+			best = id
+	return best
+
+
+## the `n` notables nearest the player's start, for views of a tree partly taken
+func _view_tree_goals(n: int) -> Array:
+	var dist := _tree_dist(player.cls)
+	var ids := dist.keys().filter(func(id): return PassiveTree.node(id).kind == "notable")
+	ids.sort_custom(func(x, y): return dist[x] < dist[y])
+	return ids.slice(0, n)
+
+
+## jewels: a 燈晶 in a socket gives its lines only while the socket is taken and comes out with it, wrong-kind sockets
+## refuse, the currencies craft jewels the way they craft gear (and not while socketed), a 環晶 in a large socket
+## grows its ring (taken, refunded and saved like the rest, with a 燈晶 in its small socket), and drops reach the collection
+func _smoke_jewels() -> void:
+	var p := player
+	var keep := [p.level, p.tree.duplicate(), p.cls, p.jewels, p.cur.duplicate()]
+	p.set_class("sigil")
+	p.level = 100
+	p.tree = []
+	p.jewels = []
+	p.recalc(true)
+	hud.toggle(hud.tree_ui)
+	var ui: TreeUI = hud.tree_ui
+	var dist := _tree_dist(p.cls)
+	var sock := _nearest(dist, "socket")
+	var j := Jewels.generate(20, 2, "ash")
+	j.mods = {"life": 50, "spell_dmg": 9}
+	var ring := Jewels.generate_ring(30, 2, "l", "vital")
+	p.jewels = [j, ring]
+	ui._take(sock)
+	var life1: float = p.s.max_life
+	var spell1: float = p.s.spell_dmg
+	var wrong := ui.socket_jewel(ring.uid, sock)
+	ui.pick(j.uid)
+	ui.click(sock)
+	var life2: float = p.s.max_life
+	print("SMOKE jewels socket %s at=%s wrong='%s' life %d->%d spell+%d" % [sock, j.socket, wrong, life1, life2, p.s.spell_dmg - spell1])
+	_expect("jewels_socket", {"in": j.socket == sock, "wrong_kind": wrong != "" and ring.socket == "", "life": life2 > life1,
+		"spell": is_equal_approx(p.s.spell_dmg - spell1, 9.0), "stats": Jewels.stats(p.jewels, p.tree).get("life", 0) == 58})
+	var refunded := ui._refund(sock)
+	print("SMOKE jewels refund socket=%s out=%s life_back=%s" % [refunded, j.socket == "", p.s.max_life < life2])
+	_expect("jewels_refund", {"refund": refunded, "out": j.socket == "", "life_back": p.s.max_life < life2, "spell_back": is_equal_approx(p.s.spell_dmg, spell1)})
+	# crafting with the gear currencies
+	var cj := Jewels.generate(15, 0, "cinder")
+	p.jewels.append(cj)
+	ui.pick(cj.uid)
+	for k in ["transmute", "ascend", "chaos", "whet", "purify", "divine"]:
+		p.cur[k] = 5
+	ui.craft("transmute")
+	var magic := [int(cj.rarity), cj.mods.size()]
+	ui.craft("ascend")
+	var rare := [int(cj.rarity), cj.mods.size()]
+	while cj.mods.size() < 4 and p.cur.whet > 0:
+		ui.craft("whet")
+	var whet_full := Jewels.craft("whet", cj)
+	var keys0: Array = cj.mods.keys()
+	ui.craft("divine")
+	var divine_same: bool = cj.mods.keys() == keys0
+	ui.craft("chaos")
+	var chaos_n: int = cj.mods.size()
+	ui._take(sock)
+	ui.socket_jewel(cj.uid, sock)
+	var locked := Jewels.craft("chaos", cj)
+	ui.unsocket(cj.uid)
+	ui.craft("purify")
+	print("SMOKE jewels craft magic=%s rare=%s whet_full='%s' divine_same=%s chaos=%d locked='%s' purified=%d/%d spent=%s" % [magic, rare, whet_full,
+		divine_same, chaos_n, locked, cj.rarity, cj.mods.size(), [p.cur.transmute, p.cur.ascend, p.cur.purify]])
+	_expect("jewels_craft", {"magic": magic[0] == 1 and magic[1] >= 1 and magic[1] <= 2, "rare": rare[0] == 2 and rare[1] >= 3, "whet_full": whet_full != "",
+		"divine": divine_same, "chaos": chaos_n >= 3 and chaos_n <= 4, "locked": locked != "", "purify": int(cj.rarity) == 0 and cj.mods.is_empty(),
+		"spent": p.cur.transmute == 4 and p.cur.ascend == 4 and p.cur.purify == 4})
+	var cr := Jewels.generate_ring(10, 0, "m", "blade")
+	var cr_rolls := [Jewels.craft("transmute", cr), cr.notables.size(), Jewels.craft("ascend", cr), cr.notables.size(), Jewels.craft("whet", cr)]
+	var th0: String = cr.theme
+	Jewels.craft("chaos", cr)
+	print("SMOKE jewels craft_ring rolls=%s theme %s->%s notables=%s" % [cr_rolls, th0, cr.theme, cr.notables])
+	_expect("jewels_craft_ring", {"magic": cr_rolls[0] == "" and cr_rolls[1] == 1, "rare": cr_rolls[2] == "" and cr_rolls[3] == 2, "full": cr_rolls[4] != "",
+		"chaos": cr.theme != th0 and cr.notables.size() == 2 and cr.notables.all(func(id): return Jewels.theme(cr.theme).notables.any(func(x): return x.id == id))})
+	# a ring jewel grows the tree, and the growth survives a save
+	p.tree = []
+	j.socket = ""
+	p.jewels = [j, ring]
+	p.recalc(true)
+	var big := _nearest(dist, "ring_socket")
+	var n0 := PassiveTree.nodes().size()
+	var ring_err := ui.socket_jewel(ring.uid, big)
+	var ids := PassiveTree.ring_ids(big)
+	var grown := PassiveTree.nodes().size() - n0
+	var rn: Array = ids.filter(func(id): return PassiveTree.node(id).kind == "notable")
+	var rs: Array = ids.filter(func(id): return PassiveTree.node(id).kind == "socket")
+	var lifep0: float = p.s.max_life
+	for id in rn:
+		ui._take(id)
+	var small_err := ui.socket_jewel(j.uid, rs[0]) if not rs.is_empty() else "none"
+	var life_r: float = p.s.max_life
+	var tree_r: Array = p.tree.duplicate()
+	print("SMOKE jewels ring %s err='%s' path=%d grown=%d notables=%d socket=%d took=%s small_jewel='%s' life %d->%d" % [big, ring_err, dist.get(big, -1), grown, rn.size(),
+		rs.size(), rn.all(func(id): return id in p.tree), small_err, lifep0, life_r])
+	_expect("jewels_ring", {"in": ring.socket == big, "grown": grown == 8 + 3 + 1 and ids.size() == grown, "notables": rn.size() == 3, "small_socket": rs.size() == 1,
+		"took": rn.all(func(id): return id in p.tree), "small_jewel": small_err == "" and j.socket == rs[0], "life": life_r > lifep0,
+		"linked": PassiveTree.node(big).links.any(func(x): return x in ids)})
+	var d := save_data()
+	apply_save(JSON.parse_string(JSON.stringify(d)))
+	var ring2: Dictionary = p.jewels.filter(func(x): return x.kind == "ring")[0]
+	var j2: Dictionary = p.jewels.filter(func(x): return x.kind == "jewel")[0]
+	print("SMOKE jewels ring_save nodes=%d tree_same=%s ring_at=%s small_at=%s life_same=%s" % [PassiveTree.nodes().size(), p.tree == tree_r, ring2.socket,
+		j2.socket, is_equal_approx(p.s.max_life, life_r)])
+	_expect("jewels_ring_save", {"nodes": PassiveTree.nodes().size() == n0 + grown, "tree": p.tree == tree_r, "ring": ring2.socket == big, "small": j2.socket == rs[0],
+		"life": is_equal_approx(p.s.max_life, life_r), "same_json": JSON.stringify(save_data().jewels) == JSON.stringify(d.jewels)})
+	# a hand-edited save: the ring moved to a small socket, a second jewel in the same small socket, an unknown base
+	var junk = JSON.parse_string(JSON.stringify(d))
+	var ri: int = junk.jewels.map(func(x): return x.kind).find("ring")
+	junk.jewels[ri].socket = sock
+	var dup: Dictionary = junk.jewels[1 - ri].duplicate()
+	dup.uid = "dup"
+	junk.jewels.append(dup)
+	junk.jewels.append({"kind": "jewel", "base": "nope"})
+	apply_save(junk)
+	var at_sock := p.jewels.filter(func(x): return x.socket != "")
+	print("SMOKE jewels ring_junk kept=%d ring_out=%s socketed=%d ring_nodes_left=%d" % [p.jewels.size(), p.jewels[ri].socket == "", at_sock.size(),
+		p.tree.filter(func(id): return id.begins_with("x")).size()])
+	_expect("jewels_ring_junk", {"kept": p.jewels.size() == 3, "ring_out": p.jewels[ri].socket == "", "small_gone": at_sock.is_empty(),
+		"nodes_back": PassiveTree.nodes().size() == n0, "pruned": p.tree.all(func(id): return not id.begins_with("x"))})
+	apply_save(JSON.parse_string(JSON.stringify(d)))
+	ring2 = p.jewels.filter(func(x): return x.kind == "ring")[0]
+	var free0 := p.tree_free()
+	ui.unsocket(ring2.uid)
+	print("SMOKE jewels ring_out nodes=%d refunded=%d all_out=%s" % [PassiveTree.nodes().size(), p.tree_free() - free0, p.jewels.all(func(x): return x.socket == "")])
+	_expect("jewels_ring_out", {"nodes": PassiveTree.nodes().size() == n0, "refunded": p.tree_free() - free0 == tree_r.filter(func(id): return id in ids).size(), "all_out": p.jewels.all(func(x): return x.socket == "")})
+	# drops reach the collection
+	p.jewels = []
+	_drop_jewel(p.pos, 12, true)
+	_drop_jewel(p.pos, 12)
+	for g in drops.filter(func(g): return g.k == "jewel"):
+		_take(g)
+	drops = drops.filter(func(g): return not g.get("taken", false))
+	print("SMOKE jewels drop owned=%d ring=%d" % [p.jewels.size(), p.jewels.filter(func(x): return x.kind == "ring").size()])
+	_expect("jewels_drop", {"owned": p.jewels.size() == 2, "ring": p.jewels.filter(func(x): return x.kind == "ring").size() == 1})
+	hud.close_panels()
+	p.level = keep[0]
+	p.jewels = keep[3]
+	p.tree = keep[1]
+	p.cur = keep[4]
+	p.set_class(keep[2])
+	p.fix_jewels()
+	p.recalc(true)
 
 
 func _smoke_seasons() -> void:
@@ -1002,6 +1212,41 @@ func _view_altar(kind: String) -> void:
 			for e in a.spawned:
 				if is_instance_valid(e) and not e.dead:
 					hit_enemy(e, {"dmg": 999999, "crit": false, "type": "fire"})
+
+
+func _view_jewels(kind: String) -> void:
+	var p := player
+	p.level = 90 if kind != "tree_all" else 40
+	for k in ["transmute", "ascend", "chaos", "whet", "purify", "divine"]:
+		p.cur[k] = 7
+	var dist := _tree_dist(p.cls)
+	var j := Jewels.generate(24, 2)
+	var ring := Jewels.generate_ring(30, 2, "l")
+	var spare := Jewels.generate(18, 1)
+	p.jewels = [j, ring, spare, Jewels.generate_ring(12, 1, "s"), Jewels.generate(10, 0)]
+	p.tree = []
+	for goal in _view_tree_goals(3):
+		p.tree.append_array(PassiveTree.path_to(p.tree, p.cls, goal))
+	p.recalc(true)
+	hud.toggle(hud.tree_ui)
+	var ui: TreeUI = hud.tree_ui
+	if kind != "tree_all":
+		var big := _nearest(dist, "ring_socket")
+		ui.socket_jewel(ring.uid, big)
+		var ids := PassiveTree.ring_ids(big)
+		for id in ids.filter(func(x): return PassiveTree.node(x).kind == "notable"):
+			ui._take(id)
+		ui.socket_jewel(j.uid, ids.filter(func(x): return PassiveTree.node(x).kind == "socket")[0])
+		ui.socket_jewel(spare.uid, _nearest(dist, "socket"))
+		ui.pick(p.jewels[3 if kind == "jewel_craft" else 1].uid)
+	await get_tree().process_frame
+	if kind == "tree_all":
+		ui.view.fit_all()
+	else:
+		var at: Vector2 = PassiveTree.node(_nearest(dist, "ring_socket")).pos
+		ui.view.zoom = 0.75
+		ui.view.pan = -at.lerp(Vector2.ZERO, 0.3) * TreeUI.TreeView.UNIT * ui.view.zoom
+	ui.view.queue_redraw()
 
 
 func _view_tablets(kind: String) -> void:
@@ -1882,6 +2127,7 @@ func _smoke_test() -> void:
 	await _smoke_seal()
 	_smoke_progress()
 	_smoke_craft()
+	_smoke_jewels()
 	_smoke_save()
 	_smoke_dungeon()
 	_smoke_chars()
@@ -4484,6 +4730,28 @@ func gain_tablet(t: Dictionary) -> void:
 	hud.tablet_ui.refresh()
 
 
+# =================== jewels ===================
+## a jewel (or, with `ring`, a ring jewel) lying on the floor as a small glowing gem until picked up
+func _drop_jewel(at: Vector2, ilvl: int, ring := false) -> void:
+	var j := Jewels.generate_ring(ilvl) if ring else Jewels.generate(ilvl)
+	var pos := _scatter(at)
+	var node := Fx.mesh(level_root, Fx.box(Vector3.ONE * (0.34 if ring else 0.26)), Fx.mat(Jewels.RING_COLOR if ring else Jewels.COLOR, 4.0), to3(pos, 0.35))
+	node.rotation = Vector3(0.0, 0.7, 0.7)
+	drops.append({"k": "jewel", "n": 1, "jewel": j, "pos": pos, "node": node})
+
+
+## a jewel joins the character's collection (broken down into ember once the collection is full)
+func gain_jewel(j: Dictionary) -> void:
+	var p := player
+	if p.jewels.size() >= Jewels.MAX_OWNED:
+		p.cur.ember += Jewels.shard_value(j)
+		hud.message("ジュエルが一杯のため %s を砕いた（+%d 灰燼の欠片）" % [j.name, Jewels.shard_value(j)], Color("#ffcf3a"))
+		return
+	p.jewels.append(j)
+	hud.message("%s「%s」を手に入れた（%s）" % ["環晶" if Jewels.is_ring(j) else "燈晶", j.name, Keybinds.text("talents")], Jewels.RING_COLOR if Jewels.is_ring(j) else Jewels.COLOR)
+	hud.tree_ui.refresh()
+
+
 # =================== portal ===================
 func _open_portal(at: Vector2) -> void:
 	var root := Node3D.new()
@@ -4537,6 +4805,8 @@ func _drop_loot(e: Enemy) -> void:
 		_drop_currency(_weighted(Data.CURRENCIES.filter(func(c): return c.w > 0.0)).k, 1, e.pos)
 	if randf() < (0.8 if e.boss else (0.3 if not e.elite.is_empty() else 0.02)):
 		_drop_gem(e.pos, ilvl)
+	if randf() < (0.6 if e.boss else (0.12 if not e.elite.is_empty() else 0.006)):
+		_drop_jewel(e.pos, ilvl, randf() < (0.4 if e.boss else 0.15))
 
 
 ## a skill gem or support gem the player doesn't own yet, mostly ones the area level is close to
@@ -4680,6 +4950,9 @@ func _take(g: Dictionary) -> void:
 		return
 	if g.k == "tablet":
 		gain_tablet(g.tablet)
+		return
+	if g.k == "jewel":
+		gain_jewel(g.jewel)
 		return
 	if g.k == "gem":
 		if g.get("skill", false):
@@ -4863,7 +5136,7 @@ func save_data() -> Dictionary:
 	return {"floor": floor_level, "level": p.level, "xp": p.xp, "potions": p.potions,
 		"equip": p.equip, "bag": p.bag, "cur": p.cur, "atlas": atlas.to_dict(), "shop": shop,
 		"slots": p.slots, "links": p.links, "gems": p.gems, "skills": p.skills, "tree": p.tree, "filter": p.filter,
-		"cls": p.cls, "asc": p.asc, "asc_ranks": p.asc_ranks, "asc_cores": p.asc_cores, "auras": p.auras, "tablets": p.tablets}
+		"cls": p.cls, "asc": p.asc, "asc_ranks": p.asc_ranks, "asc_cores": p.asc_cores, "auras": p.auras, "tablets": p.tablets, "jewels": p.jewels}
 
 
 func load_game() -> bool:
@@ -4904,7 +5177,11 @@ func apply_save(data: Dictionary) -> void:
 	# links that need more level than the character has come off (the gems stay owned)
 	p.links = p.links.map(func(l): return l.filter(func(id): return p.level >= Data.support(id).lvl))
 	# talents came before the passive tree: their points come back as passive points
-	p.tree = PassiveTree.sanitize(data.get("tree", []), p.cls, p.tree_points())
+	# jewels first: a ring jewel's nodes have to be in the tree before the saved tree is checked against it
+	p.jewels = Jewels.normalize(data.get("jewels", []))
+	var rt = data.get("tree", [])
+	p.tree = rt if typeof(rt) == TYPE_ARRAY else []
+	p.fix_jewels()
 	var tl = data.get("talents", {})
 	talents_refunded = not data.has("tree") and typeof(tl) == TYPE_DICTIONARY and tl.values().any(func(v): return int(v) > 0)
 	# only an ascendancy of the character's base class comes back (Profiles.normalize keeps them matched)

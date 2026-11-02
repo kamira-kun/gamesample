@@ -451,6 +451,10 @@ class Overlay extends Control:
 				c = {"icon": "◈" if sg else "◇", "name": "%s：%s" % [gi.kind, gi.name], "color": gi.color if sg else Data.GEM_COLOR}
 			elif dr.k == "tablet":
 				c = {"icon": "▦", "name": "石板：%s（%dマス）" % [Tablets.name_of(dr.tablet), Tablets.cell_count(dr.tablet)], "color": Tablets.COLOR}
+			elif dr.k == "jewel":
+				var ring := Jewels.is_ring(dr.jewel)
+				c = {"icon": "❂" if ring else "◆", "name": "%s：%s" % ["環晶" if ring else "燈晶", dr.jewel.name],
+					"color": Jewels.RING_COLOR if ring else Data.RARITY[int(dr.jewel.rarity)].color}
 			var label: String = "%s %s" % [c.icon, c.name]
 			var w := Data.ui_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x + 12
 			draw_rect(Rect2(sp.x - w / 2, sp.y - 18, w, 19), Color(0, 0, 0, 0.75))
