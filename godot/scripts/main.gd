@@ -38,6 +38,7 @@ var mod_fx := Atlas.effects([])
 var shop := {}
 var interacts: Array = []   # hideout objects and dormant altars: {kind, name, pos, r}
 var altars: Array = []      # cinder altars in this map (see Farm)
+var seals: Array = []       # sealed monoliths in this map (see Seal)
 var boss: Enemy = null
 var flow_t := 0.0
 var time := 0.0
@@ -189,6 +190,20 @@ func _ready() -> void:
 					hud.keyconfig_ui.listen("skill_4", 0)
 			elif kind.begins_with("altar") or kind == "forge":
 				_view_altar(kind)
+			elif kind.begins_with("tablets"):   # the board with a few tablets set and one picked: `tablets_full` with all 36 cells taken
+				_view_tablets(kind)
+			elif kind.begins_with("seal"):   # a sealed monolith next to the player: `seal_open` with its wardens out
+				enter_map("ash")
+				player.invuln = 1e9
+				var sl := place_seal(_free_spot(player.pos, 5.0))
+				if kind == "seal_open":
+					get_tree().create_timer(1.0).timeout.connect(func(): break_seal(sl))
+			elif kind == "brand_tip":   # a rare chest with a special modifier, its tooltip up
+				var it := Items.generate(20, 0.0, 2, "armor")
+				Items.brand(it)
+				player.bag.append(it)
+				hud.toggle_inventory()
+				get_tree().create_timer(2.0).timeout.connect(func(): hud.show_tip(Items.lines(it)))
 			elif kind.begins_with("aura"):   # auras on the bar: `aura0` none on, `aura` three on and a fourth refused, `aura_off` one switched off again
 				enter_map("ash")
 				player.invuln = 1e9
@@ -884,6 +899,28 @@ func _view_altar(kind: String) -> void:
 					hit_enemy(e, {"dmg": 999999, "crit": false, "type": "fire"})
 
 
+func _view_tablets(kind: String) -> void:
+	var p := player
+	p.cur.whet = 4
+	p.cur.chaos = 2
+	if kind == "tablets_full":
+		for i in 6:
+			var t := Tablets.generate(14, "slab6", 3)
+			p.tablets.append(t)
+			Tablets.place(p.tablets, t, (i % 2) * 3, (i / 2) * 2, 0)
+	else:
+		for s in [["cross5", 0, 0, 0], ["line4", 3, 0, 1], ["square4", 4, 4, 0], ["hook4", 0, 3, 3], ["pair", 2, 5, 0]]:
+			var t := Tablets.generate(14, s[0], 2)
+			p.tablets.append(t)
+			Tablets.place(p.tablets, t, s[1], s[2], s[3])
+		for s in ["gate6", "tee4", "mono", "flag5"]:
+			p.tablets.append(Tablets.generate(14, s, 0 if s == "mono" else 1))
+	p.recalc(true)
+	hud.toggle(hud.tablet_ui)
+	hud.tablet_ui.pick(p.tablets[-1].uid)
+	hud.tablet_ui.board.hover = Vector2i(3, 2)
+
+
 ## a free spot about `d` away from `c` that the player can see
 func _free_spot(c: Vector2, d: float) -> Vector2:
 	for k in 32:
@@ -979,6 +1016,164 @@ func _smoke_farm() -> void:
 	print("SMOKE farm leagues split=%s json=%s season_end cinder=%d->%d rank=%d beacons=%d season_gone=%s note=%s" % [split, round_trip,
 		std0, std.cinder, Farm.rank(std), std.beacons, not Profiles.data.farm.has(sid), notes.any(func(t): return "燼晶" in t)])
 	Profiles.data = Profiles.fresh()
+
+
+## rune tablets: the shapes turn true, the board takes them without overlap or overhang up to all 36 cells,
+## the panel sets and lifts them, their lines reach the stats, crafting carves within each tablet's limit,
+## a boss drops one, and a save keeps them (an overlapping hand-edited placement comes off the board)
+func _smoke_tablets() -> void:
+	var p := player
+	p.tablets = []
+	p.recalc(true)
+	var turns_ok := Tablets.SHAPES.all(func(sh):
+		var a: Array = Tablets.turned(sh.id, 0)
+		a.sort()
+		var b: Array = Tablets.turned(sh.id, 4)
+		b.sort()
+		return a == b and a.size() == sh.cells.size())
+	var tall: Array = Tablets.turned("line4", 1)
+	print("SMOKE tablets shapes=%d sizes=%d-%d turns=%s line4_upright=%s" % [Tablets.SHAPES.size(),
+		Tablets.SHAPES.map(func(sh): return sh.cells.size()).min(), Tablets.SHAPES.map(func(sh): return sh.cells.size()).max(), turns_ok,
+		tall.all(func(c): return c.x == 0) and tall.size() == 4])
+	# nothing may hang off the edge, a tablet may turn over its own cells, and six 3x2 slabs fill the whole board
+	var probe := Tablets.generate(10, "slab6", 0)
+	var edge_err := Tablets.fit([probe], probe, 4, 0, 0)
+	Tablets.place([probe], probe, 0, 0, 0)
+	var turned_fit := Tablets.fit([probe], probe, 0, 0, 1) == ""
+	var slabs := []
+	for i in 6:
+		var t := Tablets.generate(10, "slab6", 0)
+		p.tablets.append(t)
+		slabs.append(t)
+	var errs := []
+	for i in 6:
+		errs.append(Tablets.place(p.tablets, slabs[i], (i % 2) * 3, (i / 2) * 2, 0))
+	var extra := Tablets.generate(10, "mono", 1)
+	p.tablets.append(extra)
+	var full_err := Tablets.place(p.tablets, extra, 2, 2, 0)
+	print("SMOKE tablets board used=%d/36 all_set=%s overlap='%s' edge='%s' turned_over_own=%s" % [Tablets.used_cells(p.tablets),
+		errs.all(func(e): return e == ""), full_err, edge_err, turned_fit])
+	# lines reach the stats only while the tablet is on the board
+	p.tablets = []
+	var life_t := Tablets.generate(10, "cross5", 0)
+	life_t.mods = {"life": 40}
+	p.tablets.append(life_t)
+	p.recalc(true)
+	var life0: float = p.s.max_life
+	hud.toggle(hud.tablet_ui)
+	var ui: TabletUI = hud.tablet_ui
+	ui.pick(life_t.uid)
+	ui.turn_picked()
+	ui.click_cell(Vector2i(1, 1))
+	var life1: float = p.s.max_life
+	var cells := Tablets.cells_at(life_t, life_t.x, life_t.y, life_t.rot)
+	ui.right_cell(cells[0])
+	print("SMOKE tablets panel open=%s placed_rot=%d life %d->%d->%d cards=%d off=%s" % [ui.visible, life_t.rot, life0, life1,
+		p.s.max_life, ui.list.get_child_count(), not life_t.placed])
+	# carving: 鍛錬の砥石 adds lines up to the limit, 混沌の残光 recarves them, both spend the currency
+	var blank := Tablets.generate(12, "hook5", 0)
+	p.tablets.append(blank)
+	p.cur.whet = 5
+	p.cur.chaos = 2
+	ui.pick(blank.uid)
+	for i in 4:
+		ui.craft("whet")
+	var carved: int = blank.mods.size()
+	var limit_err: String = ui.error.text
+	var before: Dictionary = blank.mods.duplicate()
+	ui.craft("chaos")
+	print("SMOKE tablets craft lines=%d/%d whet_left=%d limit='%s' chaos_kept=%d chaos_left=%d mono_max=%d" % [carved, Tablets.max_mods(blank),
+		p.cur.whet, limit_err, blank.mods.size(), p.cur.chaos, Tablets.max_mods(Tablets.generate(1, "mono", 0))])
+	ui.shatter()
+	print("SMOKE tablets shatter gone=%s" % [not p.tablets.has(blank)])
+	hud.close_panels()
+	# a save keeps them; a hand-edited overlap comes off the board
+	life_t.placed = false
+	Tablets.place(p.tablets, life_t, 0, 0, 2)
+	var raw = JSON.parse_string(JSON.stringify(save_data()))
+	var clash := {"uid": "x", "shape": "mono", "ilvl": 3, "mods": {"armor": 9, "bogus": 3}, "placed": true, "x": 1, "y": 0, "rot": 0}
+	var back := Tablets.normalize(raw.tablets + [clash, {"shape": "nope"}])
+	var kept: Dictionary = back[0]
+	print("SMOKE tablets save kept=%d same=%s rot=%d clash_off=%s bogus_gone=%s" % [back.size(), kept.mods == life_t.mods and kept.placed,
+		kept.rot, not back[1].placed, not back[1].mods.has("bogus")])
+	# a boss drops one
+	enter_map("ash")
+	var n0 := p.tablets.size()
+	hit_enemy(boss, {"dmg": 999999, "crit": false, "type": "phys"})
+	await get_tree().create_timer(0.2).timeout
+	for d in drops.filter(func(d): return d.k == "tablet"):
+		_take(d)
+	print("SMOKE tablets boss_drop owned+%d" % (p.tablets.size() - n0))
+	enter_hideout()
+
+
+## special modifiers: 刻紋の熾石 carves one into a rare item only, beside its affixes; it reaches the stats,
+## survives 混沌の残光 and a save, and a second stone carves a different one
+func _smoke_brand() -> void:
+	var p := player
+	var magic := Items.generate(10, 0.0, 1, "armor")
+	var rare := Items.generate(10, 0.0, 2, "armor")
+	var magic_err := Items.craft("brand", magic)
+	var n0 := Items.affix_count(rare)
+	p.bag = [rare]
+	p.cur.brand = 2
+	hud.toggle_inventory()
+	hud.inventory._pick_currency("brand")
+	hud.inventory._on_bag_click(0)
+	var first: String = rare.get("special", {}).get("k", "")
+	hud.inventory._on_bag_click(0)
+	var second: String = rare.get("special", {}).get("k", "")
+	hud.inventory._cancel_craft()
+	hud.toggle_inventory()
+	Items.brand(rare, "s_life")
+	var pct0: int = p.s.life_pct
+	var old = p.equip.get("armor")
+	p.equip.armor = rare
+	p.recalc()
+	var pct_up: bool = p.s.life_pct - pct0 == rare.special.v
+	Items.craft("chaos", rare)
+	var back := Items.normalize(JSON.parse_string(JSON.stringify(rare)))
+	var tip := Items.lines(rare).any(func(l): return "灯心の紋" in str(l[0]))
+	print("SMOKE brand magic='%s' first=%s second_differs=%s affixes_same=%s left=%d life_pct_up=%s after_chaos=%s json=%s tip=%s" % [magic_err,
+		first != "", second != first and second != "", Items.affix_count(rare) <= Data.RARITY[2].aff[1] and n0 > 0, p.cur.brand, pct_up,
+		rare.has("special"), back.get("special") == rare.special, tip])
+	if old:
+		p.equip.armor = old
+	else:
+		p.equip.erase("armor")
+	p.bag = []
+	p.recalc()
+
+
+## sealed monoliths: one sits in the map with its label, breaking it frees the wardens and wakes the rune blasts,
+## and felling them all drops 刻紋の熾石
+func _smoke_seal() -> void:
+	var p := player
+	p.invuln = 1e9
+	enter_map("ash")
+	if seals.is_empty():
+		place_seal(_free_spot(p.pos, 6.0))
+	var sl: Dictionary = seals[0]
+	var label := interacts.any(func(o): return o.get("seal") == sl)
+	p.pos = map.move_circle(sl.pos + Vector2(0, 2.0), p.r, Vector2.ZERO)
+	open_interact("seal", {"seal": sl})
+	var wardens: int = sl.spawned.size()
+	var named: bool = sl.spawned.all(func(e): return e.display_name == "封碑の番人" and e.aggro and not e.elite.is_empty())
+	var status := seal_status()
+	sl.pulse = Seal.PULSE
+	var t0 := teles.size()
+	await get_tree().create_timer(0.1).timeout
+	var blasted := teles.size() > t0
+	var c0: int = p.cur.brand
+	for e in sl.spawned:
+		hit_enemy(e, {"dmg": 999999, "crit": false, "type": "phys"})
+	await get_tree().create_timer(0.2).timeout
+	var stones: int = sl.get("reward", {}).get("brand", 0)
+	_collect_nearby(30.0)
+	print("SMOKE seal label=%s wardens=%d/%d named=%s status='%s' blast=%s state=%s stones=%d got=%d label_gone=%s no_shop=%s" % [label, wardens,
+		Seal.wardens(floor_level), named, status, blasted, sl.state, stones, p.cur.brand - c0, not interacts.any(func(o): return o.get("seal") == sl),
+		Data.currency("brand").w == 0.0])
+	enter_hideout()
 
 
 ## automated run used during development: `godot -- --smoke`
@@ -1232,6 +1427,9 @@ func _smoke_test() -> void:
 	await get_tree().create_timer(0.5).timeout
 	hud.toggle_inventory()
 	await _smoke_farm()
+	await _smoke_tablets()
+	_smoke_brand()
+	await _smoke_seal()
 	get_tree().quit()
 
 
@@ -1257,7 +1455,7 @@ func _setup_environment() -> void:
 
 
 # =================== input ===================
-const PANEL_ACTIONS := ["inventory", "skills", "talents", "ascendancy", "status", "filter", "passives", "keyconfig"]
+const PANEL_ACTIONS := ["inventory", "skills", "talents", "ascendancy", "status", "filter", "passives", "tablets", "keyconfig"]
 
 
 func _unhandled_input(e: InputEvent) -> void:
@@ -1296,7 +1494,7 @@ static func to3(p: Vector2, y := 0.0) -> Vector3:
 func _reset_world(new_map: Dungeon, new_theme: Dictionary) -> void:
 	if level_root:
 		level_root.queue_free()
-	for list in [projs, proj_spawn, eprojs, teles, hazards, storms, zones, texts, ground, drops, interacts, altars]:
+	for list in [projs, proj_spawn, eprojs, teles, hazards, storms, zones, texts, ground, drops, interacts, altars, seals]:
 		list.clear()
 	enemies.clear()
 	minions.clear()
@@ -1328,11 +1526,15 @@ func spawn_floor() -> void:
 	_reset_world(Dungeon.new(72, 72, floor_level), Data.THEMES[atlas.node_theme(area)])
 	_spawn_enemies()
 	_place_altars()
+	if randf() < Seal.CHANCE:
+		_place_seal()
 	hud.message("%s — エリアレベル %d" % [area.name, floor_level], Color("#e8d8b0"))
 	for k in run_mods:
 		hud.message("◆ " + Data.map_mod(k).name, Color("#ff9a7a"))
 	if altars.size() > 0:
 		hud.message("燼火の祭壇が %d つ眠っている" % altars.size(), Farm.COLOR)
+	if seals.size() > 0:
+		hud.message("刻紋の封碑の気配がする", Seal.COLOR)
 	save_game()
 
 
@@ -1455,6 +1657,8 @@ func open_interact(kind: String, o := {}) -> void:
 		hud.cinder_ui.open_forge()
 	elif kind == "altar":
 		hud.cinder_ui.open_altar(o.altar)
+	elif kind == "seal":
+		break_seal(o.seal)
 	else:
 		hud.atlas_ui.open_close()
 
@@ -1621,6 +1825,7 @@ func _process(delta: float) -> void:
 		_update_loot(delta)
 		_update_portal(delta)
 		_update_altars(delta)
+		_update_seals(delta)
 		save_t += delta
 		if save_t > 20.0 and not player.dead:
 			save_t = 0.0
@@ -1990,6 +2195,7 @@ func _kill_enemy(e: Enemy) -> void:
 			_explosion(at, 3.2, Color("#ff7840"))
 			_damage_area(at, 3.2, dmg))
 	if e.boss:
+		_drop_tablet(e.pos, floor_level + 2)
 		boss = null
 		hud.set_boss(null)
 		_open_portal(e.pos)
@@ -3680,6 +3886,148 @@ func forge_buy(id: String) -> String:
 	return ""
 
 
+# =================== sealed monoliths ===================
+## one monolith in a room away from the start, the boss and the altars
+func _place_seal() -> void:
+	var rooms := map.rooms.filter(func(r): return r != map.start and r != map.boss_room)
+	rooms.shuffle()
+	for room in rooms:
+		for tries in 12:
+			var tx: int = randi_range(room.x + 2, room.x + room.w - 3) if tries > 0 else int(room.cx)
+			var ty: int = randi_range(room.y + 2, room.y + room.h - 3) if tries > 0 else int(room.cy)
+			var at := map.tile_center(tx, ty)
+			if map.is_wall(tx, ty) or map.circle_hits(at, 1.4) or altars.any(func(a): return a.pos.distance_to(at) < 12.0):
+				continue
+			place_seal(at)
+			return
+
+
+## a sealed monolith at `at`, broken open from its [B] label
+func place_seal(at: Vector2) -> Dictionary:
+	var sl := {"pos": at, "state": "sealed", "spawned": [], "pulse": 0.0}
+	sl.merge(_build_seal(at))
+	seals.append(sl)
+	interacts.append({"kind": "seal", "name": "刻紋の封碑", "pos": at, "r": 1.2, "seal": sl})
+	var t := Vector2i(floori(at.x / T), floori(at.y / T))
+	map.blocked[map.idx(t.x, t.y)] = 1
+	return sl
+
+
+## a tall dark obelisk on a square plinth, its carved runes glowing faintly until the seal breaks
+func _build_seal(at: Vector2) -> Dictionary:
+	var root := Node3D.new()
+	root.position = to3(at)
+	level_root.add_child(root)
+	Fx.mesh(root, Fx.box(Vector3(1.9, 0.3, 1.9)), Fx.mat(Color("#26302e")), Vector3(0, 0.15, 0))
+	var pillar := Fx.mesh(root, Fx.box(Vector3(0.8, 3.2, 0.8)), Fx.mat(Color("#1e2624")), Vector3(0, 1.9, 0))
+	pillar.rotation.y = PI / 4
+	var rune_mat := Fx.mat(Seal.COLOR, 1.2, true)
+	for k in 4:
+		var face := Vector2.from_angle(k * PI / 2) * 0.58
+		for j in 3:
+			var rune := Fx.mesh(root, Fx.box(Vector3(0.22, 0.32, 0.22)), rune_mat, to3(face, 1.0 + j * 0.85))
+			rune.rotation.y = k * PI / 2 + PI / 4
+	var light := OmniLight3D.new()
+	light.light_color = Seal.COLOR
+	light.light_energy = 0.9
+	light.omni_range = 5.0
+	light.position.y = 2.4
+	root.add_child(light)
+	return {"node": root, "rune_mat": rune_mat, "light": light}
+
+
+## break the seal: the wardens come out around the monolith and it wakes
+func break_seal(sl: Dictionary) -> void:
+	if sl.state != "sealed":
+		return
+	sl.state = "active"
+	interacts = interacts.filter(func(o): return o.get("seal") != sl)
+	sl.rune_mat.emission_energy_multiplier = 5.0
+	sl.light.light_energy = 3.0
+	sl.light.omni_range = 10.0
+	var kinds := ["brute", "shaman", "ghoul", "archer"]
+	for i in Seal.wardens(floor_level):
+		var at := _altar_spot(sl.pos)
+		var e := _make_enemy(kinds[i % kinds.size()], at, 20000 + seals.find(sl), Data.ELITE_AFFIXES.pick_random())
+		e.set_meta("seal", true)
+		e.display_name = "封碑の番人"
+		e.max_life *= 2.2
+		e.life = e.max_life
+		e.aggro = true
+		e.xp *= 2.0
+		Fx.burst(level_root, to3(at, 0.6), 14, Seal.COLOR, 5.0)
+		sl.spawned.append(e)
+	Fx.ring(level_root, to3(sl.pos), Seal.RADIUS, Seal.COLOR, 0.6, false)
+	shake = maxf(shake, 4.0)
+	hud.message("封碑の封印が解けた — 番人 %d 体をすべて倒せ！" % sl.spawned.size(), Seal.COLOR)
+
+
+func seal_alive(sl: Dictionary) -> int:
+	return sl.spawned.filter(func(e): return is_instance_valid(e) and not e.dead).size()
+
+
+## while wardens stand, the monolith hurls rune blasts at the player; the last one down ends it
+func _update_seals(delta: float) -> void:
+	for sl in seals:
+		if sl.state != "active":
+			continue
+		if seal_alive(sl) == 0:
+			_end_seal(sl)
+			continue
+		sl.pulse += delta
+		if sl.pulse >= Seal.PULSE and player.pos.distance_to(sl.pos) < 22.0:
+			sl.pulse = 0.0
+			var at := player.pos
+			var dmg: float = Seal.blast_dmg(floor_level) * mod_fx.dmg
+			Fx.burst(level_root, to3(sl.pos, 3.4), 8, Seal.COLOR, 4.0)
+			add_tele(at, Seal.BLAST_R, 1.1, true, func():
+				_explosion(at, Seal.BLAST_R, Seal.COLOR)
+				_damage_area(at, Seal.BLAST_R, dmg))
+
+
+## every warden down: the monolith goes dark and pays its stones
+func _end_seal(sl: Dictionary) -> void:
+	sl.state = "done"
+	sl.rune_mat.emission_energy_multiplier = 0.2
+	sl.light.light_energy = 0.3
+	var rw := Seal.reward(floor_level)
+	_drop_currency("brand", rw.brand, sl.pos + Vector2(0, 1.6))
+	for i in rw.items:
+		drop_item(Items.generate(floor_level + 1, rw.rarity, 2), sl.pos + Vector2.from_angle(randf() * TAU) * 1.8)
+	_drop_currency("ember", roundi(randf_range(6, 10) * floor_level * mod_fx.gold), sl.pos + Vector2(1.6, 0))
+	sl.reward = rw
+	Fx.burst(level_root, to3(sl.pos, 2.0), 50, Seal.COLOR, 8.0)
+	hud.message("刻紋の封碑を鎮めた！ %s 刻紋の熾石 ×%d" % [Data.currency("brand").icon, rw.brand], Seal.COLOR)
+
+
+func seal_status() -> String:
+	for sl in seals:
+		if sl.state == "active":
+			return "刻紋の封碑 番人 残り%d体" % seal_alive(sl)
+	return ""
+
+
+# =================== tablets ===================
+## a boss's tablet, lying on the floor as a flat glowing slab until picked up
+func _drop_tablet(at: Vector2, ilvl: int) -> void:
+	var t := Tablets.generate(ilvl)
+	var pos := _scatter(at)
+	var node := Fx.mesh(level_root, Fx.box(Vector3(0.55, 0.12, 0.42)), Fx.mat(Tablets.COLOR, 3.0), to3(pos, 0.3))
+	drops.append({"k": "tablet", "n": 1, "tablet": t, "pos": pos, "node": node})
+
+
+## a tablet joins the character's collection (broken down into ember once the collection is full)
+func gain_tablet(t: Dictionary) -> void:
+	var p := player
+	if p.tablets.size() >= Tablets.MAX_OWNED:
+		p.cur.ember += Tablets.shard_value(t)
+		hud.message("石板が一杯のため %s を砕いた（+%d 灰燼の欠片）" % [Tablets.name_of(t), Tablets.shard_value(t)], Color("#ffcf3a"))
+		return
+	p.tablets.append(t)
+	hud.message("石板「%s」（%dマス）を手に入れた（%s）" % [Tablets.name_of(t), Tablets.cell_count(t), Keybinds.text("tablets")], Tablets.COLOR)
+	hud.tablet_ui.refresh()
+
+
 # =================== portal ===================
 func _open_portal(at: Vector2) -> void:
 	var root := Node3D.new()
@@ -3874,6 +4222,9 @@ func _take(g: Dictionary) -> void:
 	g.node.queue_free()
 	if g.has("item"):
 		return
+	if g.k == "tablet":
+		gain_tablet(g.tablet)
+		return
 	if g.k == "gem":
 		if g.get("skill", false):
 			learn_skill(g.gem)
@@ -4056,7 +4407,7 @@ func save_data() -> Dictionary:
 	return {"floor": floor_level, "level": p.level, "xp": p.xp, "potions": p.potions,
 		"equip": p.equip, "bag": p.bag, "cur": p.cur, "atlas": atlas.to_dict(), "shop": shop,
 		"slots": p.slots, "links": p.links, "gems": p.gems, "skills": p.skills, "tree": p.tree, "filter": p.filter,
-		"cls": p.cls, "asc": p.asc, "asc_ranks": p.asc_ranks, "asc_cores": p.asc_cores, "auras": p.auras}
+		"cls": p.cls, "asc": p.asc, "asc_ranks": p.asc_ranks, "asc_cores": p.asc_cores, "auras": p.auras, "tablets": p.tablets}
 
 
 func load_game() -> bool:
@@ -4123,6 +4474,7 @@ func apply_save(data: Dictionary) -> void:
 	for k in fs:
 		if p.filter.slots.has(k):
 			p.filter.slots[k] = bool(fs[k])
+	p.tablets = Tablets.normalize(data.get("tablets", []))
 	atlas.from_dict(data.get("atlas", {}))
 	var sd: Dictionary = data.get("shop", {})
 	if sd.has("items"):

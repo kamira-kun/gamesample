@@ -134,15 +134,37 @@ static func craft(k: String, it: Dictionary) -> String:
 			if r != 1 and r != 2: return "マジック・レアアイテムにのみ使えます"
 			it.rarity = 0
 			it.mods = {}
+			it.erase("special")
 			name_item(it)
 		"divine":
 			if affix_count(it) == 0: return "オプションのあるアイテムにのみ使えます"
 			var fixed: Dictionary = Data.legend(it.name).get("mods", {}) if r == 3 else {}
 			for key in it.mods.keys():
 				it.mods[key] = roll_fixed(it, key, fixed[key]) if fixed.has(key) else roll_value(it, Data.affix(key))
+		"brand":
+			if r != 2: return "レアアイテムにのみ使えます"
+			brand(it)
 		_:
 			return "このカレンシーはアイテムに使えません"
 	return ""
+
+
+## carve a special modifier into a rare item, never the one it already has; it grows with item level like an affix
+static func brand(it: Dictionary, k := "") -> void:
+	var old: String = it.get("special", {}).get("k", "")
+	var pool := Data.SPECIAL_MODS.filter(func(m): return m.k != old)
+	var m: Dictionary = Data.special_mod(k) if k != "" else pool.pick_random()
+	it.special = {"k": m.k, "v": maxi(1, roundi((m.min + randf() * (m.max - m.min)) * (1.0 + it.ilvl * m.sc)))}
+
+
+## the stats a special modifier gives
+static func special_stats(it: Dictionary) -> Dictionary:
+	var out := {}
+	var sp: Dictionary = it.get("special", {})
+	var m := Data.special_mod(sp.get("k", ""))
+	for k in m.get("stats", {}):
+		out[k] = m.stats[k] * int(sp.v)
+	return out
 
 
 static func sell_price(it: Dictionary) -> int:
@@ -207,6 +229,9 @@ static func lines(it: Dictionary) -> Array:
 	for k in it.mods:
 		var v: int = it.mods[k]
 		out.append([(Data.affix(k).fmt % v).replace("+-", "-"), Color("#8fb4ff") if v >= 0 else Color("#ff7a6a"), 14])
+	if it.has("special"):
+		var m := Data.special_mod(it.special.k)
+		out.append(["✠ %s：%s" % [m.name, m.fmt % it.special.v], Data.currency("brand").color, 14])
 	if it.has("desc"):
 		out.append([it.desc, Color("#ff9a4a"), 14])
 	if it.has("flavor"):
@@ -223,4 +248,9 @@ static func normalize(it: Dictionary) -> Dictionary:
 		var d: Dictionary = it.get(src, {})
 		for k in d:
 			d[k] = int(d[k])
+	if it.has("special"):
+		if typeof(it.special) == TYPE_DICTIONARY and not Data.special_mod(str(it.special.get("k", ""))).is_empty():
+			it.special = {"k": str(it.special.k), "v": int(it.special.get("v", 1))}
+		else:
+			it.erase("special")
 	return it

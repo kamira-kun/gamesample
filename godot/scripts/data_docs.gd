@@ -9,7 +9,8 @@ extends RefCounted
 const DIR := "res://../docs/db/"
 const RARE_LVLS := [1, 20, 40, 60]     # item levels the affix tables show
 const UNIQUE_LVLS := [1, 40]
-const CRAFT_CURRENCIES := ["transmute", "ascend", "chaos", "whet", "purify", "divine"]
+const CRAFT_CURRENCIES := ["transmute", "ascend", "chaos", "whet", "purify", "divine", "brand"]
+const TABLET_LVLS := [1, 20, 40]
 
 
 ## path (relative to DIR) -> file text
@@ -27,6 +28,7 @@ static func pages() -> Array:
 	for slot in Data.SLOTS:
 		ps.append(_uniques(slot))
 	ps.append(_rares())
+	ps.append(_tablets())
 	ps.append(_ascendancies())
 	ps.append(_passives())
 	ps.append(_gems())
@@ -101,6 +103,53 @@ static func _rares() -> Dictionary:
 	secs.append({"title": "クラフト用カレンシー", "note": "", "head": ["カレンシー", "効果"], "rows": cr})
 	return {"file": "rare.md", "title": "レア装備とオプション",
 		"intro": "ユニーク以外の装備は、ベースアイテムにランダムなオプションが付いたものです。レアは3〜4個のオプションを持ち、名前はランダムな2語から作られます。",
+		"sections": secs}
+
+
+static func _tablets() -> Dictionary:
+	var secs := []
+	var sr := []
+	for sh in Tablets.SHAPES:
+		var t := {"shape": sh.id, "mods": {}}
+		var rows := []
+		for y in sh.cells.map(func(c): return c[1]).max() + 1:
+			var line := ""
+			for x in sh.cells.map(func(c): return c[0]).max() + 1:
+				line += "■" if sh.cells.any(func(c): return c[0] == x and c[1] == y) else "□"
+			rows.append(line)
+		sr.append([sh.name, "%d マス" % sh.cells.size(), "%d 行" % Tablets.max_mods(t), "<br>".join(PackedStringArray(rows))])
+	secs.append({"title": "石板の形", "note": "盤には90度ずつ回して置けます。刻める行数はマス数で決まります（1〜2マスは1行、3〜4マスは2行、5〜6マスは3行）。",
+		"head": ["名前", "大きさ", "刻める行数", "形"], "rows": sr})
+	var mr := []
+	for m in Tablets.MODS:
+		var row := [_fill(Data.affix(m.k).fmt, "#")]
+		for lv in TABLET_LVLS:
+			for cells in [1, 6]:
+				var v: float = m.per * cells * (1.0 + lv * 0.06)
+				row.append(_range_text(maxi(1, roundi(v * 0.8)), maxi(1, roundi(v * 1.2))))
+		mr.append(row)
+	var mh := ["能力"]
+	for lv in TABLET_LVLS:
+		mh.append_array(["iLv%d 1マス" % lv, "iLv%d 6マス" % lv])
+	secs.append({"title": "石板の能力", "note": "値は 1マスあたりの値 × マス数 × (1 + iLv × 0.06) × 0.8〜1.2。大きい石板ほど1行が強くなります。",
+		"head": mh, "rows": mr})
+	var cr := []
+	for c in [["whet", "能力を1行刻む（刻める行数まで）"], ["chaos", "刻んだ能力をすべて刻み直す（行数はそのまま）"], ["divine", "能力の数値だけを振り直す"]]:
+		var cd := Data.currency(c[0])
+		cr.append([cd.icon + " " + cd.name, c[1]])
+	cr.append(["（砕く）", "盤に置いていない石板を灰燼の欠片に変える"])
+	secs.append({"title": "石板のクラフト", "note": "石板盤で選んだ石板に使います。", "head": ["カレンシー", "効果"], "rows": cr})
+	var xr := []
+	for m in Data.SPECIAL_MODS:
+		var row := [m.name, _fill(m.fmt, "#")]
+		for lv in UNIQUE_LVLS:
+			row.append(_range_text(maxi(1, roundi(m.min * (1.0 + lv * m.sc))), maxi(1, roundi(m.max * (1.0 + lv * m.sc)))))
+		xr.append(row)
+	var b := Data.currency("brand")
+	secs.append({"title": "特殊修飾子", "note": "%s %sでレアアイテムに1つだけ刻めます。オプションの数には数えず、混沌の残光でも消えません（浄化の雫で消えます）。もう一度使うと別の特殊修飾子に刻み直します。" % [b.icon, b.name],
+		"head": ["名前", "効果"] + UNIQUE_LVLS.map(func(v): return "iLv%d" % v), "rows": xr})
+	return {"file": "tablets.md", "title": "石板と特殊修飾子",
+		"intro": "石板はボスが必ず1つ落とします（半分は能力を1行刻んだ状態、残りは無地）。6×6の石板盤に回して置き、盤に置いた石板の能力だけが効きます。%sは刻紋の封碑（マップの約%d%%に1つ。封印を解いて番人をすべて倒す）からだけ得られます。" % [b.name, roundi(Seal.CHANCE * 100)],
 		"sections": secs}
 
 

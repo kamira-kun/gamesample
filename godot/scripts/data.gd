@@ -786,7 +786,31 @@ const CURRENCIES := [
 	{"k": "purify", "name": "浄化の雫", "icon": "◯", "color": Color("#d8e8f0"), "w": 12.0, "value": 8, "desc": "オプションをすべて消してノーマルに戻す。"},
 	{"k": "divine", "name": "神秘の核", "icon": "✷", "color": Color("#ff8a2c"), "w": 3.0, "value": 80, "desc": "オプションの数値だけを振り直す。レジェンドにも使える。"},
 	{"k": "compass", "name": "羅針の欠片", "icon": "✧", "color": Color("#7fd4ff"), "w": 10.0, "value": 12, "desc": "遠征図でマップ効果を振り直す。"},
+	# never dropped at random: only the sealed monoliths (Seal) give these
+	{"k": "brand", "name": "刻紋の熾石", "icon": "✠", "color": Color("#5ff0c0"), "w": 0.0, "value": 60, "desc": "レアアイテムに特殊修飾子を1つ刻む（すでにあれば刻み直す）。刻紋の封碑から得られる。"},
 ]
+
+# special modifiers (特殊修飾子): a rare item carries at most one, carved with 刻紋の熾石. They sit apart from the
+# affixes (they don't count toward the affix limit and 混沌の残光 leaves them), `sc` is how fast the line grows with item level
+# and `stats` says what a point of the line gives
+const SPECIAL_MODS := [
+	{"k": "s_life", "name": "灯心の紋", "fmt": "最大ライフ +%d%%", "min": 6, "max": 12, "sc": 0.012, "stats": {"life_pct": 1}},
+	{"k": "s_mana", "name": "深泉の紋", "fmt": "最大マナ +%d%%", "min": 8, "max": 16, "sc": 0.012, "stats": {"mana_pct": 1}},
+	{"k": "s_elem", "name": "三界の紋", "fmt": "火炎・冷気・雷ダメージ +%d%%", "min": 10, "max": 20, "sc": 0.015, "stats": {"fire_dmg": 1, "cold_dmg": 1, "light_dmg": 1}},
+	{"k": "s_haste", "name": "疾駆の紋", "fmt": "攻撃速度・詠唱速度 +%d%%", "min": 5, "max": 10, "sc": 0.01, "stats": {"atk_spd": 1, "cast_spd": 1}},
+	{"k": "s_guard", "name": "堅守の紋", "fmt": "受けるダメージ -%d%%", "min": 3, "max": 7, "sc": 0.0, "stats": {"dr_pct": 1}},
+	{"k": "s_attack", "name": "武闘の紋", "fmt": "攻撃ダメージ +%d%%", "min": 14, "max": 26, "sc": 0.015, "stats": {"atk_dmg": 1}},
+	{"k": "s_ally", "name": "従者の紋", "fmt": "ミニオン・トーテムのダメージとライフ +%d%%", "min": 15, "max": 30, "sc": 0.015, "stats": {"ally_dmg": 1, "ally_life": 1}},
+	{"k": "s_void", "name": "蝕紋", "fmt": "混沌ダメージ +%d%%", "min": 15, "max": 30, "sc": 0.015, "stats": {"chaos_dmg": 1}},
+	{"k": "s_energy", "name": "共鳴の紋", "fmt": "エネルギー上限 +%d", "min": 2, "max": 3, "sc": 0.0, "stats": {"energy": 1}},
+]
+
+
+static func special_mod(k: String) -> Dictionary:
+	for m in SPECIAL_MODS:
+		if m.k == k:
+			return m
+	return {}
 
 
 static func affix(k: String) -> Dictionary:

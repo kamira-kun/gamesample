@@ -32,6 +32,7 @@ var pause_ui := PauseUI.new()
 var stash_ui := StashUI.new()
 var exchange_ui := ExchangeUI.new()
 var cinder_ui := CinderUI.new()
+var tablet_ui := TabletUI.new()
 var keyconfig_ui := KeyconfigUI.new()
 var char_ui := CharUI.new()
 var talent_hint := Label.new()
@@ -131,7 +132,7 @@ func _ready() -> void:
 	root.add_child(atlas_ui)
 	skill_ui.hud = self
 	root.add_child(skill_ui)
-	for pnl in [tree_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui, stash_ui, exchange_ui, cinder_ui, keyconfig_ui]:
+	for pnl in [tree_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui, stash_ui, exchange_ui, cinder_ui, tablet_ui, keyconfig_ui]:
 		pnl.hud = self
 		root.add_child(pnl)
 	var tsb := StyleBoxFlat.new()
@@ -195,13 +196,13 @@ static func panel_box() -> StyleBoxFlat:
 
 
 func panels() -> Array:
-	return [inventory, shop_ui, atlas_ui, skill_ui, tree_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui, stash_ui, exchange_ui, cinder_ui, keyconfig_ui]
+	return [inventory, shop_ui, atlas_ui, skill_ui, tree_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui, stash_ui, exchange_ui, cinder_ui, tablet_ui, keyconfig_ui]
 
 
 ## the panel a panel-toggle action opens
 func panel_for(action: String) -> Control:
 	return {"inventory": inventory, "skills": skill_ui, "talents": tree_ui, "ascendancy": asc_ui, "status": status_ui,
-		"filter": filter_ui, "passives": passive_ui, "keyconfig": keyconfig_ui}[action]
+		"filter": filter_ui, "passives": passive_ui, "tablets": tablet_ui, "keyconfig": keyconfig_ui}[action]
 
 
 func any_open() -> bool:
@@ -288,9 +289,9 @@ func refresh() -> void:
 		info.text += "　｜ %s %s %.0f秒" % [Data.SKILLS[id].icon, Data.SKILLS[id].name, ceilf(p.tbuffs[id].t)]
 	for id in p.auras:
 		info.text += "　｜ %s %s" % [Data.SKILLS[id].icon, Data.SKILLS[id].name]
-	var burning: String = main.altar_status()
-	if burning != "":
-		info.text += "　｜ " + burning
+	for line in [main.altar_status(), main.seal_status()]:
+		if line != "":
+			info.text += "　｜ " + line
 	if tip.visible:
 		_place_tip()
 	potion.text = "回復薬 %d/%d  [%s]" % [p.potions, p.max_potions(), Keybinds.text("potion")]
@@ -448,6 +449,8 @@ class Overlay extends Control:
 				var sg: bool = dr.get("skill", false)
 				var gi := Data.gem_info(sg, dr.gem)
 				c = {"icon": "◈" if sg else "◇", "name": "%s：%s" % [gi.kind, gi.name], "color": gi.color if sg else Data.GEM_COLOR}
+			elif dr.k == "tablet":
+				c = {"icon": "▦", "name": "石板：%s（%dマス）" % [Tablets.name_of(dr.tablet), Tablets.cell_count(dr.tablet)], "color": Tablets.COLOR}
 			var label: String = "%s %s" % [c.icon, c.name]
 			var w := Data.ui_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x + 12
 			draw_rect(Rect2(sp.x - w / 2, sp.y - 18, w, 19), Color(0, 0, 0, 0.75))
