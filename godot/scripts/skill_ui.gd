@@ -1,6 +1,7 @@
 class_name SkillUI
 extends PanelContainer
-## Skill panel (K): pick a skill bar slot, put any learned skill in it, and link support gems to it.
+## Skill panel (K): pick a skill bar slot, put any owned skill gem the character is high enough level for in it,
+## and link support gems to it.
 
 var hud: Hud
 var sel := 0
@@ -141,6 +142,8 @@ func skill_tip(id: String, slot := -1) -> Array:
 	var sk: Dictionary = Data.SKILLS[id]
 	var lines := [[sk.name, sk.color, 17], [Data.tag_text(sk.tags), Color("#9a9080"), 12],
 		[Data.cost_text(sk) + ("　CD %s秒" % sk.cd if sk.cd > 0.0 else ""), Color("#9a9080"), 12], [sk.desc, Color("#dddddd"), 13]]
+	if slot < 0:
+		lines.append(_req_line(sk.lvl, hud.main.player.level))
 	if sk.has("aura"):
 		var p: Player = hud.main.player
 		var pool: String = sk.aura.pool
@@ -157,13 +160,19 @@ func skill_tip(id: String, slot := -1) -> Array:
 	return lines
 
 
-static func gem_tip(g: Dictionary) -> Array:
+## "必要レベル N", red while the character is below it
+static func _req_line(need: int, level: int) -> Array:
+	return ["必要レベル %d" % need, Color("#dddddd") if level >= need else Color("#ff8080"), 12]
+
+
+static func gem_tip(g: Dictionary, level := 999) -> Array:
 	var target := "対象：" + Data.tag_text(g.tags)
 	if g.has("not"):
 		target += "（%sを除く）" % Data.tag_text(g.not)
 	if g.has("need"):
 		target += "\n%sスキルのみ" %"・".join(PackedStringArray(g.need.map(func(k): return Data.NEED_NAMES[k])))
-	return [[g.name, g.color, 17], ["サポートジェム　エネルギー消費 %d" % g.energy, Color("#9a9080"), 12], [g.desc, Color("#dddddd"), 13], [target, Color("#8fb4ff"), 12]]
+	return [[g.name, g.color, 17], ["サポートジェム　エネルギー消費 %d" % g.energy, Color("#9a9080"), 12], [g.desc, Color("#dddddd"), 13], [target, Color("#8fb4ff"), 12],
+		_req_line(g.lvl, level)]
 
 
 func refresh() -> void:
@@ -226,7 +235,7 @@ func refresh() -> void:
 				gv.gem = g
 				gv.mark = "✕" if not fits else ("!" if dark else "")
 				s.add_child(gv)
-				var tip := gem_tip(g)
+				var tip := gem_tip(g, p.level)
 				if dark:
 					tip.append(["エネルギー不足で無効", Color("#ff8080"), 12])
 				tip.append(["クリックで外す" + ("" if fits else "（このスキルには無効）"), Color("#ffd36a"), 12])
@@ -237,13 +246,15 @@ func refresh() -> void:
 			socks.add_child(s)
 		slot_row.add_child(card)
 
-	for id in Data.SKILL_ORDER:
+	# owned skill gems first; the rest show where they come from
+	var order: Array = Data.SKILL_ORDER.filter(func(id): return id in p.skills) + Data.SKILL_ORDER.filter(func(id): return not id in p.skills)
+	for id in order:
 		var sk: Dictionary = Data.SKILLS[id]
 		if tag_sel != "" and not tag_sel in sk.tags:
 			continue
-		var locked: bool = p.level < sk.lvl
+		var locked: bool = not p.can_use_skill(id)
 		var at := p.slots.find(id)
-		var tag := "Lv %d で習得" % sk.lvl if locked else ("装備中：%s" % Keybinds.text(Keybinds.skill_action(at)) if at >= 0 else "")
+		var tag := ("未入手（Lv %d）" % sk.lvl) if not id in p.skills else ("Lv %d から使える" % sk.lvl) if locked 			else ("装備中：%s" % Keybinds.text(Keybinds.skill_action(at)) if at >= 0 else "")
 		var b := card("%s　%s\n%s%s　%s" % [sk.name, tag, Data.cost_text(sk), "　CD %s秒" % sk.cd if sk.cd > 0.0 else "", Data.tag_text(sk.tags)],
 			Color("#120e0a"), Color("#6a5a44") if at >= 0 else Color("#3a3024"), sk.color.darkened(0.55) if locked else sk.color)
 		b.custom_minimum_size = Vector2(250, 48)
@@ -251,7 +262,10 @@ func refresh() -> void:
 		iv.skill = id
 		iv.dim = locked
 		SkillIcon.attach(b, iv, 38)
-		_hover(b, skill_tip(id))
+		var tip := skill_tip(id)
+		if not id in p.skills:
+			tip.append(["敵のドロップか商人で手に入る", Color("#ffd36a"), 12])
+		_hover(b, tip)
 		if not locked:
 			b.pressed.connect(_assign.bind(id))
 		skill_grid.add_child(b)
@@ -264,11 +278,11 @@ func refresh() -> void:
 	var gems: Array = Data.SUPPORTS.filter(func(g): return g.id in p.gems) + Data.SUPPORTS.filter(func(g): return not g.id in p.gems)
 	for g in gems:
 		var owned: bool = g.id in p.gems
-		var fits := Data.support_fits(g, sel_id)
-		if fit_only.button_pressed and not fits and not g.id in sel_links:
+		var fits: bool = Data.support_fits(g, sel_id) and p.level >= g.lvl
+		if fit_only.button_pressed and not Data.support_fits(g, sel_id) and not g.id in sel_links:
 			continue
 		var linked: bool = g.id in sel_links
-		var tag := "未入手" if not owned else ("リンク中" if linked else ("" if fits else "対象外"))
+		var tag := ("未入手（Lv %d）" % g.lvl) if not owned else ("リンク中" if linked else ("Lv %d から" % g.lvl if p.level < g.lvl else ("" if fits else "対象外")))
 		tag = "✦%d　%s" % [g.energy, tag]
 		var font: Color = g.color if owned and fits else g.color.darkened(0.6)
 		var b := card("%s　%s" % [g.name, tag], Color("#1c2a1c") if linked else Color("#120e0a"), g.color if linked else Color("#3a3024"), font, 2 if linked else 1)
@@ -277,7 +291,7 @@ func refresh() -> void:
 		gv.gem = g
 		gv.dim = not (owned and fits)
 		SkillIcon.attach(b, gv, 26)
-		_hover(b, gem_tip(g))
+		_hover(b, gem_tip(g, p.level))
 		b.pressed.connect(_toggle_gem.bind(g.id))
 		gem_grid.add_child(b)
 
@@ -285,6 +299,10 @@ func refresh() -> void:
 ## put a skill in the selected slot; a skill already on the bar swaps places (with its links)
 func _assign(id: String) -> void:
 	var p: Player = hud.main.player
+	if not p.can_use_skill(id):
+		var sk: Dictionary = Data.SKILLS[id]
+		hud.message(("「%s」のスキルジェムを持っていない" % sk.name) if not id in p.skills else ("「%s」は Lv %d から使える" % [sk.name, sk.lvl]), Color("#ff8080"))
+		return
 	var at := p.slots.find(id)
 	if at >= 0:
 		var t: String = p.slots[sel]
@@ -307,6 +325,9 @@ func _toggle_gem(gid: String) -> void:
 		return
 	if gid in links:
 		links.erase(gid)
+	elif p.level < g.lvl:
+		hud.message("%sは Lv %d からリンクできる" % [g.name, g.lvl], Color("#ff8080"))
+		return
 	elif not Data.support_fits(g, sel_id):
 		hud.message("%sは「%s」に使えない" % [g.name, Data.SKILLS[sel_id].name], Color("#ff8080"))
 		return

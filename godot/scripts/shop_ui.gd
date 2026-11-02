@@ -11,6 +11,7 @@ var gem_grid := GridContainer.new()
 var potion_btn := Button.new()
 var reroll_btn := Button.new()
 var bag_count := Label.new()
+const GEM_AHEAD := 3   # the merchant stocks gems needing at most the character's level + this
 
 
 
@@ -57,7 +58,7 @@ func _ready() -> void:
 	cur_grid.add_theme_constant_override("h_separation", 4)
 	cur_grid.add_theme_constant_override("v_separation", 4)
 	left.add_child(cur_grid)
-	left.add_child(_sub("サポートジェム"))
+	left.add_child(_sub("ジェム（◈ スキル　◇ サポート。必要レベルが Lv+%d までのものが並ぶ）" % GEM_AHEAD))
 	gem_grid.columns = 2
 	gem_grid.add_theme_constant_override("h_separation", 4)
 	gem_grid.add_theme_constant_override("v_separation", 4)
@@ -148,19 +149,22 @@ func refresh() -> void:
 		cur_grid.add_child(b)
 	for c in gem_grid.get_children():
 		c.free()
-	var missing := Data.SUPPORTS.filter(func(g): return not g.id in p.gems)
+	var missing := Data.missing_gems(p.skills, p.gems, p.level + GEM_AHEAD)
 	if missing.is_empty():
-		gem_grid.add_child(_sub("すべて入手済み"))
-	for g in missing:
+		gem_grid.add_child(_sub("いま並ぶジェムはすべて入手済み"))
+	for m_gem in missing:
+		var gi := Data.gem_info(m_gem.skill, m_gem.id)
+		var cost := Items.gem_price(gi.lvl)
 		var b := Button.new()
-		b.text = "◇ %s  ◆%d" % [g.name, Items.gem_price()]
-		b.add_theme_color_override("font_color", g.color)
+		b.text = "%s %s Lv%d  ◆%d" % ["◈" if m_gem.skill else "◇", gi.name, gi.lvl, cost]
+		b.add_theme_color_override("font_color", gi.color)
 		b.add_theme_font_size_override("font_size", 13)
 		b.custom_minimum_size = Vector2(170, 28)
-		b.disabled = p.cur.ember < Items.gem_price()
-		b.mouse_entered.connect(func(): hud.show_tip(SkillUI.gem_tip(g)))
+		b.disabled = p.cur.ember < cost
+		var tip: Array = hud.skill_ui.skill_tip(m_gem.id) if m_gem.skill else SkillUI.gem_tip(Data.support(m_gem.id), p.level)
+		b.mouse_entered.connect(func(): hud.show_tip(tip))
 		b.mouse_exited.connect(func(): hud.hide_tip())
-		b.pressed.connect(_buy_gem.bind(g.id))
+		b.pressed.connect((_buy_skill if m_gem.skill else _buy_gem).bind(m_gem.id))
 		gem_grid.add_child(b)
 	for c in bag_grid.get_children():
 		c.free()
@@ -240,9 +244,21 @@ func _buy_currency(k: String, cost: int) -> void:
 
 func _buy_gem(id: String) -> void:
 	var p: Player = hud.main.player
-	if p.cur.ember < Items.gem_price() or id in p.gems:
+	var cost := Items.gem_price(Data.support(id).lvl)
+	if p.cur.ember < cost or id in p.gems:
 		return
-	p.cur.ember -= Items.gem_price()
+	p.cur.ember -= cost
 	hud.main.unlock_gem(id)
+	hud.hide_tip()
+	refresh()
+
+
+func _buy_skill(id: String) -> void:
+	var p: Player = hud.main.player
+	var cost := Items.gem_price(Data.SKILLS[id].lvl)
+	if p.cur.ember < cost or id in p.skills:
+		return
+	p.cur.ember -= cost
+	hud.main.learn_skill(id)
 	hud.hide_tip()
 	refresh()

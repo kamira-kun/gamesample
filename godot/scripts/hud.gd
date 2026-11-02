@@ -443,7 +443,11 @@ class Overlay extends Control:
 			if dr.k == "ember" or dr.pos.distance_to(m.player.pos) > 25.0:
 				continue
 			var sp := cam.unproject_position(Vector3(dr.pos.x, 0.8, dr.pos.y))
-			var c := {"icon": "◇", "name": "サポートジェム：" + Data.support(dr.gem).name, "color": Data.GEM_COLOR} if dr.k == "gem" else Farm.CURRENCY if dr.k == Farm.KEY else Data.currency(dr.k)
+			var c: Dictionary = Farm.CURRENCY if dr.k == Farm.KEY else Data.currency(dr.k) if dr.k != "gem" else {}
+			if dr.k == "gem":   # skill gems ◈ in the skill's color, support gems ◇ in gem green
+				var sg: bool = dr.get("skill", false)
+				var gi := Data.gem_info(sg, dr.gem)
+				c = {"icon": "◈" if sg else "◇", "name": "%s：%s" % [gi.kind, gi.name], "color": gi.color if sg else Data.GEM_COLOR}
 			var label: String = "%s %s" % [c.icon, c.name]
 			var w := Data.ui_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x + 12
 			draw_rect(Rect2(sp.x - w / 2, sp.y - 18, w, 19), Color(0, 0, 0, 0.75))
