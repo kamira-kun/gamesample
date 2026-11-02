@@ -227,8 +227,7 @@ const TAG_NAMES := {"attack": "攻撃", "melee": "近接", "spell": "スペル",
 	"curse": "呪い", "buff": "強化", "aura": "オーラ"}
 
 # the six skill bar slots and the skills they start with
-const SLOT_KEYS := [{"short": "LMB", "label": "左クリック"}, {"short": "RMB", "label": "右クリック"}, {"short": "Q", "label": "Q"},
-	{"short": "E", "label": "E"}, {"short": "R", "label": "R"}, {"short": "SPC", "label": "Space"}]
+const SLOT_COUNT := 6   # bound to the actions skill_1..skill_6 (see Keybinds)
 const DEFAULT_SLOTS := ["slash", "fireball", "nova", "chain", "meteor", "dash"]
 
 # support gems are linked to a skill slot and change how that skill behaves while it resolves.

@@ -32,6 +32,7 @@ var pause_ui := PauseUI.new()
 var stash_ui := StashUI.new()
 var exchange_ui := ExchangeUI.new()
 var cinder_ui := CinderUI.new()
+var keyconfig_ui := KeyconfigUI.new()
 var char_ui := CharUI.new()
 var talent_hint := Label.new()
 var tip := PanelContainer.new()
@@ -61,7 +62,6 @@ func _ready() -> void:
 	_shadow(info)
 	root.add_child(info)
 	talent_hint.position = Vector2(16, 36)
-	talent_hint.text = "タレントポイントがあります [T]"
 	talent_hint.add_theme_color_override("font_color", Color("#ffe27a"))
 	talent_hint.add_theme_font_size_override("font_size", 14)
 	_shadow(talent_hint)
@@ -112,7 +112,7 @@ func _ready() -> void:
 	var bar := HBoxContainer.new()
 	bar.add_theme_constant_override("separation", 6)
 	center.add_child(bar)
-	for i in Data.SLOT_KEYS.size():
+	for i in Data.SLOT_COUNT:
 		var sl := SkillSlot.new()
 		sl.index = i
 		sl.hud = self
@@ -131,7 +131,7 @@ func _ready() -> void:
 	root.add_child(atlas_ui)
 	skill_ui.hud = self
 	root.add_child(skill_ui)
-	for pnl in [talent_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui, stash_ui, exchange_ui, cinder_ui]:
+	for pnl in [talent_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui, stash_ui, exchange_ui, cinder_ui, keyconfig_ui]:
 		pnl.hud = self
 		root.add_child(pnl)
 	var tsb := StyleBoxFlat.new()
@@ -195,7 +195,13 @@ static func panel_box() -> StyleBoxFlat:
 
 
 func panels() -> Array:
-	return [inventory, shop_ui, atlas_ui, skill_ui, talent_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui, stash_ui, exchange_ui, cinder_ui]
+	return [inventory, shop_ui, atlas_ui, skill_ui, talent_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui, stash_ui, exchange_ui, cinder_ui, keyconfig_ui]
+
+
+## the panel a panel-toggle action opens
+func panel_for(action: String) -> Control:
+	return {"inventory": inventory, "skills": skill_ui, "talents": talent_ui, "ascendancy": asc_ui, "status": status_ui,
+		"filter": filter_ui, "passives": passive_ui, "keyconfig": keyconfig_ui}[action]
 
 
 func any_open() -> bool:
@@ -287,12 +293,12 @@ func refresh() -> void:
 		info.text += "　｜ " + burning
 	if tip.visible:
 		_place_tip()
-	potion.text = "回復薬 %d/%d  [F]" % [p.potions, p.max_potions()]
+	potion.text = "回復薬 %d/%d  [%s]" % [p.potions, p.max_potions(), Keybinds.text("potion")]
 	var hints := []
 	if p.talent_pts > 0:
-		hints.append("タレントポイントがあります [T]")
+		hints.append("タレントポイントがあります [%s]" % Keybinds.text("talents"))
 	if p.asc_free() > 0 or (p.asc == "" and p.level >= 2):
-		hints.append("アセンダンシーポイントがあります [U]" if p.asc != "" else "アセンダンシーを選べます [U]")
+		hints.append(("アセンダンシーポイントがあります [%s]" if p.asc != "" else "アセンダンシーを選べます [%s]") % Keybinds.text("ascendancy"))
 	talent_hint.text = "\n".join(PackedStringArray(hints))
 	talent_hint.visible = not hints.is_empty()
 	if boss:
@@ -380,7 +386,7 @@ class SkillSlot extends Control:
 				var q := size / 2.0 + Vector2(cos(a), sin(a)) * size.x
 				pts.append(q.clamp(Vector2.ZERO, size))   # keep the pie inside the square slot
 			draw_colored_polygon(pts, Color(0, 0, 0, 0.7))
-		var key: String = Data.SLOT_KEYS[index].short
+		var key: String = Keybinds.short(Keybinds.skill_action(index))
 		draw_string_outline(Data.ui_font, Vector2(3, size.y - 4), key, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, 3, Color.BLACK)
 		draw_string(Data.ui_font, Vector2(3, size.y - 4), key, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color("#dddddd"))
 		if cost > 0:
@@ -444,7 +450,7 @@ class Overlay extends Control:
 			draw_string(Data.ui_font, Vector2(sp.x - w / 2, sp.y - 4), label, HORIZONTAL_ALIGNMENT_CENTER, w, 13, c.color)
 		for o in m.interacts:
 			var sp := cam.unproject_position(Vector3(o.pos.x, 3.4, o.pos.y))
-			var label: String = "%s  [B]" % o.name
+			var label: String = "%s  [%s]" % [o.name, Keybinds.text("interact")]
 			draw_string_outline(Data.ui_font, Vector2(sp.x - 120, sp.y), label, HORIZONTAL_ALIGNMENT_CENTER, 240, 16, 4, Color.BLACK)
 			draw_string(Data.ui_font, Vector2(sp.x - 120, sp.y), label, HORIZONTAL_ALIGNMENT_CENTER, 240, 16, Color("#ffd890"))
 		for tx in m.texts:

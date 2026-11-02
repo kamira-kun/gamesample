@@ -46,9 +46,9 @@ var cam: Camera3D
 var cam_target := Vector3.ZERO
 var hud: Hud
 var mouse_ground := Vector2.ZERO
-var lmb := false
-var rmb := false
-var pressed := {}
+var lmb := false      # a left click that reached the world (for clicking the merchant, the altars...)
+var pressed := {}     # actions (and "cancel" for Esc) pressed this frame
+var held := {}        # actions held down since a press that reached the world
 var oom_t := -10.0
 var held_prev := []         # skill keys held last frame: auras toggle on a fresh press only
 var force_crit := false     # "three strikes": the attack being resolved always crits
@@ -75,6 +75,11 @@ func _ready() -> void:
 	for x in args:
 		if x.begins_with("--date="):   # dev runs: pretend it is another day, to test a season ending
 			Data.date_override = x.trim_prefix("--date=")
+	if smoke:
+		Keybinds.reset()
+		hud.keyconfig_ui.save_path = ""
+	else:
+		Keybinds.load_file()
 	var notes := [] if smoke else Profiles.load_all()
 	if smoke:
 		Profiles.data = Profiles.fresh()
@@ -90,8 +95,8 @@ func _ready() -> void:
 			hud.message("スタッシュに戻っていた通貨 %d 個を受け取った" % got, Color("#e8d8b0"))
 		market_notes()   # left over if the game closed before they were shown
 	else:
-		hud.message("WASDで移動、左クリックで斬撃、右クリックでファイアボール", Color("#e8d8b0"))
-	hud.message("I：インベントリ　K：スキル　T：タレント　U：アセンダンシー　C：ステータス　L：フィルタ　P：遠征パッシブ", Color("#b8a888"))
+		hud.message("%sで移動、%sで斬撃、%sでファイアボール" % [move_keys(), Keybinds.text("skill_1"), Keybinds.text("skill_2")], Color("#e8d8b0"))
+	hud.message("　".join(PackedStringArray(PANEL_ACTIONS.map(func(a): return "%s：%s" % [Keybinds.text(a), Keybinds.action(a).name]))), Color("#b8a888"))
 	for x in args:
 		if x.begins_with("--view="):
 			var kind: String = x.trim_prefix("--view=")
@@ -133,6 +138,15 @@ func _ready() -> void:
 				enter_map("ash")
 				for i in 3:
 					_make_enemy("imp", player.pos + Vector2(2.5 + i * 1.2, -2.5 + i * 0.8), 999)
+			elif kind.begins_with("keys"):   # key config: `keys_swap` just after a swap, `keys_dup` with a duplicate from a hand-edited file
+				if kind == "keys_dup":
+					Keybinds.binds.potion[1] = {"key": KEY_Q}
+					Keybinds.apply()
+				hud.toggle(hud.keyconfig_ui)
+				if kind == "keys_swap":
+					hud.keyconfig_ui.bind_to("skill_3", 0, {"key": KEY_F})
+				elif kind == "keys":
+					hud.keyconfig_ui.listen("skill_4", 0)
 			elif kind.begins_with("altar") or kind == "forge":
 				_view_altar(kind)
 			elif kind.begins_with("aura"):   # auras on the bar: `aura0` none on, `aura` three on and a fourth refused, `aura_off` one switched off again
@@ -181,6 +195,73 @@ func _smoke_seasons() -> void:
 	var put: int = Profiles.stash_tabs(Profiles.STANDARD)[0].items.size()
 	hud.stash_ui._take(0)
 	print("SMOKE stash put=%d back=%s open=%s" % [put, p.bag.size() == n, hud.stash_ui.visible])
+	hud.close_panels()
+
+
+## key config: rebinding through the panel, a duplicate swapped (and one detected), the HUD labels,
+## a real key press reaching the rebound action, and a save/load round trip through a scratch file
+func _smoke_keys() -> void:
+	Keybinds.reset()
+	var ui: KeyconfigUI = hud.keyconfig_ui
+	hud.toggle(ui)
+	ui.listen("inventory", 0)
+	var ev := InputEventKey.new()
+	ev.physical_keycode = KEY_J
+	ev.pressed = true
+	ui._input(ev)
+	print("SMOKE keys rebound=%s text='%s' inputmap=%s" % [Keybinds.binds.inventory[0] == {"key": KEY_J}, Keybinds.text("inventory"),
+		ev.is_action_pressed("inventory")])
+	ui.listen("skill_4", 0)
+	var mb := InputEventMouseButton.new()
+	mb.button_index = MOUSE_BUTTON_MIDDLE
+	mb.pressed = true
+	ui._input(mb)
+	print("SMOKE keys mouse=%s short='%s'" % [Keybinds.text("skill_4"), Keybinds.short("skill_4")])
+	# F is the potion's: binding it to slot 3 swaps, so the potion takes Q and no duplicate is left
+	var lost := Keybinds.assign("skill_3", 0, {"key": KEY_F})
+	print("SMOKE keys swap lost=%s potion='%s' skill_3='%s' conflicts=%d" % [lost, Keybinds.text("potion"), Keybinds.text("skill_3"),
+		Keybinds.conflicts().size()])
+	Keybinds.binds.talents[1] = {"key": KEY_J}   # as a hand-edited file could have it
+	Keybinds.apply()
+	print("SMOKE keys duplicate detected=%s flagged=%s" % [Keybinds.conflicts().size() == 1, Keybinds.conflicted("inventory", 0)])
+	Keybinds.assign("talents", 1, {})
+	hud.close_panels()
+	hud.refresh()
+	hud.pause_ui.refresh()
+	print("SMOKE keys hud potion='%s' slot3='%s' tip=%s pause=%s" % [hud.potion.text, Keybinds.short("skill_3"),
+		hud.skill_ui.skill_tip(player.slots[2], 2)[1][0].contains("F"), hud.pause_ui.controls.get_child(1).text.begins_with("Q：回復薬")])
+	# a real J press now opens the inventory; I no longer does
+	for k in [KEY_I, KEY_J]:
+		var press := InputEventKey.new()
+		press.physical_keycode = k
+		press.pressed = true
+		Input.parse_input_event(press)
+		await get_tree().process_frame
+		await get_tree().process_frame
+		var up := press.duplicate()
+		up.pressed = false
+		Input.parse_input_event(up)
+		print("SMOKE keys press %s inventory_open=%s" % [OS.get_keycode_string(k), hud.inventory.visible])
+	hud.close_panels()
+	# save, scramble, load: the same bindings come back (an unknown action and a junk entry are ignored)
+	var path := "user://smoke_keys.cfg"
+	var before := Keybinds.binds.duplicate(true)
+	Keybinds.save(path)
+	var cf := ConfigFile.new()
+	cf.load(path)
+	cf.set_value("keys", "no_such_action", [{"key": KEY_Z}, {}])
+	cf.set_value("keys", "filter", "junk")
+	cf.save(path)
+	Keybinds.reset()
+	Keybinds.load_file(path)
+	var ev2 := InputEventKey.new()
+	ev2.physical_keycode = KEY_F
+	print("SMOKE keys saved roundtrip=%s inputmap=%s filter='%s'" % [Keybinds.binds == before, ev2.is_action("skill_3"), Keybinds.text("filter")])
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	ui.open_close()
+	ui.bind_to("potion", 0, {"key": KEY_G})
+	ui.reset.pressed.emit()
+	print("SMOKE keys reset=%s potion='%s'" % [Keybinds.binds == Keybinds.defaults(), Keybinds.text("potion")])
 	hud.close_panels()
 
 
@@ -491,6 +572,7 @@ func _smoke_test() -> void:
 	await _smoke_exchange()
 	_smoke_seasons()
 	_smoke_market()
+	await _smoke_keys()
 	open_interact("device")
 	await get_tree().create_timer(0.4).timeout
 	enter_map("wail")
@@ -740,14 +822,25 @@ func _setup_environment() -> void:
 
 
 # =================== input ===================
+const PANEL_ACTIONS := ["inventory", "skills", "talents", "ascendancy", "status", "filter", "passives", "keyconfig"]
+
+
 func _unhandled_input(e: InputEvent) -> void:
-	if e is InputEventMouseButton:
-		if e.button_index == MOUSE_BUTTON_LEFT:
-			lmb = e.pressed
-		elif e.button_index == MOUSE_BUTTON_RIGHT:
-			rmb = e.pressed
-	elif e is InputEventKey and e.pressed and not e.echo:
-		pressed[e.physical_keycode] = true
+	if e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT:
+		lmb = e.pressed
+	if e is InputEventKey and e.pressed and not e.echo and e.physical_keycode == KEY_ESCAPE:
+		pressed["cancel"] = true
+		return
+	for a in Keybinds.ids():
+		if e.is_action_pressed(a):
+			pressed[a] = true
+			held[a] = true
+
+
+## the four movement bindings for messages, e.g. "WASD" ("W/A/S/D" when they aren't single letters)
+func move_keys() -> String:
+	var k := ["move_up", "move_left", "move_down", "move_right"].map(func(a): return Keybinds.short(a))
+	return "".join(PackedStringArray(k)) if k.all(func(x): return x.length() == 1) else "/".join(PackedStringArray(k))
 
 
 func _update_mouse() -> void:
@@ -903,11 +996,14 @@ func _build_device(at: Vector2) -> void:
 ## click (or press B) near the merchant or the atlas device; returns true when one opened
 func _update_interact() -> bool:
 	for o in interacts:
-		var near: bool = player.pos.distance_to(o.pos) < 4.0 and pressed.has(KEY_B)
+		var near: bool = player.pos.distance_to(o.pos) < 4.0 and pressed.has("interact")
 		var clicked: bool = lmb and mouse_ground.distance_to(o.pos) < o.r + 0.6 and player.pos.distance_to(o.pos) < 14.0
 		if not near and not clicked:
 			continue
 		lmb = false
+		for a in held.keys():   # the click opened something: it doesn't also cast the skill on that button
+			if Keybinds.binds[a].any(func(b): return b.get("mouse", -1) == MOUSE_BUTTON_LEFT):
+				held.erase(a)
 		open_interact(o.kind, o)
 		return true
 	return false
@@ -1052,11 +1148,10 @@ func _make_enemy(kind: String, at: Vector2, pack_id: int, affix: Dictionary = {}
 func _process(delta: float) -> void:
 	delta = minf(delta, 0.05)
 	_update_mouse()
-	for kp in [[KEY_I, hud.inventory], [KEY_TAB, hud.inventory], [KEY_K, hud.skill_ui], [KEY_T, hud.talent_ui],
-			[KEY_C, hud.status_ui], [KEY_L, hud.filter_ui], [KEY_P, hud.passive_ui], [KEY_U, hud.asc_ui]]:
-		if pressed.has(kp[0]):
-			hud.toggle(kp[1])
-	if pressed.has(KEY_ESCAPE):
+	for a in PANEL_ACTIONS:
+		if pressed.has(a):
+			hud.toggle(hud.panel_for(a))
+	if pressed.has("cancel"):
 		if hud.any_open():
 			hud.close_panels()
 		elif not player.dead and not hud.char_ui.visible:
@@ -1102,7 +1197,9 @@ func _process(delta: float) -> void:
 	hud.refresh()
 	pressed.clear()
 	lmb = lmb and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT)
-	rmb = rmb and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT)
+	for a in held.keys():   # releases can land on the UI, so ask the Input state
+		if not Input.is_action_pressed(a):
+			held.erase(a)
 
 
 func _update_camera(delta: float) -> void:
@@ -1148,10 +1245,10 @@ func _update_player(delta: float) -> void:
 		return
 
 	var mv := Vector2.ZERO
-	if Input.is_physical_key_pressed(KEY_W): mv.y -= 1
-	if Input.is_physical_key_pressed(KEY_S): mv.y += 1
-	if Input.is_physical_key_pressed(KEY_A): mv.x -= 1
-	if Input.is_physical_key_pressed(KEY_D): mv.x += 1
+	if Input.is_action_pressed("move_up"): mv.y -= 1
+	if Input.is_action_pressed("move_down"): mv.y += 1
+	if Input.is_action_pressed("move_left"): mv.x -= 1
+	if Input.is_action_pressed("move_right"): mv.x += 1
 	var moving := mv != Vector2.ZERO
 	if moving:
 		# keys move along the screen axes; turn that into a ground direction via the camera
@@ -1162,14 +1259,13 @@ func _update_player(delta: float) -> void:
 		var d3 := (right.normalized() * mv.x - fwd.normalized() * mv.y).normalized()
 		var sp: float = s.move_speed * (1.0 + p.bonus("move") / 100.0) * (0.5 if p.action_t > 0.0 else 1.0) * (0.6 if p.chill > 0.0 else 1.0)
 		p.pos = map.move_circle(p.pos, p.r, Vector2(d3.x, d3.z) * sp * delta)
-	var held := [lmb, rmb, Input.is_physical_key_pressed(KEY_Q), Input.is_physical_key_pressed(KEY_E),
-		Input.is_physical_key_pressed(KEY_R), pressed.has(KEY_SPACE)]
-	for i in held.size():
+	var down := range(Data.SLOT_COUNT).map(func(i): return held.has(Keybinds.skill_action(i)))
+	for i in down.size():
 		var aura: bool = Data.SKILLS[p.slots[i]].has("aura")
-		if held[i] and not (aura and i < held_prev.size() and held_prev[i]):
+		if down[i] and not (aura and i < held_prev.size() and held_prev[i]):
 			_try_cast(i)
-	held_prev = held
-	if pressed.has(KEY_F): _use_potion()
+	held_prev = down
+	if pressed.has("potion"): _use_potion()
 	p.animate(delta, moving)
 
 
@@ -1225,13 +1321,13 @@ func gain_xp(v: int) -> void:
 		add_text(p.pos, "LEVEL UP!", Color("#ffe27a"), 28)
 		Fx.ring(level_root, to3(p.pos), 5.0, Color("#ffe27a"), 0.6, false)
 		Fx.burst(level_root, to3(p.pos, 1.0), 40, Color("#ffe27a"), 6.0)
-		hud.message("レベル %d に到達！ タレントポイント +1（T）" % p.level, Color("#ffe27a"))
+		hud.message("レベル %d に到達！ タレントポイント +1（%s）" % [p.level, Keybinds.text("talents")], Color("#ffe27a"))
 		if Data.asc_points(p.level) > Data.asc_points(p.level - 1):
-			hud.message("アセンダンシーポイント +1（U）", Data.ascendancy(p.asc).get("color", Color("#ffcf7a")))
+			hud.message("アセンダンシーポイント +1（%s）" % Keybinds.text("ascendancy"), Data.ascendancy(p.asc).get("color", Color("#ffcf7a")))
 		hud.message("エネルギー上限 +1（%d）" % p.energy_max(), Data.GEM_COLOR)
 		for id in Data.SKILL_ORDER:
 			if Data.SKILLS[id].lvl == p.level:
-				hud.message("新スキル「%s」を習得！（Kで付け替え）" % Data.SKILLS[id].name, Data.SKILLS[id].color)
+				hud.message("新スキル「%s」を習得！（%sで付け替え）" % [Data.SKILLS[id].name, Keybinds.text("skills")], Data.SKILLS[id].color)
 		hud.skill_ui.refresh()
 		hud.talent_ui.refresh()
 		hud.asc_ui.refresh()
@@ -3203,7 +3299,7 @@ func unlock_gem(id: String) -> void:
 		return
 	p.gems.append(id)
 	var g := Data.support(id)
-	hud.message("サポートジェム「%s」を入手！（Kでリンク）" % g.name, g.color)
+	hud.message("サポートジェム「%s」を入手！（%sでリンク）" % [g.name, Keybinds.text("skills")], g.color)
 	hud.skill_ui.refresh()
 
 
@@ -3265,7 +3361,7 @@ func _update_loot(delta: float) -> void:
 		if not pickup_item(g.item, g.pos):
 			if time - g.get("full_t", -9.0) > 2.0:
 				g.full_t = time
-				hud.message("インベントリが一杯です（I）", Color("#ff8080"))
+				hud.message("インベントリが一杯です（%s）" % Keybinds.text("inventory"), Color("#ff8080"))
 			continue
 		_take(g)
 	ground = ground.filter(func(g): return not g.get("taken", false))
@@ -3506,10 +3602,10 @@ func apply_save(data: Dictionary) -> void:
 	for k in data.get("cur", {}):
 		p.cur[k] = int(data.cur[k])
 	var sl: Array = data.get("slots", [])
-	if sl.size() == Data.SLOT_KEYS.size() and sl.all(func(id): return Data.SKILLS.has(id)):
+	if sl.size() == Data.SLOT_COUNT and sl.all(func(id): return Data.SKILLS.has(id)):
 		p.slots = sl
 	var ln: Array = data.get("links", [])
-	if ln.size() == Data.SLOT_KEYS.size():
+	if ln.size() == Data.SLOT_COUNT:
 		p.links = ln.map(func(l): return Array(l).filter(func(id): return not Data.support(id).is_empty()))
 	p.gems = Array(data.get("gems", Data.DEFAULT_GEMS)).filter(func(id): return not Data.support(id).is_empty())
 	p.talent_pts = int(data.get("talent_pts", 0))

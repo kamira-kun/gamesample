@@ -144,10 +144,12 @@ func skill_tip(id: String, slot := -1) -> Array:
 	if sk.has("aura"):
 		var p: Player = hud.main.player
 		var pool: String = sk.aura.pool
-		lines.append(["範囲 %dm　押すたびに発動／解除" % sk.aura.r, Color("#9a9080"), 12])
+		var key := "%sを" % Keybinds.text(Keybinds.skill_action(slot)) if slot >= 0 else ""
+		lines.append(["範囲 %dm　%s押すたびに発動／解除" % [sk.aura.r, key], Color("#9a9080"), 12])
 		lines.append(["いまのリザーブ量 %s %d%s" % ["ライフ" if pool == "life" else "マナ", p.aura_reserve(id, pool), "（発動中）" if id in p.auras else ""],
 			Color("#ffd890"), 12])
 	if slot >= 0:
+		lines.insert(1, ["スロット %d　キー：%s" % [slot + 1, Keybinds.text(Keybinds.skill_action(slot))], Color("#ffd36a"), 12])
 		var s: Dictionary = hud.main.slot_sup(slot)
 		for gid in s.ids:
 			var g := Data.support(gid)
@@ -187,12 +189,12 @@ func refresh() -> void:
 			refresh())
 		tag_row.add_child(tb)
 
-	for i in Data.SLOT_KEYS.size():
+	for i in Data.SLOT_COUNT:
 		var id: String = p.slots[i]
 		var sk: Dictionary = Data.SKILLS[id]
 		var card := VBoxContainer.new()
 		card.add_theme_constant_override("separation", 3)
-		var b := card("%s\n%s" % [Data.SLOT_KEYS[i].label, sk.name], Color("#2a2014") if i == sel else Color("#120e0a"),
+		var b := card("%s\n%s" % [Keybinds.text(Keybinds.skill_action(i)), sk.name], Color("#2a2014") if i == sel else Color("#120e0a"),
 			Color("#ffd36a") if i == sel else Color("#4a3a26"), sk.color, 2 if i == sel else 1)
 		b.custom_minimum_size = Vector2(150, 52)
 		var iv := SkillIcon.View.new()
@@ -241,7 +243,7 @@ func refresh() -> void:
 			continue
 		var locked: bool = p.level < sk.lvl
 		var at := p.slots.find(id)
-		var tag := "Lv %d で習得" % sk.lvl if locked else ("装備中：%s" % Data.SLOT_KEYS[at].label if at >= 0 else "")
+		var tag := "Lv %d で習得" % sk.lvl if locked else ("装備中：%s" % Keybinds.text(Keybinds.skill_action(at)) if at >= 0 else "")
 		var b := card("%s　%s\n%s%s　%s" % [sk.name, tag, Data.cost_text(sk), "　CD %s秒" % sk.cd if sk.cd > 0.0 else "", Data.tag_text(sk.tags)],
 			Color("#120e0a"), Color("#6a5a44") if at >= 0 else Color("#3a3024"), sk.color.darkened(0.55) if locked else sk.color)
 		b.custom_minimum_size = Vector2(250, 48)

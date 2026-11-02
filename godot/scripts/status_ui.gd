@@ -96,18 +96,18 @@ func refresh() -> void:
 		_row(stats, rows[i][0], rows[i][1])
 	_row(stats, "タレントポイント", str(p.talent_pts), Color("#ffe27a"))
 	var a := Data.ascendancy(p.asc)
-	_row(stats, "アセンダンシー", "%s（残り %d）" % [a.name, p.asc_free()] if not a.is_empty() else "未選択 [U]", a.get("color", Color("#776a58")))
+	_row(stats, "アセンダンシー", "%s（残り %d）" % [a.name, p.asc_free()] if not a.is_empty() else "未選択 [%s]" % Keybinds.text("ascendancy"), a.get("color", Color("#776a58")))
 	_row(stats, "エネルギー", "%d / %d" % [p.energy_used(), p.energy_max()], Data.GEM_COLOR)
 	clear(gear)
 	for slot in Data.SLOTS:
 		var it: Dictionary = p.equip.get(slot, {})
 		_row(gear, Data.SLOT_INFO[slot].name, it.name if not it.is_empty() else "—", Data.RARITY[it.rarity].color if not it.is_empty() else Color("#554a3a"))
 	clear(skills)
-	for i in Data.SLOT_KEYS.size():
+	for i in Data.SLOT_COUNT:
 		var id: String = p.slots[i]
 		var sk: Dictionary = Data.SKILLS[id]
 		var r: int = p.talents.get(id, 0)
 		if sk.has("aura"):
-			_row(skills, "%s　%s %s" % [Data.SLOT_KEYS[i].short, sk.icon, sk.name], "発動中" if id in p.auras else "停止中", sk.color)
+			_row(skills, "%s　%s %s" % [Keybinds.short(Keybinds.skill_action(i)), sk.icon, sk.name], "発動中" if id in p.auras else "停止中", sk.color)
 			continue
-		_row(skills, "%s　%s %s" % [Data.SLOT_KEYS[i].short, sk.icon, sk.name], "ランク %d（+%d%%）" % [r, r * 15], sk.color)
+		_row(skills, "%s　%s %s" % [Keybinds.short(Keybinds.skill_action(i)), sk.icon, sk.name], "ランク %d（+%d%%）" % [r, r * 15], sk.color)
