@@ -4595,7 +4595,7 @@ func _start_attack(e: Enemy, tg: Actor) -> void:
 	elif t.has("aoe"):
 		var rad: float = t.aoe
 		add_tele(e.pos, rad, t.windup, true, func():
-			if e.dead or e.frozen > 0.0:
+			if not is_instance_valid(e) or e.dead or e.frozen > 0.0:
 				return
 			_explosion(e.pos, rad, Color("#c88cff"))
 			_damage_area(e.pos, rad, e.dmg))
@@ -4679,7 +4679,7 @@ func _boss_boss(e: Enemy, d: float, enraged: bool) -> void:
 		e.windup = 1.0
 		e.pending = func(): pass
 		add_tele(e.pos, 7.0, 1.0, true, func():
-			if e.dead:
+			if not is_instance_valid(e) or e.dead:
 				return
 			_explosion(e.pos, 7.0, Color("#ff4632"))
 			_damage_area(e.pos, 7.0, e.dmg * 1.7))
@@ -4722,7 +4722,7 @@ func _boss_colossus(e: Enemy, d: float, enraged: bool) -> void:
 		e.windup = 0.9
 		e.pending = func(): pass
 		add_tele(e.pos, 6.6, 0.9, true, func():
-			if e.dead:
+			if not is_instance_valid(e) or e.dead:
 				return
 			_explosion(e.pos, 6.6, Color("#ff5a1e"))
 			_damage_area(e.pos, 6.6, e.dmg * 1.5)
