@@ -5070,9 +5070,13 @@ func learn_skill(id: String) -> void:
 	hud.skill_ui.refresh()
 
 
+## a spot near `at` the player can stand on and walk to: in sight of `at` and with room for the player's circle
 func _scatter(at: Vector2) -> Vector2:
-	var p := at + Vector2.from_angle(randf() * TAU) * randf_range(0.4, 1.8)
-	return at if map.solid_at(p) else p
+	for i in 8:
+		var p := at + Vector2.from_angle(randf() * TAU) * randf_range(0.4, 1.8)
+		if not map.circle_hits(p, player.r) and map.los(at, p):
+			return p
+	return at
 
 
 func drop_item(it: Dictionary, at: Vector2) -> void:
