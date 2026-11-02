@@ -411,24 +411,6 @@ const BOSS_ROTATION := [
 	{"type": "witch", "guards": ["archer", "archer", "shaman", "shaman"]},
 ]
 
-# talents: one point per level; skill talents raise that skill's damage
-const BASE_TALENTS := [
-	{"k": "might", "name": "剛力", "desc": "ダメージ +8%", "max": 20},
-	{"k": "vitality", "name": "生命力", "desc": "最大ライフ +20", "max": 20},
-	{"k": "spirit", "name": "精神", "desc": "最大マナ +12、マナ回復 +0.5/秒", "max": 20},
-	{"k": "swift", "name": "俊敏", "desc": "移動速度・攻撃速度 +3%", "max": 10},
-	{"k": "precision", "name": "精密", "desc": "クリティカル率 +1.5%、クリティカルダメージ +8%", "max": 15},
-]
-static var _talents: Array = []
-
-
-static func talents() -> Array:
-	if _talents.is_empty():
-		_talents = BASE_TALENTS.duplicate()
-		for id in SKILL_ORDER.filter(func(k): return not SKILLS[k].has("aura")):   # auras deal no damage
-			_talents.append({"k": id, "name": SKILLS[id].name, "desc": "このスキルのダメージ +15%", "max": 10, "skill": true})
-	return _talents
-
 # ascendancy: pick one of the three lineages of the character's base class (CLASSES), spend the points levels
 # give on its minor nodes; points spent there unlock its core tiers, and in each unlocked tier one of two core
 # talents is chosen (and can be swapped freely). A core's `stats` are added like a minor node's; its id is

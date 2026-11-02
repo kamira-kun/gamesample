@@ -23,7 +23,7 @@ var inventory := InventoryUI.new()
 var shop_ui := ShopUI.new()
 var atlas_ui := AtlasUI.new()
 var skill_ui := SkillUI.new()
-var talent_ui := TalentUI.new()
+var tree_ui := TreeUI.new()
 var status_ui := StatusUI.new()
 var filter_ui := FilterUI.new()
 var passive_ui := PassiveUI.new()
@@ -131,7 +131,7 @@ func _ready() -> void:
 	root.add_child(atlas_ui)
 	skill_ui.hud = self
 	root.add_child(skill_ui)
-	for pnl in [talent_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui, stash_ui, exchange_ui, cinder_ui, keyconfig_ui]:
+	for pnl in [tree_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui, stash_ui, exchange_ui, cinder_ui, keyconfig_ui]:
 		pnl.hud = self
 		root.add_child(pnl)
 	var tsb := StyleBoxFlat.new()
@@ -195,12 +195,12 @@ static func panel_box() -> StyleBoxFlat:
 
 
 func panels() -> Array:
-	return [inventory, shop_ui, atlas_ui, skill_ui, talent_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui, stash_ui, exchange_ui, cinder_ui, keyconfig_ui]
+	return [inventory, shop_ui, atlas_ui, skill_ui, tree_ui, asc_ui, status_ui, filter_ui, passive_ui, pause_ui, stash_ui, exchange_ui, cinder_ui, keyconfig_ui]
 
 
 ## the panel a panel-toggle action opens
 func panel_for(action: String) -> Control:
-	return {"inventory": inventory, "skills": skill_ui, "talents": talent_ui, "ascendancy": asc_ui, "status": status_ui,
+	return {"inventory": inventory, "skills": skill_ui, "talents": tree_ui, "ascendancy": asc_ui, "status": status_ui,
 		"filter": filter_ui, "passives": passive_ui, "keyconfig": keyconfig_ui}[action]
 
 
@@ -295,8 +295,8 @@ func refresh() -> void:
 		_place_tip()
 	potion.text = "回復薬 %d/%d  [%s]" % [p.potions, p.max_potions(), Keybinds.text("potion")]
 	var hints := []
-	if p.talent_pts > 0:
-		hints.append("タレントポイントがあります [%s]" % Keybinds.text("talents"))
+	if p.tree_free() > 0:
+		hints.append("パッシブポイントがあります（%d）[%s]" % [p.tree_free(), Keybinds.text("talents")])
 	if p.asc_free() > 0 or (p.asc == "" and p.level >= 2):
 		hints.append(("アセンダンシーポイントがあります [%s]" if p.asc != "" else "アセンダンシーを選べます [%s]") % Keybinds.text("ascendancy"))
 	talent_hint.text = "\n".join(PackedStringArray(hints))

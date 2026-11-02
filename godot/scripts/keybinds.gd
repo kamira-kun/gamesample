@@ -23,7 +23,7 @@ const ACTIONS := [
 	{"id": "interact", "name": "祭壇・商人・スタッシュを使う", "group": "行動", "keys": [{"key": KEY_B}]},
 	{"id": "inventory", "name": "インベントリ", "group": "画面", "keys": [{"key": KEY_I}, {"key": KEY_TAB}]},
 	{"id": "skills", "name": "スキルとサポートジェム", "group": "画面", "keys": [{"key": KEY_K}]},
-	{"id": "talents", "name": "タレント", "group": "画面", "keys": [{"key": KEY_T}]},
+	{"id": "talents", "name": "パッシブツリー", "group": "画面", "keys": [{"key": KEY_T}]},
 	{"id": "ascendancy", "name": "アセンダンシー", "group": "画面", "keys": [{"key": KEY_U}]},
 	{"id": "status", "name": "ステータス", "group": "画面", "keys": [{"key": KEY_C}]},
 	{"id": "filter", "name": "ルートフィルタ", "group": "画面", "keys": [{"key": KEY_L}]},

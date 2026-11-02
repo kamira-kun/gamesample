@@ -94,7 +94,7 @@ func refresh() -> void:
 			stats.add_child(sub("防御・その他", 14, Color("#f0d8a0")))
 			stats.add_child(Control.new())
 		_row(stats, rows[i][0], rows[i][1])
-	_row(stats, "タレントポイント", str(p.talent_pts), Color("#ffe27a"))
+	_row(stats, "パッシブツリー", "%d ノード（残り %d）" % [p.tree.size(), p.tree_free()], Color("#ffe27a"))
 	var bc := Data.base_class(p.cls)
 	_row(stats, "ベースキャラ", "%s %s" % [bc.icon, bc.name], bc.color)
 	var a := Data.ascendancy(p.asc)
@@ -108,8 +108,7 @@ func refresh() -> void:
 	for i in Data.SLOT_COUNT:
 		var id: String = p.slots[i]
 		var sk: Dictionary = Data.SKILLS[id]
-		var r: int = p.talents.get(id, 0)
 		if sk.has("aura"):
 			_row(skills, "%s　%s %s" % [Keybinds.short(Keybinds.skill_action(i)), sk.icon, sk.name], "発動中" if id in p.auras else "停止中", sk.color)
 			continue
-		_row(skills, "%s　%s %s" % [Keybinds.short(Keybinds.skill_action(i)), sk.icon, sk.name], "ランク %d（+%d%%）" % [r, r * 15], sk.color)
+		_row(skills, "%s　%s %s" % [Keybinds.short(Keybinds.skill_action(i)), sk.icon, sk.name], Data.tag_text(sk.tags), sk.color)
