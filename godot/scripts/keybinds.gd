@@ -36,6 +36,9 @@ const MOUSE_NAMES := {MOUSE_BUTTON_LEFT: ["LMB", "左クリック"], MOUSE_BUTTO
 	MOUSE_BUTTON_MIDDLE: ["MMB", "中クリック"], MOUSE_BUTTON_XBUTTON1: ["MB4", "マウス4"], MOUSE_BUTTON_XBUTTON2: ["MB5", "マウス5"]}
 const SHORT_KEYS := {"Space": "SPC", "Tab": "TAB", "Shift": "SHFT", "Ctrl": "CTRL", "Alt": "ALT", "Enter": "ENT", "Backspace": "BS"}
 
+# never bound to an action: Esc closes and pauses, Alt held shows the ranges in item tooltips (ModRange)
+const RESERVED := [KEY_NONE, KEY_ESCAPE, KEY_ALT]
+
 static var binds := {}   # action id -> Array of SLOTS bindings
 
 
@@ -98,7 +101,7 @@ static func to_event(b: Dictionary) -> InputEvent:
 static func from_event(e: InputEvent) -> Dictionary:
 	if e is InputEventKey and e.pressed and not e.echo:
 		var k: int = e.physical_keycode if e.physical_keycode != KEY_NONE else e.keycode
-		if k == KEY_NONE or k == KEY_ESCAPE:
+		if k in RESERVED:
 			return {}
 		return {"key": k}
 	if e is InputEventMouseButton and e.pressed and MOUSE_NAMES.has(e.button_index):
@@ -205,7 +208,7 @@ static func load_file(path := PATH) -> void:
 static func _clean(b) -> Dictionary:
 	if typeof(b) != TYPE_DICTIONARY:
 		return {}
-	if b.has("key") and int(b.key) not in [KEY_NONE, KEY_ESCAPE]:
+	if b.has("key") and int(b.key) not in RESERVED:
 		return {"key": int(b.key)}
 	if b.has("mouse") and MOUSE_NAMES.has(int(b.mouse)):
 		return {"mouse": int(b.mouse)}

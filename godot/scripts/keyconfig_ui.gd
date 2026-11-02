@@ -62,6 +62,7 @@ func refresh() -> void:
 		_cells(g, cells)
 	_cells(right, [sub("固定", 14, Color("#f0d8a0")), Control.new(), Control.new()])
 	_cells(right, [sub("画面を閉じる／一時停止", 14, Color("#8a7c64")), _fixed("Esc"), Control.new()])
+	_cells(right, [sub("ツールチップに数値の範囲（押している間）", 14, Color("#8a7c64")), _fixed("Alt"), Control.new()])
 	var dup := Keybinds.conflicts()
 	if not dup.is_empty():
 		var names := PackedStringArray(dup.map(func(grp): return "・".join(PackedStringArray(grp.map(func(x): return Keybinds.action(x[0]).name)))))

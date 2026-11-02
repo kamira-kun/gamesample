@@ -85,8 +85,12 @@ static func generate(ilvl: int, shape_id := "", lines := -1) -> Dictionary:
 
 
 static func roll_value(t: Dictionary, k: String) -> int:
-	var v: float = mod_def(k).per * cell_count(t) * (1.0 + t.ilvl * 0.06) * randf_range(0.8, 1.2)
-	return maxi(1, roundi(v))
+	return value_at(t, k, randf_range(0.8, 1.2))
+
+
+## the line's value with its random factor at `f` (0.8..1.2); ModRange reads the range from it
+static func value_at(t: Dictionary, k: String, f: float) -> int:
+	return maxi(1, roundi(mod_def(k).per * cell_count(t) * (1.0 + t.ilvl * 0.06) * f))
 
 
 static func add_mods(t: Dictionary, n: int) -> void:
@@ -186,7 +190,7 @@ static func stats(list: Array) -> Dictionary:
 static func lines(t: Dictionary) -> Array:
 	var out := [[name_of(t), COLOR, 17], ["石板（%dマス）　アイテムレベル %d" % [cell_count(t), t.ilvl], Color("#9a9080"), 13]]
 	for k in t.mods:
-		out.append([Data.affix(k).fmt % t.mods[k], Color("#8fd8ff"), 14])
+		out.append(ModRange.line(Data.affix(k).fmt % t.mods[k], Color("#8fd8ff"), 14, ModRange.tablet(t, k)))
 	if t.mods.size() < max_mods(t):
 		out.append(["あと %d 行刻める（鍛錬の砥石）" % (max_mods(t) - t.mods.size()), Color("#7a7266"), 12])
 	out.append(["盤に置いている" if t.placed else "盤に置いていない", Color("#b8a888"), 12])

@@ -164,7 +164,12 @@ static func generate_ring(ilvl: int, force_rarity := -1, size_id := "", theme_id
 
 
 static func roll_value(j: Dictionary, a: Dictionary) -> int:
-	return maxi(1, roundi((a.min + randf() * (a.max - a.min)) * (1.0 + j.ilvl * a.sc)))
+	return value_at(j, a, randf())
+
+
+## the affix value at `t` of the way from its least (0) to its most (1); ModRange reads the range from it
+static func value_at(j: Dictionary, a: Dictionary, t: float) -> int:
+	return maxi(1, roundi((a.min + t * (a.max - a.min)) * (1.0 + j.ilvl * a.sc)))
 
 
 static func add_affixes(j: Dictionary, n: int) -> void:
@@ -195,7 +200,11 @@ static func add_notables(j: Dictionary, n: int) -> void:
 
 ## the strength line: how much stronger than the theme's base the small nodes are (%)
 static func roll_power(j: Dictionary) -> void:
-	j.power = roundi(randf_range(0.0, 20.0) + j.ilvl * 0.6)
+	j.power = power_at(j, randf_range(0.0, 20.0))
+
+
+static func power_at(j: Dictionary, roll: float) -> int:
+	return roundi(roll + j.ilvl * 0.6)
 
 
 static func name_jewel(j: Dictionary) -> void:
@@ -363,7 +372,7 @@ static func lines(j: Dictionary) -> Array:
 		for s in th.small.stats:
 			st[s] = roundi(th.small.stats[s] * (1.0 + int(j.power) / 100.0))
 		out.append(["%s：小ノードは %s" % [th.name, "、".join(PackedStringArray(PassiveTree.lines(st)))], RING_COLOR, 14])
-		out.append(["環の強さ +%d%%" % int(j.power), Color("#8fb4ff"), 14])
+		out.append(ModRange.line("環の強さ +%d%%" % int(j.power), Color("#8fb4ff"), 14, ModRange.ring_power(j)))
 		for id in j.notables:
 			var nd := ring_notable(id)
 			out.append(["◆ %s：%s" % [nd.name, "、".join(PackedStringArray(PassiveTree.lines(nd.stats)))], Color("#8fb4ff"), 14])
@@ -374,9 +383,10 @@ static func lines(j: Dictionary) -> Array:
 		var b := base(j.base)
 		out.append(["%s 燈晶（%s）　アイテムレベル %d" % [Data.RARITY[int(j.rarity)].name, b.name, j.ilvl], Color("#9a9080"), 13])
 		for l in PassiveTree.lines(b.implicit):
-			out.append([l, Color("#b8b0a0"), 14])
-		for l in PassiveTree.lines(j.mods):
-			out.append([l, Color("#8fb4ff"), 14])
+			out.append(ModRange.fixed(l, Color("#b8b0a0"), 14))
+		for k in PassiveTree.FMT.keys().filter(func(q): return j.mods.has(q)):   # the order PassiveTree.lines gives
+			for l in PassiveTree.lines({k: j.mods[k]}):
+				out.append(ModRange.line(l, Color("#8fb4ff"), 14, ModRange.jewel(j, k)))
 		out.append(["燈晶の台座に入れ、その台座を取得している間だけ効く", Color("#a89878"), 12])
 	out.append(["台座に入っている" if j.socket != "" else "台座に入っていない", Color("#b8a888"), 12])
 	return out

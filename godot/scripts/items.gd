@@ -69,14 +69,23 @@ static func pick_legend(pool: Array) -> Dictionary:
 
 
 static func roll_value(it: Dictionary, a: Dictionary) -> int:
-	var v: float = (a.min + randf() * (a.max - a.min)) * (1.0 + it.ilvl * a.sc) * (1.2 * Data.unique_pow(it.name) if it.rarity == 3 else 1.0)
+	return value_at(it, a, randf())
+
+
+## the affix value at `t` of the way from its least (0) to its most (1); ModRange reads the range from it
+static func value_at(it: Dictionary, a: Dictionary, t: float) -> int:
+	var v: float = (a.min + t * (a.max - a.min)) * (1.0 + it.ilvl * a.sc) * (1.2 * Data.unique_pow(it.name) if it.rarity == 3 else 1.0)
 	return maxi(1, roundi(v))
 
 
 ## a unique's own stat line: its [min, max] (negative for a drawback) grown with item level like the affix,
 ## the positive ones scaled by the unique's tier
 static func roll_fixed(it: Dictionary, k: String, r: Array) -> int:
-	var v: float = (r[0] + randf() * (r[1] - r[0])) * (1.0 + it.ilvl * Data.affix(k).sc)
+	return fixed_at(it, k, r, randf())
+
+
+static func fixed_at(it: Dictionary, k: String, r: Array, t: float) -> int:
+	var v: float = (r[0] + t * (r[1] - r[0])) * (1.0 + it.ilvl * Data.affix(k).sc)
 	if r[0] > 0:
 		v *= Data.unique_pow(it.name)
 	return roundi(v) if roundi(v) != 0 else signi(r[0])
@@ -154,7 +163,11 @@ static func brand(it: Dictionary, k := "") -> void:
 	var old: String = it.get("special", {}).get("k", "")
 	var pool := Data.SPECIAL_MODS.filter(func(m): return m.k != old)
 	var m: Dictionary = Data.special_mod(k) if k != "" else pool.pick_random()
-	it.special = {"k": m.k, "v": maxi(1, roundi((m.min + randf() * (m.max - m.min)) * (1.0 + it.ilvl * m.sc)))}
+	it.special = {"k": m.k, "v": special_at(it, m, randf())}
+
+
+static func special_at(it: Dictionary, m: Dictionary, t: float) -> int:
+	return maxi(1, roundi((m.min + t * (m.max - m.min)) * (1.0 + it.ilvl * m.sc)))
 
 
 ## the stats a special modifier gives
@@ -220,18 +233,21 @@ static func lines(it: Dictionary) -> Array:
 	out.append(["アイテムレベル %d" % it.ilvl, Color("#7a7266"), 13])
 	if it.slot == "weapon":
 		var f: int = it.mods.get("flat_dmg", 0)
-		out.append(["ダメージ %d–%d" % [it.min + f, it.max + f], Color.WHITE, 14])
+		var dmg := "ダメージ %d–%d" % [it.min + f, it.max + f]
+		var fr := ModRange.item(it, "flat_dmg") if it.mods.has("flat_dmg") else {}
+		# two numbers that each roll with the flat damage line: [a–b]–[c–d]
+		out.append([dmg, Color.WHITE, 14, dmg + ("  [%d–%d]–[%d–%d]" % [it.min + fr.lo, it.min + fr.hi, it.max + fr.lo, it.max + fr.hi] if not fr.is_empty() and fr.lo != fr.hi else "")])
 		out.append(["攻撃/秒 %.2f" % it.aps, Color.WHITE, 14])
 	if it.has("armor"):
 		out.append(["アーマー %d" % it.armor, Color.WHITE, 14])
 	for k in it.implicit:
-		out.append([Data.affix(k).fmt % it.implicit[k], Color("#b8b0a0"), 14])
+		out.append(ModRange.fixed(Data.affix(k).fmt % it.implicit[k], Color("#b8b0a0"), 14))
 	for k in it.mods:
 		var v: int = it.mods[k]
-		out.append([(Data.affix(k).fmt % v).replace("+-", "-"), Color("#8fb4ff") if v >= 0 else Color("#ff7a6a"), 14])
+		out.append(ModRange.line((Data.affix(k).fmt % v).replace("+-", "-"), Color("#8fb4ff") if v >= 0 else Color("#ff7a6a"), 14, ModRange.item(it, k)))
 	if it.has("special"):
 		var m := Data.special_mod(it.special.k)
-		out.append(["✠ %s：%s" % [m.name, m.fmt % it.special.v], Data.currency("brand").color, 14])
+		out.append(ModRange.line("✠ %s：%s" % [m.name, m.fmt % it.special.v], Data.currency("brand").color, 14, ModRange.special(it)))
 	if it.has("desc"):
 		out.append([it.desc, Color("#ff9a4a"), 14])
 	if it.has("flavor"):
@@ -246,8 +262,12 @@ static func normalize(it: Dictionary) -> Dictionary:
 			it[k] = int(it[k])
 	for src in ["mods", "implicit"]:
 		var d: Dictionary = it.get(src, {})
-		for k in d:
-			d[k] = int(d[k])
+		# a line whose affix no longer exists (an older version's) has no text or range to show: drop it
+		for k in d.keys():
+			if Data.affix(str(k)).is_empty():
+				d.erase(k)
+			else:
+				d[k] = int(d[k])
 	if it.has("special"):
 		if typeof(it.special) == TYPE_DICTIONARY and not Data.special_mod(str(it.special.get("k", ""))).is_empty():
 			it.special = {"k": str(it.special.k), "v": int(it.special.get("v", 1))}

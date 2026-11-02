@@ -47,6 +47,8 @@ var char_ui := CharUI.new()
 var talent_hint := Label.new()
 var tip := PanelContainer.new()
 var tip_box := VBoxContainer.new()
+var tip_lines: Array = []    # what the tooltip shows, to redraw it when Alt changes
+var alt_key := false         # the ranges are on because Alt went down (not set_detail from a test)
 
 
 func _ready() -> void:
@@ -275,12 +277,14 @@ func refresh_inventory() -> void:
 	stash_ui.refresh()
 
 
-## lines: [text, color, size]
+## lines: [text, color, size] or [text, color, size, detail text]; the detail text (the ranges the lines could roll,
+## ModRange) shows while Alt is held, and swaps in and out at once when Alt goes down or up over the same tooltip
 func show_tip(lines: Array) -> void:
+	tip_lines = lines
 	BasePanel.clear(tip_box)
 	for l in lines:
 		var lab := Label.new()
-		lab.text = l[0]
+		lab.text = l[3] if ModRange.detail and l.size() > 3 else l[0]
 		lab.add_theme_color_override("font_color", l[1])
 		lab.add_theme_font_size_override("font_size", l[2])
 		tip_box.add_child(lab)
@@ -291,6 +295,29 @@ func show_tip(lines: Array) -> void:
 
 func hide_tip() -> void:
 	tip.visible = false
+
+
+## Alt held or let go: redraw the open tooltip with or without the ranges (and the one-line craft rows)
+func set_detail(on: bool) -> void:
+	if on == ModRange.detail:
+		return
+	ModRange.detail = on
+	if tip.visible:
+		show_tip(tip_lines)
+	inventory.line_box.rebuild()
+	tablet_ui.line_box.rebuild()
+
+
+func _input(e: InputEvent) -> void:
+	if e is InputEventKey and (e.keycode == KEY_ALT or e.physical_keycode == KEY_ALT) and not e.echo:
+		alt_key = e.pressed
+		set_detail(e.pressed)
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:   # Alt+Tab: the release goes to another window
+		alt_key = false
+		set_detail(false)
 
 
 func _place_tip() -> void:
@@ -322,6 +349,9 @@ func refresh() -> void:
 			info.text += "　｜ " + line
 	if tip.visible:
 		_place_tip()
+	if alt_key and not Input.is_key_pressed(KEY_ALT):   # a release something else ate (the key config's listening)
+		alt_key = false
+		set_detail(false)
 	potion.text = "回復薬 %d/%d  [%s]" % [p.potions, p.max_potions(), Keybinds.text("potion")]
 	var hints := []
 	if p.tree_free() > 0:
