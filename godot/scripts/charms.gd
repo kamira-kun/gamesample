@@ -1,5 +1,5 @@
 class_name Charms
-## Ember shells (燼殻): the hardened shells of ember beetles, kindled into charms. Set into the expedition atlas
+## Compasses (コンパス, ember shells): the hardened shells of ember beetles, kindled into charms. Set into the expedition atlas
 ## before setting out (up to SLOTS of them, one per family), each adds its family's effect to that one map run and
 ## burns away as the map is entered. Maps drop them; they stack, kept per character (Player.charms) and in the
 ## league stash (Profiles.stash_charms).
@@ -24,9 +24,9 @@ const FAMILIES := [
 	{"k": "hoard", "name": "蓄財", "desc": "灰燼の欠片とカレンシーが多く落ちる", "value": 35, "shell": Color("#f0a030"),
 		"tiers": [{"gold": 0.3, "cur": 1.5}, {"gold": 0.6, "cur": 2.0}, {"gold": 1.0, "cur": 3.0}],
 		"fmt": ["灰燼の欠片 +30%　カレンシーのドロップ 1.5倍", "灰燼の欠片 +60%　カレンシーのドロップ 2倍", "灰燼の欠片 +100%　カレンシーのドロップ 3倍"]},
-	{"k": "relic", "name": "刻碑", "desc": "石板とジュエルが多く落ちる", "value": 45, "shell": Color("#7ad0e0"),
+	{"k": "relic", "name": "刻碑", "desc": "ルーンタブレットとジュエルが多く落ちる", "value": 45, "shell": Color("#7ad0e0"),
 		"tiers": [{"tablets": 1, "jewel": 1.5}, {"tablets": 1, "jewel": 2.0}, {"tablets": 2, "jewel": 3.0}],
-		"fmt": ["ボスの石板 +1　ジュエルのドロップ 1.5倍", "ボスの石板 +1　ジュエルのドロップ 2倍", "ボスの石板 +2　ジュエルのドロップ 3倍"]},
+		"fmt": ["ボスのルーンタブレット +1　ジュエルのドロップ 1.5倍", "ボスのルーンタブレット +1　ジュエルのドロップ 2倍", "ボスのルーンタブレット +2　ジュエルのドロップ 3倍"]},
 	{"k": "seal", "name": "封紋", "desc": "刻紋の封碑が必ず眠っている", "value": 50, "shell": Color("#5ff0c0"),
 		"tiers": [{"seals": 1}, {"seals": 2}, {"seals": 3}],
 		"fmt": ["刻紋の封碑 1つ確定", "刻紋の封碑 2つ確定", "刻紋の封碑 3つ確定"]},
@@ -86,7 +86,7 @@ static func all_ids() -> Array:
 
 static func name_of(id: String) -> String:
 	var c := parse(id)
-	return "%s%sの燼殻" % [TIER_NAMES[c.tier], c.def.name] if not c.is_empty() else id
+	return "%s%sのコンパス" % [TIER_NAMES[c.tier], c.def.name] if not c.is_empty() else id
 
 
 static func color_of(id: String) -> Color:
@@ -132,14 +132,14 @@ static func apply(fx: Dictionary, ids: Array) -> Dictionary:
 ## "" when shell `id` can be set into `slots` with `owned` stacks, else why not
 static func can_slot(slots: Array, owned: Dictionary, id: String) -> String:
 	if not valid(id):
-		return "燼殻ではない"
+		return "コンパスではない"
 	if slots.size() >= SLOTS:
-		return "燼殻は %d つまで" % SLOTS
+		return "コンパスは %d つまで" % SLOTS
 	if int(owned.get(id, 0)) <= slots.count(id):
 		return "%s を持っていない" % name_of(id)
 	var fam: String = parse(id).fam
 	if slots.any(func(s): return parse(s).get("fam", "") == fam):
-		return "同じ系統の燼殻は1つまで"
+		return "同じ系統のコンパスは1つまで"
 	return ""
 
 
@@ -188,7 +188,7 @@ static func lines(id: String, n := 0) -> Array:
 	var c := parse(id)
 	if c.is_empty():
 		return [[id, COLOR, 16]]
-	var out := [[name_of(id), color_of(id), 17], ["燼殻（%s・階位 %d）" % [c.def.name, c.tier + 1], Color("#9a9080"), 13]]
+	var out := [[name_of(id), color_of(id), 17], ["コンパス（%s・階位 %d）" % [c.def.name, c.tier + 1], Color("#9a9080"), 13]]
 	var tiers := []
 	for t in c.def.tiers.size():
 		tiers.append("階位%d：%s" % [t + 1, c.def.fmt[t]])
@@ -280,7 +280,7 @@ class Slot extends Control:
 		if id == "":
 			draw_rect(rect, Color("#0c0a08"))
 			draw_rect(rect, Color("#3a3024"), false, 1.0)
-			draw_string(Data.ui_font, Vector2(0, size.y / 2 + 5), "燼殻", HORIZONTAL_ALIGNMENT_CENTER, size.x, 11, Color("#554a3a"))
+			draw_string(Data.ui_font, Vector2(0, size.y / 2 + 5), "コンパス", HORIZONTAL_ALIGNMENT_CENTER, size.x, 11, Color("#554a3a"))
 			return
 		var c := Charms.color_of(id)
 		draw_rect(rect, c.darkened(0.85))

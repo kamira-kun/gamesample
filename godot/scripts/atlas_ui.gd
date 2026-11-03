@@ -122,7 +122,7 @@ func refresh() -> void:
 
 ## the ember-shell slots: click a set shell to take it out, an owned one to set it; they burn on setting out
 func _charms(p: Player) -> void:
-	_line("%s 燼殻 %d / %d（出撃すると燃え尽きる）" % [Charms.ICON, p.charm_slots.size(), Charms.SLOTS], Charms.COLOR, 16)
+	_line("%s コンパス %d / %d（出撃すると燃え尽きる）" % [Charms.ICON, p.charm_slots.size(), Charms.SLOTS], Charms.COLOR, 16)
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 4)
 	detail.add_child(row)
@@ -150,7 +150,7 @@ func _charms(p: Player) -> void:
 			sl.clicked.connect(slot.bind(id))
 			owned.add_child(sl)
 	if owned.get_child_count() == 0:
-		_line("燼殻を持っていない（マップの敵が落とす）", Color("#776a58"), 12)
+		_line("コンパスを持っていない（マップの敵が落とす）", Color("#776a58"), 12)
 
 
 ## set shell `id` into the next run; returns why not, or ""

@@ -70,7 +70,7 @@ func _ready() -> void:
 	cur_grid.add_theme_constant_override("h_separation", 4)
 	cur_grid.add_theme_constant_override("v_separation", 4)
 	right.add_child(cur_grid)
-	right.add_child(_sub("燼殻（遠征図で出撃前にはめる）"))
+	right.add_child(_sub("コンパス（遠征図で出撃前にはめる）"))
 	charm_grid.add_theme_constant_override("h_separation", 4)
 	charm_grid.custom_minimum_size = Vector2(330, 0)
 	right.add_child(charm_grid)

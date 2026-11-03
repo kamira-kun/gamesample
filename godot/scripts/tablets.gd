@@ -1,5 +1,5 @@
 class_name Tablets
-## Rune tablets (刻碑の石板): flat stone pieces of 1 to 6 cells that bosses drop. A character sets them,
+## Rune tablets (ルーンタブレット): flat stone pieces of 1 to 6 cells that bosses drop. A character sets them,
 ## turned in steps of 90 degrees, into the 6x6 tablet board (36 cells at most); every tablet on the board
 ## gives its stat lines. A tablet's lines grow with its cell count, and crafting at the board carves
 ## new lines into it (鍛錬の砥石) or recarves them all (混沌の残光).
@@ -105,7 +105,7 @@ static func craft(k: String, t: Dictionary) -> String:
 	match k:
 		"whet":
 			if t.mods.size() >= max_mods(t):
-				return "この石板にはもう刻めない（最大 %d 行）" % max_mods(t)
+				return "このルーンタブレットにはもう刻めない（最大 %d 行）" % max_mods(t)
 			add_mods(t, 1)
 		"chaos":
 			var n := maxi(1, t.mods.size())
@@ -113,11 +113,11 @@ static func craft(k: String, t: Dictionary) -> String:
 			add_mods(t, n)
 		"divine":
 			if t.mods.is_empty():
-				return "刻まれた能力のある石板にのみ使えます"
+				return "刻まれた能力のあるルーンタブレットにのみ使えます"
 			for key in t.mods.keys():
 				t.mods[key] = roll_value(t, key)
 		_:
-			return "このカレンシーは石板に使えません"
+			return "このカレンシーはルーンタブレットに使えません"
 	return ""
 
 
@@ -158,7 +158,7 @@ static func fit(list: Array, t: Dictionary, x: int, y: int, rot: int) -> String:
 		if c.x < 0 or c.y < 0 or c.x >= SIZE or c.y >= SIZE:
 			return "盤からはみ出す"
 		if occ.has(c) and occ[c] != t.uid:
-			return "ほかの石板と重なる"
+			return "ほかのルーンタブレットと重なる"
 	return ""
 
 
@@ -188,7 +188,7 @@ static func stats(list: Array) -> Dictionary:
 
 
 static func lines(t: Dictionary) -> Array:
-	var out := [[name_of(t), COLOR, 17], ["石板（%dマス）　アイテムレベル %d" % [cell_count(t), t.ilvl], Color("#9a9080"), 13]]
+	var out := [[name_of(t), COLOR, 17], ["ルーンタブレット（%dマス）　アイテムレベル %d" % [cell_count(t), t.ilvl], Color("#9a9080"), 13]]
 	for k in t.mods:
 		out.append(ModRange.line(Data.affix(k).fmt % t.mods[k], Color("#8fd8ff"), 14, ModRange.tablet(t, k)))
 	if t.mods.size() < max_mods(t):

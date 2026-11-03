@@ -83,5 +83,5 @@ func refresh() -> void:
 			"%s：回復薬　%s：近くの祭壇・商人・スタッシュを使う" % [k.call("potion"), k.call("interact")],
 			"%s：インベントリ　%s：スキル　%s：パッシブツリー　%s：アセンダンシー" % [k.call("inventory"), k.call("skills"), k.call("talents"), k.call("ascendancy")],
 			"%s：ステータス　%s：ルートフィルタ　%s：遠征パッシブ　%s：キー設定" % [k.call("status"), k.call("filter"), k.call("passives"), k.call("keyconfig")],
-			"%s：石板盤　%s：マップ（オーバーレイ。透過率と拡大率は上のオプションで）" % [k.call("tablets"), k.call("map")]]:
+			"%s：タブレット盤　%s：マップ（オーバーレイ。透過率と拡大率は上のオプションで）" % [k.call("tablets"), k.call("map")]]:
 		controls.add_child(sub(line, 13, Color("#c8b898")))

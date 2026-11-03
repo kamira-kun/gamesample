@@ -574,7 +574,7 @@ func buy_result(i: int) -> void:
 				err = "インベントリが一杯です"
 		"tablet":
 			if p.tablets.size() >= Tablets.MAX_OWNED:
-				err = "石板が一杯です（%d）" % Tablets.MAX_OWNED
+				err = "ルーンタブレットが一杯です（%d）" % Tablets.MAX_OWNED
 		"jewel", "ring":
 			if p.jewels.size() >= Jewels.MAX_OWNED:
 				err = "ジュエルが一杯です（%d）" % Jewels.MAX_OWNED

@@ -28,7 +28,7 @@ const ACTIONS := [
 	{"id": "status", "name": "ステータス", "group": "画面", "keys": [{"key": KEY_C}]},
 	{"id": "filter", "name": "ルートフィルタ", "group": "画面", "keys": [{"key": KEY_L}]},
 	{"id": "passives", "name": "遠征パッシブ", "group": "画面", "keys": [{"key": KEY_P}]},
-	{"id": "tablets", "name": "石板盤", "group": "画面", "keys": [{"key": KEY_G}]},
+	{"id": "tablets", "name": "タブレット盤", "group": "画面", "keys": [{"key": KEY_G}]},
 	{"id": "map", "name": "マップ（オーバーレイ）", "group": "画面", "keys": [{"key": KEY_M}]},
 	{"id": "keyconfig", "name": "キー設定", "group": "画面", "keys": [{"key": KEY_O}]},
 ]

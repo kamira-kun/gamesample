@@ -46,7 +46,7 @@ func _build() -> void:
 	var crow := HBoxContainer.new()
 	crow.add_theme_constant_override("separation", 22)
 	body.add_child(crow)
-	for pair in [["燼殻（スタッシュ・クリックで全部／右クリックで1つ取り出す）", charm_stash], ["燼殻（所持・クリックで全部／右クリックで1つ預ける）", charm_bag]]:
+	for pair in [["コンパス（スタッシュ・クリックで全部／右クリックで1つ取り出す）", charm_stash], ["コンパス（所持・クリックで全部／右クリックで1つ預ける）", charm_bag]]:
 		var box := VBoxContainer.new()
 		var l := Label.new()
 		l.text = pair[0]

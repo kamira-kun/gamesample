@@ -519,12 +519,12 @@ class Overlay extends Control:
 				var gi := Data.gem_info(sg, dr.gem)
 				c = {"icon": "◈" if sg else "◇", "name": "%s：%s" % [gi.kind, gi.name], "color": gi.color if sg else Data.GEM_COLOR}
 			elif dr.k == "tablet":
-				c = {"icon": "▦", "name": "石板：%s（%dマス）" % [Tablets.name_of(dr.tablet), Tablets.cell_count(dr.tablet)], "color": Tablets.COLOR}
+				c = {"icon": "▦", "name": "ルーンタブレット：%s（%dマス）" % [Tablets.name_of(dr.tablet), Tablets.cell_count(dr.tablet)], "color": Tablets.COLOR}
 			elif dr.k == "charm":
 				c = {"icon": Charms.ICON, "name": Charms.name_of(dr.charm), "color": Charms.color_of(dr.charm)}
 			elif dr.k == "jewel":
 				var ring := Jewels.is_ring(dr.jewel)
-				c = {"icon": "❂" if ring else "◆", "name": "%s：%s" % ["環晶" if ring else "燈晶", dr.jewel.name],
+				c = {"icon": "❂" if ring else "◆", "name": "%s：%s" % ["リングジュエル" if ring else "ジュエル", dr.jewel.name],
 					"color": Jewels.RING_COLOR if ring else Data.RARITY[int(dr.jewel.rarity)].color}
 			var label: String = "%s %s" % [c.icon, c.name]
 			var w := Data.ui_font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x + 12

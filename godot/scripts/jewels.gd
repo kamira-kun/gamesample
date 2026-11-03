@@ -1,11 +1,11 @@
 class_name Jewels
 ## Jewels for the passive tree, two kinds:
-## - 燈晶 (kind "jewel"): sits in a 燈晶の台座 node and gives its lines while that node is taken. Normal, magic or rare
+## - ジュエル (kind "jewel"): sits in a ジュエルの台座 node and gives its lines while that node is taken. Normal, magic or rare
 ##   with affixes like gear, crafted with the same currencies (変容 → magic, 昇華 → rare, 混沌 recarves, 鍛錬 adds a
 ##   line, 浄化 wipes, 神秘 rerolls the numbers).
-## - 環晶 (kind "ring"): sits in a 環晶の大台座 on the outer band and grows its own small ring of nodes past it
+## - リングジュエル (kind "ring"): sits in a リングジュエルの大台座 on the outer band and grows its own small ring of nodes past it
 ##   (PassiveTree.set_rings). Its size line sets how many small nodes the ring has (the large one also holds a small
-##   燈晶の台座), its theme line what they give, and its notables (rolled like affixes) the notables on the ring;
+##   ジュエルの台座), its theme line what they give, and its notables (rolled like affixes) the notables on the ring;
 ##   its strength line scales the small nodes.
 ## Both are plain Dictionaries: {uid, kind, base, rarity, ilvl, name, socket, ...}; socket is the node id it sits in, or "".
 ## A socketed jewel can't be crafted: take it out first (a ring's nodes then go back as points).
@@ -14,14 +14,14 @@ const MAX_OWNED := 40         # jewels kept per character; more break down into 
 const COLOR := Color("#ff9ad8")
 const RING_COLOR := Color("#b08cff")
 
-# 燈晶 bases: each has one fixed line
+# ジュエル bases: each has one fixed line
 const BASES := [
-	{"id": "ash", "name": "灰の燈晶", "implicit": {"life": 8}},
-	{"id": "cinder", "name": "燼の燈晶", "implicit": {"mana": 8}},
-	{"id": "shade", "name": "影の燈晶", "implicit": {"crit": 1}},
+	{"id": "ash", "name": "灰のジュエル", "implicit": {"life": 8}},
+	{"id": "cinder", "name": "燼のジュエル", "implicit": {"mana": 8}},
+	{"id": "shade", "name": "影のジュエル", "implicit": {"crit": 1}},
 ]
 
-# 燈晶 affixes: `min`..`max` at item level 0, growing by `sc` per item level
+# ジュエル affixes: `min`..`max` at item level 0, growing by `sc` per item level
 const AFFIXES := [
 	{"k": "inc_dmg", "word": "猛き", "min": 4, "max": 8, "sc": 0.03},
 	{"k": "life", "word": "頑強な", "min": 6, "max": 14, "sc": 0.05},
@@ -43,14 +43,14 @@ const AFFIXES := [
 	{"k": "life_on_kill", "word": "貪欲な", "min": 1, "max": 3, "sc": 0.05},
 ]
 
-# 環晶 sizes: small nodes on the ring, notables it can hold at most, and whether it has a small socket
+# リングジュエル sizes: small nodes on the ring, notables it can hold at most, and whether it has a small socket
 const SIZES := [
-	{"id": "s", "name": "小環晶", "smalls": 4, "notables": 1, "socket": false},
-	{"id": "m", "name": "環晶", "smalls": 6, "notables": 2, "socket": false},
-	{"id": "l", "name": "大環晶", "smalls": 8, "notables": 3, "socket": true},
+	{"id": "s", "name": "小リングジュエル", "smalls": 4, "notables": 1, "socket": false},
+	{"id": "m", "name": "リングジュエル", "smalls": 6, "notables": 2, "socket": false},
+	{"id": "l", "name": "大リングジュエル", "smalls": 8, "notables": 3, "socket": true},
 ]
 
-# 環晶 themes: what the ring's small nodes give (before the strength line), and the notables the jewel can roll
+# リングジュエル themes: what the ring's small nodes give (before the strength line), and the notables the jewel can roll
 const THEMES := [
 	{"id": "blade", "name": "刃鳴りの環", "small": {"name": "刃鳴り", "stats": {"atk_dmg": 7}}, "notables": [
 		{"id": "rn_edge", "name": "研ぎ澄ます刃", "stats": {"atk_dmg": 18, "crit": 1}},
@@ -138,7 +138,7 @@ static func is_ring(j: Dictionary) -> bool:
 
 
 # =================== making ===================
-## a new 燈晶 of item level `ilvl` (rarity rolled like gear unless forced, never a unique)
+## a new ジュエル of item level `ilvl` (rarity rolled like gear unless forced, never a unique)
 static func generate(ilvl: int, force_rarity := -1, base_id := "") -> Dictionary:
 	_uid += 1
 	var r := force_rarity if force_rarity >= 0 else mini(2, Items.roll_rarity(0.5))
@@ -150,7 +150,7 @@ static func generate(ilvl: int, force_rarity := -1, base_id := "") -> Dictionary
 	return j
 
 
-## a new 環晶: size and theme rolled unless given, magic or rare
+## a new リングジュエル: size and theme rolled unless given, magic or rare
 static func generate_ring(ilvl: int, force_rarity := -1, size_id := "", theme_id := "") -> Dictionary:
 	_uid += 1
 	var r := force_rarity if force_rarity >= 0 else (2 if randf() < 0.3 else 1)
@@ -279,7 +279,7 @@ static func craft(k: String, j: Dictionary) -> String:
 			if ring:
 				roll_power(j)
 			else:
-				if j.mods.is_empty(): return "オプションのある燈晶にのみ使えます"
+				if j.mods.is_empty(): return "オプションのあるジュエルにのみ使えます"
 				for key in j.mods.keys():
 					j.mods[key] = roll_value(j, affix(key))
 		_:
@@ -313,7 +313,7 @@ static func ring_plan(j: Dictionary) -> Array:
 				st[s] = roundi(th.small.stats[s] * sc)
 			out.append({"kind": "small", "name": th.small.name, "stats": st})
 		elif k == "socket":
-			out.append({"kind": "socket", "name": "燈晶の小台座", "stats": {}})
+			out.append({"kind": "socket", "name": "ジュエルの小台座", "stats": {}})
 		else:
 			var nd := ring_notable(k)
 			out.append({"kind": "notable", "name": nd.name, "stats": nd.stats})
@@ -325,7 +325,7 @@ static func ring_key(j: Dictionary) -> String:
 	return "%s/%s/%d/%s" % [j.base, j.theme, int(j.power), ",".join(PackedStringArray(j.notables))]
 
 
-## the stats of the 燈晶 sitting in taken sockets (a ring jewel's stats come through its ring's nodes instead)
+## the stats of the ジュエル sitting in taken sockets (a ring jewel's stats come through its ring's nodes instead)
 static func stats(list: Array, tree: Array) -> Dictionary:
 	var st := {}
 	for j in list:
@@ -366,8 +366,8 @@ static func lines(j: Dictionary) -> Array:
 	if is_ring(j):
 		var sd := size_def(j.base)
 		var th := theme(j.theme)
-		out.append(["%s 環晶（%s）　アイテムレベル %d" % [Data.RARITY[int(j.rarity)].name, sd.name, j.ilvl], Color("#9a9080"), 13])
-		out.append(["環の大きさ：小ノード %d%s" % [sd.smalls, "・燈晶の小台座 1" if sd.socket else ""], RING_COLOR, 14])
+		out.append(["%s リングジュエル（%s）　アイテムレベル %d" % [Data.RARITY[int(j.rarity)].name, sd.name, j.ilvl], Color("#9a9080"), 13])
+		out.append(["環の大きさ：小ノード %d%s" % [sd.smalls, "・ジュエルの小台座 1" if sd.socket else ""], RING_COLOR, 14])
 		var st := {}
 		for s in th.small.stats:
 			st[s] = roundi(th.small.stats[s] * (1.0 + int(j.power) / 100.0))
@@ -378,18 +378,25 @@ static func lines(j: Dictionary) -> Array:
 			out.append(["◆ %s：%s" % [nd.name, "、".join(PackedStringArray(PassiveTree.lines(nd.stats)))], Color("#8fb4ff"), 14])
 		if j.notables.size() < notables_range(j)[1]:
 			out.append(["注目ノードをあと %d つ足せる（鍛錬の砥石）" % (notables_range(j)[1] - j.notables.size()), Color("#7a7266"), 12])
-		out.append(["環晶の大台座に入れると、その先に環が伸びる", Color("#a89878"), 12])
+		out.append(["リングジュエルの大台座に入れると、その先に環が伸びる", Color("#a89878"), 12])
 	else:
 		var b := base(j.base)
-		out.append(["%s 燈晶（%s）　アイテムレベル %d" % [Data.RARITY[int(j.rarity)].name, b.name, j.ilvl], Color("#9a9080"), 13])
+		out.append(["%s ジュエル（%s）　アイテムレベル %d" % [Data.RARITY[int(j.rarity)].name, b.name, j.ilvl], Color("#9a9080"), 13])
 		for l in PassiveTree.lines(b.implicit):
 			out.append(ModRange.fixed(l, Color("#b8b0a0"), 14))
 		for k in PassiveTree.FMT.keys().filter(func(q): return j.mods.has(q)):   # the order PassiveTree.lines gives
 			for l in PassiveTree.lines({k: j.mods[k]}):
 				out.append(ModRange.line(l, Color("#8fb4ff"), 14, ModRange.jewel(j, k)))
-		out.append(["燈晶の台座に入れ、その台座を取得している間だけ効く", Color("#a89878"), 12])
+		out.append(["ジュエルの台座に入れ、その台座を取得している間だけ効く", Color("#a89878"), 12])
 	out.append(["台座に入っている" if j.socket != "" else "台座に入っていない", Color("#b8a888"), 12])
 	return out
+
+
+## a jewel name saved before #64 in the old words (Data.OLD_KIND_WORDS), put in the new ones
+static func renamed(s: String) -> String:
+	for w in Data.OLD_KIND_WORDS:
+		s = s.replace(w, Data.OLD_KIND_WORDS[w])
+	return s
 
 
 ## JSON turns numbers into floats, and a hand-edited file may hold anything: keep the jewels that make sense,
@@ -406,7 +413,7 @@ static func normalize(raw) -> Array:
 		if (ring and size_def(bid).is_empty()) or (not ring and base(bid).is_empty()):
 			continue
 		var j := {"uid": str(r.get("uid", "")), "kind": "ring" if ring else "jewel", "base": bid, "rarity": clampi(int(r.get("rarity", 0)), 0, 2),
-			"ilvl": maxi(1, int(r.get("ilvl", 1))), "name": str(r.get("name", "")), "socket": str(r.get("socket", ""))}
+			"ilvl": maxi(1, int(r.get("ilvl", 1))), "name": renamed(str(r.get("name", ""))), "socket": str(r.get("socket", ""))}
 		if j.uid == "" or out.any(func(o): return o.uid == j.uid):
 			_uid += 1
 			j.uid = "j_load_%d" % _uid

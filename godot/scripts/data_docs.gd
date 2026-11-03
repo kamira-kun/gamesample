@@ -123,7 +123,7 @@ static func _tablets() -> Dictionary:
 				line += "■" if sh.cells.any(func(c): return c[0] == x and c[1] == y) else "□"
 			rows.append(line)
 		sr.append([sh.name, "%d マス" % sh.cells.size(), "%d 行" % Tablets.max_mods(t), "<br>".join(PackedStringArray(rows))])
-	secs.append({"title": "石板の形", "note": "盤には90度ずつ回して置けます。刻める行数はマス数で決まります（1〜2マスは1行、3〜4マスは2行、5〜6マスは3行）。",
+	secs.append({"title": "ルーンタブレットの形", "note": "盤には90度ずつ回して置けます。刻める行数はマス数で決まります（1〜2マスは1行、3〜4マスは2行、5〜6マスは3行）。",
 		"head": ["名前", "大きさ", "刻める行数", "形"], "rows": sr})
 	var mr := []
 	for m in Tablets.MODS:
@@ -136,15 +136,15 @@ static func _tablets() -> Dictionary:
 	var mh := ["能力"]
 	for lv in TABLET_LVLS:
 		mh.append_array(["iLv%d 1マス" % lv, "iLv%d 6マス" % lv])
-	secs.append({"title": "石板の能力", "note": "値は 1マスあたりの値 × マス数 × (1 + iLv × 0.06) × 0.8〜1.2。大きい石板ほど1行が強くなります。",
+	secs.append({"title": "ルーンタブレットの能力", "note": "値は 1マスあたりの値 × マス数 × (1 + iLv × 0.06) × 0.8〜1.2。大きいルーンタブレットほど1行が強くなります。",
 		"head": mh, "rows": mr})
 	var cr := []
 	for c in [["whet", "能力を1行刻む（刻める行数まで）"], ["chaos", "刻んだ能力をすべて刻み直す（行数はそのまま）"], ["divine", "能力の数値だけを振り直す"]]:
 		var cd := Data.currency(c[0])
 		cr.append([cd.icon + " " + cd.name, c[1]])
-	cr.append(["（砕く）", "盤に置いていない石板を灰燼の欠片に変える"])
-	secs.append({"title": "石板のクラフト", "note": "石板盤で選んだ石板に使います。", "head": ["カレンシー", "効果"], "rows": cr})
-	secs.append(_line_craft("石板盤で選んだ石板の行ごとに使えます。"))
+	cr.append(["（砕く）", "盤に置いていないルーンタブレットを灰燼の欠片に変える"])
+	secs.append({"title": "ルーンタブレットのクラフト", "note": "タブレット盤で選んだルーンタブレットに使います。", "head": ["カレンシー", "効果"], "rows": cr})
+	secs.append(_line_craft("タブレット盤で選んだルーンタブレットの行ごとに使えます。"))
 	var xr := []
 	for m in Data.SPECIAL_MODS:
 		var row := [m.name, _fill(m.fmt, "#")]
@@ -154,8 +154,8 @@ static func _tablets() -> Dictionary:
 	var b := Data.currency("brand")
 	secs.append({"title": "特殊修飾子", "note": "%s %sでレアアイテムに1つだけ刻めます。オプションの数には数えず、混沌の残光でも消えません（浄化の雫で消えます）。もう一度使うと別の特殊修飾子に刻み直します。" % [b.icon, b.name],
 		"head": ["名前", "効果"] + UNIQUE_LVLS.map(func(v): return "iLv%d" % v), "rows": xr})
-	return {"file": "tablets.md", "title": "石板と特殊修飾子",
-		"intro": "石板はボスが必ず1つ落とします（半分は能力を1行刻んだ状態、残りは無地）。6×6の石板盤に回して置き、盤に置いた石板の能力だけが効きます。%sは刻紋の封碑（マップの約%d%%に1つ。封印を解いて番人をすべて倒す）からだけ得られます。" % [b.name, roundi(Seal.CHANCE * 100)],
+	return {"file": "tablets.md", "title": "ルーンタブレットと特殊修飾子",
+		"intro": "ルーンタブレットはボスが必ず1つ落とします（半分は能力を1行刻んだ状態、残りは無地）。6×6のタブレット盤に回して置き、盤に置いたルーンタブレットの能力だけが効きます。%sは刻紋の封碑（マップの約%d%%に1つ。封印を解いて番人をすべて倒す）からだけ得られます。" % [b.name, roundi(Seal.CHANCE * 100)],
 		"sections": secs}
 
 
@@ -165,10 +165,10 @@ static func _charms() -> Dictionary:
 		for t in f.tiers.size():
 			var id := Charms.id_of(f.k, t)
 			rows.append([Charms.name_of(id), f.name, str(t + 1), Charms.effect_text(id), "◆ %d" % Charms.value(id)])
-	return {"file": "charms.md", "title": "燼殻",
-		"intro": "燼殻は燼火の甲虫の殻を灯した護符です。遠征図で出撃前に %d つまで（同じ系統は1つまで）はめると、そのマップ1回にだけ効果が加わり、マップに入ると燃え尽きます。マップの敵が落とし（ボス %d%%・エリート %d%%・通常 %s%%）、所持品とスタッシュで重ねて持てます。エリアレベルが高いほど上の階位が出やすくなります。" % [Charms.SLOTS,
+	return {"file": "charms.md", "title": "コンパス",
+		"intro": "コンパスは燼火の甲虫の殻を灯した護符です。遠征図で出撃前に %d つまで（同じ系統は1つまで）はめると、そのマップ1回にだけ効果が加わり、マップに入ると燃え尽きます。マップの敵が落とし（ボス %d%%・エリート %d%%・通常 %s%%）、所持品とスタッシュで重ねて持てます。エリアレベルが高いほど上の階位が出やすくなります。" % [Charms.SLOTS,
 			roundi(Charms.drop_chance(true, false) * 100), roundi(Charms.drop_chance(false, true) * 100), _num(Charms.drop_chance(false, false) * 100)],
-		"sections": [{"title": "燼殻の一覧", "note": "価値は商人の値付けの基準（灰燼の欠片）です。",
+		"sections": [{"title": "コンパスの一覧", "note": "価値は商人の値付けの基準（灰燼の欠片）です。",
 			"head": ["名前", "系統", "階位", "効果", "価値"], "rows": rows}]}
 
 
@@ -214,7 +214,7 @@ static func _ascendancies() -> Dictionary:
 
 static func _passives() -> Dictionary:
 	var nodes := PassiveTree.nodes()
-	var kinds := [["start", "起点"], ["keystone", "キーストーン"], ["ring_socket", "環晶の大台座"], ["socket", "燈晶の台座"],
+	var kinds := [["start", "起点"], ["keystone", "キーストーン"], ["ring_socket", "リングジュエルの大台座"], ["socket", "ジュエルの台座"],
 		["notable", "注目ノード"], ["small", "小ノード"]]
 	var secs := []
 	for kd in kinds:
@@ -228,7 +228,7 @@ static func _passives() -> Dictionary:
 				"、".join(PackedStringArray(near))])
 		secs.append({"title": "%s（%d）" % [kd[1], rows.size()], "note": "", "head": ["名前", "効果", "位置", "つながるノード"], "rows": rows})
 	return {"file": "passives.md", "title": "パッシブツリー（%dノード）" % PassiveTree.base_count(),
-		"intro": "レベルが上がるたびに1ポイント（Lv N で N−1 ポイント）。ベースキャラごとの起点から、取得済みのノードにつながったノードだけを取れます。ツリーは固定のシードから作られ、中心の環から%d層のクラスター（小ノードの環と、その中の注目ノードか燈晶の台座）が外へ広がり、最外周にキーストーンと環晶の大台座が並びます。位置は 60° ずつ6つの区域（各ベースキャラの区域と、その間の混ざる区域）と層（0＝中心や橋渡し、外ほど大きい）で、注目ノードは外の層ほど強くなります。0°＝右、時計回り。" % PassiveTree.LAYERS,
+		"intro": "レベルが上がるたびに1ポイント（Lv N で N−1 ポイント）。ベースキャラごとの起点から、取得済みのノードにつながったノードだけを取れます。ツリーは固定のシードから作られ、中心の環から%d層のクラスター（小ノードの環と、その中の注目ノードかジュエルの台座）が外へ広がり、最外周にキーストーンとリングジュエルの大台座が並びます。位置は 60° ずつ6つの区域（各ベースキャラの区域と、その間の混ざる区域）と層（0＝中心や橋渡し、外ほど大きい）で、注目ノードは外の層ほど強くなります。0°＝右、時計回り。" % PassiveTree.LAYERS,
 		"sections": secs, "tree": _tree_data(nodes)}
 
 
@@ -258,7 +258,7 @@ static func _jewels() -> Dictionary:
 	var br := []
 	for b in Jewels.BASES:
 		br.append([b.name, "・".join(PackedStringArray(PassiveTree.lines(b.implicit)))])
-	secs.append({"title": "燈晶のベース", "note": "燈晶は燈晶の台座に入れ、その台座ノードを取得している間だけ効きます。レア度はノーマル・マジック・レア（オプション数は装備と同じ）。",
+	secs.append({"title": "ジュエルのベース", "note": "ジュエルはジュエルの台座に入れ、その台座ノードを取得している間だけ効きます。レア度はノーマル・マジック・レア（オプション数は装備と同じ）。",
 		"head": ["ベース", "固定の能力"], "rows": br})
 	var ar := []
 	for a in Jewels.AFFIXES:
@@ -266,27 +266,27 @@ static func _jewels() -> Dictionary:
 		for lv in TABLET_LVLS:
 			row.append(_range_text(_grow(a.min, lv, a.sc), _grow(a.max, lv, a.sc)))
 		ar.append(row)
-	secs.append({"title": "燈晶のオプション（%d）" % ar.size(), "note": "",
+	secs.append({"title": "ジュエルのオプション（%d）" % ar.size(), "note": "",
 		"head": ["語", "能力"] + TABLET_LVLS.map(func(lv): return "iLv%d" % lv), "rows": ar})
 	var sr := []
 	for sd in Jewels.SIZES:
 		sr.append([sd.name, str(sd.smalls), "1" if sd.socket else "なし", "マジック 1・レア %d〜%d" % [mini(2, sd.notables), sd.notables]])
-	secs.append({"title": "環晶の大きさ", "note": "環晶は最外周の環晶の大台座に入れると、その先に小ノード・注目ノード・（大環晶なら）燈晶の小台座の環が伸びます。外すと環のノードに振ったポイントは戻ります。",
-		"head": ["大きさ", "小ノード", "燈晶の小台座", "注目ノード"], "rows": sr})
+	secs.append({"title": "リングジュエルの大きさ", "note": "リングジュエルは最外周のリングジュエルの大台座に入れると、その先に小ノード・注目ノード・（大リングジュエルなら）ジュエルの小台座の環が伸びます。外すと環のノードに振ったポイントは戻ります。",
+		"head": ["大きさ", "小ノード", "ジュエルの小台座", "注目ノード"], "rows": sr})
 	var tr := []
 	for th in Jewels.THEMES:
 		var ns: Array = th.notables.map(func(n): return "%s（%s）" % [n.name, "・".join(PackedStringArray(PassiveTree.lines(n.stats)))])
 		tr.append([th.name, "・".join(PackedStringArray(PassiveTree.lines(th.small.stats))), "<br>".join(PackedStringArray(ns))])
-	secs.append({"title": "環晶の主題（%d）" % tr.size(), "note": "小ノードの値は環の強さ（+0〜20%＋iLv×0.6%）だけ大きくなります。",
+	secs.append({"title": "リングジュエルの主題（%d）" % tr.size(), "note": "小ノードの値は環の強さ（+0〜20%＋iLv×0.6%）だけ大きくなります。",
 		"head": ["主題", "小ノード（強さ+0%）", "注目ノード"], "rows": tr})
 	var cr := []
 	for k in ["transmute", "ascend", "chaos", "whet", "purify", "divine"]:
-		cr.append([Data.currency(k).name, {"transmute": "ノーマル→マジック（燈晶はオプション1〜2、環晶は注目ノード1）",
-			"ascend": "マジック→レア（燈晶はオプション3〜4まで、環晶は注目ノードを上限まで）", "chaos": "オプションを作り直す（環晶は主題と注目ノード）",
-			"whet": "オプション（環晶は注目ノード）を1つ追加", "purify": "ノーマルに戻す", "divine": "数値（環晶は環の強さ）を振り直す"}[k]])
+		cr.append([Data.currency(k).name, {"transmute": "ノーマル→マジック（ジュエルはオプション1〜2、リングジュエルは注目ノード1）",
+			"ascend": "マジック→レア（ジュエルはオプション3〜4まで、リングジュエルは注目ノードを上限まで）", "chaos": "オプションを作り直す（リングジュエルは主題と注目ノード）",
+			"whet": "オプション（リングジュエルは注目ノード）を1つ追加", "purify": "ノーマルに戻す", "divine": "数値（リングジュエルは環の強さ）を振り直す"}[k]])
 	secs.append({"title": "クラフト", "note": "台座に入れたままでは使えません。", "head": ["カレンシー", "効果"], "rows": cr})
-	return {"file": "jewels.md", "title": "ジュエル（燈晶と環晶）",
-		"intro": "ジュエルは敵が落とします（ボス60%%、エリート12%%、通常0.6%%。そのうち環晶はボス40%%・ほか15%%）。1キャラクターにつき%d個まで持て、パッシブツリーの画面（%s）で台座に出し入れし、クラフトします。" % [Jewels.MAX_OWNED, "T"],
+	return {"file": "jewels.md", "title": "ジュエルとリングジュエル",
+		"intro": "ジュエルは敵が落とします（ボス60%%、エリート12%%、通常0.6%%。そのうちリングジュエルはボス40%%・ほか15%%）。1キャラクターにつき%d個まで持て、パッシブツリーの画面（%s）で台座に出し入れし、クラフトします。" % [Jewels.MAX_OWNED, "T"],
 		"sections": secs}
 
 

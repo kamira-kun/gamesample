@@ -31,7 +31,7 @@ static func special(it: Dictionary) -> Dictionary:
 	return _pair(Items.special_at(it, m, 0.0), Items.special_at(it, m, 1.0), "")
 
 
-## line `k` of a 燈晶
+## line `k` of a ジュエル
 static func jewel(j: Dictionary, k: String) -> Dictionary:
 	var a := Jewels.affix(k)
 	if a.is_empty():
@@ -39,7 +39,7 @@ static func jewel(j: Dictionary, k: String) -> Dictionary:
 	return _pair(Jewels.value_at(j, a, 0.0), Jewels.value_at(j, a, 1.0), a.word)
 
 
-## a 環晶's strength line
+## a リングジュエル's strength line
 static func ring_power(j: Dictionary) -> Dictionary:
 	return _pair(Jewels.power_at(j, 0.0), Jewels.power_at(j, 20.0), "")
 
@@ -51,7 +51,7 @@ static func tablet(t: Dictionary, k: String) -> Dictionary:
 	return _pair(Tablets.value_at(t, k, 0.8), Tablets.value_at(t, k, 1.2), "")
 
 
-## line `k` of anything with mods: an item, a 燈晶 or a tablet
+## line `k` of anything with mods: an item, a ジュエル or a tablet
 static func of(x: Dictionary, k: String) -> Dictionary:
 	if x.has("shape"):
 		return tablet(x, k)

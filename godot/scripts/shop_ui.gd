@@ -23,7 +23,7 @@ var tab := "gear"
 var slot_filter := ""     # "" = every slot
 var rarity_filter := -1   # -1 = every rarity
 const GEM_AHEAD := 3   # the merchant stocks gems needing at most the character's level + this
-const TABS := [["gear", "装備"], ["tablets", "石板"], ["jewels", "燈晶・環晶"], ["charms", "燼殻"], ["gems", "ジェム"], ["currency", "カレンシー"]]
+const TABS := [["gear", "装備"], ["tablets", "ルーンタブレット"], ["jewels", "ジュエル"], ["charms", "コンパス"], ["gems", "ジェム"], ["currency", "カレンシー"]]
 
 
 
@@ -140,7 +140,7 @@ func _center() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_CENTER, Control.PRESET_MODE_MINSIZE)
 
 
-## switch the stock tab (装備 / 石板 / 燈晶・環晶 / 燼殻 / ジェム / カレンシー)
+## switch the stock tab (装備 / ルーンタブレット / ジュエル / コンパス / ジェム / カレンシー)
 func set_tab(k: String) -> void:
 	tab = k
 	if tab_btns.has(k):
@@ -267,7 +267,7 @@ func _fill_gear() -> void:
 func _fill_tablets() -> void:
 	var p: Player = hud.main.player
 	ware_grid.columns = 2
-	note.text = "石板（クリックで購入。所持 %d / %d）" % [p.tablets.size(), Tablets.MAX_OWNED]
+	note.text = "ルーンタブレット（クリックで購入。所持 %d / %d）" % [p.tablets.size(), Tablets.MAX_OWNED]
 	for t in hud.main.shop.get("tablets", []):
 		ware_grid.add_child(_ware_btn("▦ %s %dマス %d行" % [Tablets.name_of(t), Tablets.cell_count(t), t.mods.size()], Tablets.COLOR,
 			Items.tablet_price(t), Tablets.lines(t), _buy_tablet.bind(t)))
@@ -276,7 +276,7 @@ func _fill_tablets() -> void:
 func _fill_jewels() -> void:
 	var p: Player = hud.main.player
 	ware_grid.columns = 2
-	note.text = "燈晶・環晶（クリックで購入。所持 %d / %d）" % [p.jewels.size(), Jewels.MAX_OWNED]
+	note.text = "ジュエル（クリックで購入。所持 %d / %d）" % [p.jewels.size(), Jewels.MAX_OWNED]
 	for j in hud.main.shop.get("jewels", []):
 		ware_grid.add_child(_ware_btn("%s %s" % ["◎" if Jewels.is_ring(j) else "◆", j.name], Data.RARITY[j.rarity].color,
 			Items.jewel_price(j), Jewels.lines(j), _buy_jewel.bind(j)))
@@ -285,7 +285,7 @@ func _fill_jewels() -> void:
 func _fill_charms() -> void:
 	var stock: Dictionary = hud.main.shop.get("charms", {})
 	ware_grid.columns = 7
-	note.text = "燼殻（クリックで1つ購入。遠征図の祭壇で地図に嵌める）"
+	note.text = "コンパス（クリックで1つ購入。遠征図の祭壇で地図に嵌める）"
 	for id in Charms.all_ids():
 		if int(stock.get(id, 0)) <= 0:
 			continue
@@ -428,7 +428,7 @@ func _buy_tablet(t: Dictionary) -> void:
 	if p.cur.ember < cost or not t in m.shop.get("tablets", []):
 		return
 	if p.tablets.size() >= Tablets.MAX_OWNED:
-		hud.message("石板が一杯です（%d）" % Tablets.MAX_OWNED, Color("#ff8080"))
+		hud.message("ルーンタブレットが一杯です（%d）" % Tablets.MAX_OWNED, Color("#ff8080"))
 		return
 	p.cur.ember -= cost
 	m.shop.tablets.erase(t)
