@@ -114,6 +114,7 @@ class View extends Control:
 	var gem := {}
 	var dim := false
 	var mark := ""     # short text drawn over the icon, e.g. a warning
+	var lv := 0        # a gem level drawn small in the corner (shown from Lv 2)
 	var side := 0.0
 	var pad := 5.0
 
@@ -130,6 +131,10 @@ class View extends Control:
 			SkillIcon.draw_gem(self, gem, r)
 			if dim:
 				draw_circle(r.get_center(), s * 0.5, Color(0, 0, 0, 0.5))
+		if lv > 1:
+			var at := r.position + Vector2(0, r.size.y + 1)
+			draw_string_outline(Data.ui_font, at, str(lv), HORIZONTAL_ALIGNMENT_RIGHT, r.size.x + 2, 10, 3, Color.BLACK)
+			draw_string(Data.ui_font, at, str(lv), HORIZONTAL_ALIGNMENT_RIGHT, r.size.x + 2, 10, Data.GEM_XP_COLOR)
 		if mark != "":
 			draw_string_outline(Data.ui_font, Vector2(0, size.y * 0.5 + 5), mark, HORIZONTAL_ALIGNMENT_CENTER, size.x, 13, 3, Color.BLACK)
 			draw_string(Data.ui_font, Vector2(0, size.y * 0.5 + 5), mark, HORIZONTAL_ALIGNMENT_CENTER, size.x, 13, Color("#ff6060"))

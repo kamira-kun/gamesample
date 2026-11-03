@@ -16,6 +16,7 @@ class_name Exchange
 ## price_min, price_max (0 none)}. A listing: {kind, item (gear/tablet/jewel/ring Dictionary), id (charm/gem/currency
 ## key), n (count), price, fee, key}.
 ## Awakened support gems (#63) are listed under gems; an open gem search shows AWAKE_OPEN of them.
+## Gem listings carry a gem level `glv` (#68): mostly Lv 1, a few higher; the query's `glv` (0 any) asks for at least it.
 
 const RESULTS := 12
 const MAX_MODS := 3
@@ -34,6 +35,10 @@ const CATEGORIES := [["gear", "装備"], ["tablet", "ルーンタブレット"],
 const CURRENCY_LOTS := [1, 3, 5, 10, 20]
 const CHARM_LOTS := [1, 2, 3]
 const AWAKE_OPEN := 2             # awakened gems among an open gem search's listings (any one can be searched by name)
+const GEM_LV_ODDS := 0.15         # gem listings above Lv 1 when no gem level is asked for (Lv 2..GEM_LV_TOP)
+const GEM_LV_TOP := 6
+const GEM_LV_SPREAD := 2          # a listing asked for at least Lv N is Lv N..N+this
+const GEM_LV_WORTH := 0.3         # each gem level over 1 adds this share of the gem's worth
 const SP := "sp:"                # mod keys of 刻紋 (special) lines in a query
 
 static var sold := {}            # listing keys bought already, so a search made again doesn't list them twice
@@ -41,7 +46,7 @@ static var price_league := ""    # the league the search being made prices curre
 
 
 static func empty_query() -> Dictionary:
-	return {"cat": "gear", "slot": "", "rarity": -1, "base": "", "unique": "", "mods": [], "ilvl": 0, "price_min": 0, "price_max": 0}
+	return {"cat": "gear", "slot": "", "rarity": -1, "base": "", "unique": "", "mods": [], "ilvl": 0, "glv": 0, "price_min": 0, "price_max": 0}
 
 
 # =================== what can be asked for ===================
@@ -171,6 +176,7 @@ static func _clean(q: Dictionary) -> Dictionary:
 	c.mods = mods.keys().map(func(k): return {"k": k, "min": mods[k]})
 	c.rarity = int(c.rarity)
 	c.ilvl = maxi(0, int(c.ilvl))
+	c.glv = clampi(int(c.glv), 0, Data.GEM_MAX_LV)
 	c.price_min = maxi(0, int(c.price_min))
 	c.price_max = maxi(0, int(c.price_max))
 	return c
@@ -387,7 +393,7 @@ static func _make(q: Dictionary, level: int, lots: Array, n: int) -> Dictionary:
 		"gem":
 			if n > lots.size():
 				return {}
-			l = {"kind": "gem", "id": lots[n - 1].id, "skill": lots[n - 1].skill, "n": 1}
+			l = {"kind": "gem", "id": lots[n - 1].id, "skill": lots[n - 1].skill, "n": 1, "glv": gem_lv_roll(q.glv)}
 		"currency":
 			if lots.is_empty():
 				return {}
@@ -538,10 +544,11 @@ static func worth(l: Dictionary) -> float:
 		"charm":
 			return Charms.value(l.id) * l.n / float(Items.EMBER_PER_CHAOS)
 		"gem":
+			var up := 1.0 + GEM_LV_WORTH * (int(l.get("glv", 1)) - 1)
 			if not l.skill and Data.is_awakened(l.id):   # priced off its base gem, times the awakened premium
-				return (300 + 45 * Data.support(Data.base_gem(l.id)).lvl) / float(Items.EMBER_PER_CHAOS) * Data.AWAKE_PRICE
+				return (300 + 45 * Data.support(Data.base_gem(l.id)).lvl) / float(Items.EMBER_PER_CHAOS) * Data.AWAKE_PRICE * up
 			var lvl: int = Data.SKILLS[l.id].lvl if l.skill else Data.support(l.id).lvl
-			return (300 + 45 * lvl) / float(Items.EMBER_PER_CHAOS)
+			return (300 + 45 * lvl) / float(Items.EMBER_PER_CHAOS) * up
 		"currency":
 			return unit_price(l.id) * l.n
 	return 0.0
@@ -568,6 +575,13 @@ static func resale(l: Dictionary) -> float:
 		"currency":
 			return unit_price(l.id) * l.n
 	return 0.0
+
+
+## the gem level of a gem listing: at least `want` (0: mostly Lv 1, now and then a little higher)
+static func gem_lv_roll(want: int) -> int:
+	if want > 0:
+		return mini(Data.GEM_MAX_LV, randi_range(want, want + GEM_LV_SPREAD))
+	return randi_range(2, GEM_LV_TOP) if randf() < GEM_LV_ODDS else 1
 
 
 ## the multiplier the query's filters put on a listing; `qs` how far up its range each asked line's minimum is

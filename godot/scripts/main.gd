@@ -185,6 +185,25 @@ func _ready() -> void:
 				player.recalc(true)
 				hud.skill_ui.open_slot(1)
 				get_tree().create_timer(2.0).timeout.connect(func(): hud.show_tip(SkillUI.gem_tip(Data.support(Data.AWAKE_ID + "echo"), player.level)))
+			elif kind == "gem_levels":   # #68: a Lv 24 character whose bar gems have grown, one gem waiting on the character
+				player.level = 24
+				player.gems.append_array(["multi", "aoe", Data.AWAKE_ID + "power"])
+				player.links[0] = ["power", "haste"]
+				player.links[1] = [Data.AWAKE_ID + "power", "multi"]
+				player.set_gem_lv(true, player.slots[0], 9)
+				player.add_gem_xp(true, player.slots[0], Data.gem_xp_need(9) / 2)
+				player.set_gem_lv(true, player.slots[1], 4)
+				player.set_gem_lv(false, "power", 12)
+				player.add_gem_xp(false, "power", 99999999)
+				player.set_gem_lv(false, "haste", 7)
+				player.set_gem_lv(false, "multi", 5)
+				player.set_gem_lv(false, Data.AWAKE_ID + "power", 3)
+				player.recalc(true)
+				hud.skill_ui.open_slot(0)
+				get_tree().create_timer(2.0).timeout.connect(func():   # pinned where it shows, wherever the cursor is
+					hud.show_tip(SkillUI.gem_tip(Data.support_at("power", 12), player.level, 12, player))
+					hud.tip_pin = Vector2(get_viewport().get_visible_rect().size.x - hud.tip.size.x - 12, 560)
+					hud.tip.position = hud.tip_pin)
 			elif kind in ["talents", "status", "filter", "passives", "ascend", "ascend_pick"]:
 				atlas.cleared = ["ash", "bone"]
 				if kind == "talents":   # a level 24 character partway to the class's notable, a few points left
@@ -611,6 +630,123 @@ func _smoke_awakened() -> void:
 	p.recalc(true)
 
 
+## gem levels (#68): gems on the bar take experience and level up to Lv 20 at most, each level makes them stronger
+## and asks for more character level (which gates growing and linking), saves keep the levels (an older save is all
+## Lv 1), the tooltips show the level, and the exchange lists mostly Lv 1 gems unless a gem level is asked for
+func _smoke_gem_levels() -> void:
+	var p := player
+	var keep := [p.level, p.slots.duplicate(), p.links.duplicate(true), p.gems.duplicate(), p.skills.duplicate(), p.cls, p.gem_xp.duplicate()]
+	p.set_class("sigil", true)
+	p.level = 10
+	p.recalc()
+	unlock_gem("power")
+	unlock_gem("haste")
+	p.links = [["power"], [], [], [], [], []]
+	var sk: String = p.slots[0]
+	var dmg1: float = slot_sup(0).dmg
+	# experience: one gem level's worth reaches the skill in the slot and its powered link, not a gem left unlinked
+	gain_gem_xp(Data.gem_xp_need(1))
+	var lv_skill := p.gem_lv(true, sk)
+	var lv_power := p.gem_lv(false, "power")
+	var lv_haste := p.gem_lv(false, "haste")
+	var dmg2: float = slot_sup(0).dmg
+	# kills feed it through the character's own experience too
+	var xp_before: int = p.gem_xp.get("power", 0)
+	gain_xp(5)
+	var fed: bool = p.gem_xp.get("power", 0) == xp_before + 5
+	print("SMOKE gem_levels xp skill=%d power=%d haste=%d dmg=%.3f->%.3f fed=%s" % [lv_skill, lv_power, lv_haste, dmg1, dmg2, fed])
+	_expect("gemlv_xp", {"skill": lv_skill == 2, "support": lv_power == 2, "unlinked": lv_haste == 1, "stronger": dmg2 > dmg1, "fed": fed})
+	# a gem waits at the last level the character can use: Lv 10 allows power up to Lv 5 (Lv 6 needs 11)
+	p.add_gem_xp(false, "power", 100000000)
+	var waited := p.gem_lv(false, "power")
+	var waiting := p.gem_waiting(false, "power")
+	p.level = 11
+	p.add_gem_xp(false, "power", 1)
+	var moved := p.gem_lv(false, "power")
+	# capped at Lv 20 however much more experience comes
+	p.level = 99
+	for i in 3:
+		gain_gem_xp(100000000)
+	var top := p.gem_lv(false, "power")
+	print("SMOKE gem_levels cap waited=%d waiting=%s after=%d top=%d skill_top=%d xp=%d" % [waited, waiting, moved, top, p.gem_lv(true, sk), p.gem_xp.power])
+	_expect("gemlv_cap", {"waited": waited == 5 and waiting, "moves_on": moved == 6, "top": top == Data.GEM_MAX_LV and p.gem_lv(true, sk) == Data.GEM_MAX_LV,
+		"xp_capped": p.gem_xp.power == Data.gem_xp_at(Data.GEM_MAX_LV), "progress": p.gem_progress(false, "power") == [0, 0]})
+	# stronger every level, for every support gem (awakened too) and for skill gems
+	var not_up := []
+	for g in Data.all_supports():
+		var on: String = Data.SKILL_ORDER.filter(func(id): return Data.support_fits(g, id))[0]
+		var prev := Data.build_sup(on, [g.id], {g.id: 1})
+		for lv in range(2, Data.GEM_MAX_LV + 1):
+			var cur := Data.build_sup(on, [g.id], {g.id: lv})
+			for k in cur:
+				if (cur[k] is float or cur[k] is int) and ((prev[k] - cur[k]) if k == "mana" else (cur[k] - prev[k])) < -0.0001:
+					not_up.append("%s@%d.%s" % [g.id, lv, k])
+			prev = cur
+		if prev.dmg <= Data.build_sup(on, [g.id]).dmg:
+			not_up.append(g.id + ":dmg")
+	var sk_up := range(1, Data.GEM_MAX_LV).all(func(lv): return Data.build_sup(sk, [], {Data.gem_key(true, sk): lv + 1}).dmg > Data.build_sup(sk, [], {Data.gem_key(true, sk): lv}).dmg)
+	print("SMOKE gem_levels scale not_up=%s skill_up=%s power20=%s" % [not_up.slice(0, 5), sk_up, Data.support_at("power", 20).mul])
+	_expect("gemlv_scale", {"supports": not_up.is_empty(), "skills": sk_up})
+	# the requirement: a Lv 10 power gem needs character Lv 19, and linking it below that is refused
+	p.level = 18
+	p.set_gem_lv(false, "power", 10)
+	p.links = [[], [], [], [], [], []]
+	hud.skill_ui.open_slot(0)
+	hud.skill_ui._toggle_gem("power")
+	var refused: bool = p.links[0].is_empty() and not p.can_use_gem("power") and p.gem_req(false, "power") == 19
+	p.level = 19
+	hud.skill_ui._toggle_gem("power")
+	var linked: bool = p.links[0] == ["power"]
+	var tip := SkillUI.gem_tip(Data.support_at("power", 10), 18, 10, p)
+	var tip_ok: bool = tip.any(func(l): return l[0] == "ジェムLv 10 / %d" % Data.GEM_MAX_LV) and tip.any(func(l): return l[0] == "必要レベル 19" and l[1] == Color("#ff8080"))
+	var stip: Array = hud.skill_ui.skill_tip(sk, 0)
+	var stip_ok: bool = stip.any(func(l): return l[0] == "ジェムLv %d / %d" % [Data.GEM_MAX_LV, Data.GEM_MAX_LV])
+	var slot_txt: String = hud.skill_ui.slot_row.get_child(0).get_child(0).text
+	hud.close_panels()
+	print("SMOKE gem_levels req refused=%s linked=%s tip=%s skill_tip=%s slot=%s" % [refused, linked, tip_ok, stip_ok, slot_txt.replace("\n", " ")])
+	_expect("gemlv_req", {"refused": refused, "linked": linked, "tip": tip_ok, "skill_tip": stip_ok, "slot": ("Lv%d" % Data.GEM_MAX_LV) in slot_txt})
+	# saves: levels round-trip; links over the requirement come off; junk is dropped; a save from before #68 is all Lv 1
+	p.set_gem_lv(false, "haste", 7)
+	var want := p.gem_xp.duplicate()
+	var sd: Dictionary = JSON.parse_string(JSON.stringify(save_data()))
+	apply_save(sd)
+	var round_ok: bool = p.gem_xp == want and p.gem_lv(false, "power") == 10 and p.gem_lv(false, "haste") == 7 and p.gem_lv(true, sk) == Data.GEM_MAX_LV
+	sd.gem_xp["nope"] = 500
+	sd.gem_xp["s:nope"] = 500
+	sd.gem_xp["haste"] = "lots"
+	sd.gem_xp["power"] = 999999999999
+	sd.level = 18
+	apply_save(sd)
+	var junk_ok: bool = not p.gem_xp.has("nope") and not p.gem_xp.has("s:nope") and p.gem_lv(false, "haste") == 1 and p.gem_lv(false, "power") == Data.GEM_MAX_LV \
+		and not "power" in p.links[0]
+	sd.erase("gem_xp")
+	sd.level = 19
+	apply_save(sd)
+	var old_ok: bool = p.gem_xp.is_empty() and p.gem_lv(false, "power") == 1 and p.gem_lv(true, sk) == 1 and p.links[0] == ["power"]
+	print("SMOKE gem_levels save round=%s junk=%s old=%s" % [round_ok, junk_ok, old_ok])
+	_expect("gemlv_save", {"round": round_ok, "junk": junk_ok, "old_lv1": old_ok})
+	# the exchange: an open gem search is mostly Lv 1; asking for a gem level lists that and up, dearer
+	var lg := league()
+	var lvs := []
+	for r in 6:
+		lvs.append_array(Exchange.search({"cat": "gem"}, lg, 10, r).items.map(func(l): return l.glv))
+	var asked: Array = Exchange.search({"cat": "gem", "glv": 12}, lg, 10).items.map(func(l): return l.glv)
+	var w1 := Exchange.worth({"kind": "gem", "id": "echo", "skill": false, "n": 1, "glv": 1})
+	var w12 := Exchange.worth({"kind": "gem", "id": "echo", "skill": false, "n": 1, "glv": 12})
+	var ones := lvs.filter(func(v): return v == 1).size()
+	print("SMOKE gem_levels exchange open=%d lv1=%d asked=%s worth=%.2f/%.2f" % [lvs.size(), ones, asked, w1, w12])
+	_expect("gemlv_exchange", {"mostly_lv1": ones * 2 > lvs.size(), "asked": not asked.is_empty() and asked.all(func(v): return v >= 12 and v <= Data.GEM_MAX_LV),
+		"dearer": w12 > w1})
+	p.set_class(keep[5])
+	p.level = keep[0]
+	p.slots = keep[1]
+	p.links = keep[2]
+	p.gems = keep[3]
+	p.skills = keep[4]
+	p.gem_xp = keep[6]
+	p.recalc(true)
+
+
 ## the skill panel driven through its own buttons (issue #47): each press rebuilds the panel from inside the
 ## pressed button's signal, which must not free that button while it is still emitting
 func _smoke_skill_ui() -> void:
@@ -639,7 +775,8 @@ func _smoke_skill_ui() -> void:
 	ui.refresh()
 	(find.call(ui.gem_grid, g.name) as Button).pressed.emit()
 	var linked: bool = p.links[1] == [g.id]
-	(ui.slot_row.get_child(1).get_child(1).get_child(0) as Button).pressed.emit()
+	var socks: Node = ui.slot_row.get_child(1).get_children().filter(func(c): return c is HBoxContainer)[0]   # under the slot and its xp bar
+	(socks.get_child(0) as Button).pressed.emit()
 	var unlinked: bool = p.links[1].is_empty()
 	var errs := smoke_log.count() - errs0
 	print("SMOKE skill_ui assigned=%s slot=%s filter=%s linked=%s unlinked=%s locked_errors=%d" % [assigned, picked_slot, filtered, linked, unlinked, errs])
@@ -2935,6 +3072,7 @@ func _smoke_test() -> void:
 	_smoke_classes()
 	_smoke_gems()
 	_smoke_awakened()
+	_smoke_gem_levels()
 	_smoke_skill_ui()
 	_smoke_docs()
 	_smoke_unique_tiers()
@@ -4146,14 +4284,42 @@ func gain_xp(v: int) -> void:
 			hud.message("アセンダンシーポイント +1（%s）" % Keybinds.text("ascendancy"), Data.ascendancy(p.asc).get("color", Color("#ffcf7a")))
 		hud.message("エネルギー上限 +1（%d）" % p.energy_max(), Data.GEM_COLOR)
 		for id in p.skills:
-			if Data.SKILLS[id].lvl == p.level:
+			if p.gem_req(true, id) == p.level:
 				hud.message("スキル「%s」が使えるようになった（%sで付け替え）" % [Data.SKILLS[id].name, Keybinds.text("skills")], Data.SKILLS[id].color)
 		for gid in p.gems:
-			if Data.support(gid).lvl == p.level:
+			if p.gem_req(false, gid) == p.level:
 				hud.message("%s「%s」をリンクできるようになった" % [Data.gem_info(false, gid).kind, Data.support(gid).name], Data.support(gid).color)
 		hud.skill_ui.refresh()
 		hud.tree_ui.refresh()
 		hud.asc_ui.refresh()
+	gain_gem_xp(v)
+
+
+## the gems on the skill bar take the character's experience too: each slot's skill gem and the support gems its
+## links power (a gem linked to two slots still takes it once)
+func gain_gem_xp(v: int) -> void:
+	var p := player
+	var fed := {}
+	for i in Data.SLOT_COUNT:
+		fed[Data.gem_key(true, p.slots[i])] = [true, p.slots[i]]
+		for gid in p.active_links(i):
+			fed[Data.gem_key(false, gid)] = [false, gid]
+	var grew := false
+	for k in fed:
+		var sk: bool = fed[k][0]
+		var id: String = fed[k][1]
+		var lv0 := p.gem_lv(sk, id)
+		var lv := p.add_gem_xp(sk, id, v)
+		if lv > lv0:
+			grew = true
+			var gi := Data.gem_info(sk, id)
+			hud.message("%s「%s」が ジェムLv %d に上がった%s" % [gi.kind, gi.name, lv, "（最大）" if lv >= Data.GEM_MAX_LV else ""],
+				gi.color if sk else Data.GEM_XP_COLOR)
+			if player.is_inside_tree():
+				add_text(p.pos + Vector2(0, -0.6), "GEM Lv %d" % lv, Data.GEM_XP_COLOR, 20)
+	if grew:
+		p.recalc()
+		hud.skill_ui.refresh()
 
 
 # =================== combat ===================
@@ -4455,7 +4621,7 @@ func _with_sup(s: Dictionary, fn: Callable) -> void:
 
 func slot_sup(i: int) -> Dictionary:
 	var p := player
-	var s := Data.build_sup(p.slots[i], p.active_links(i))
+	var s := Data.build_sup(p.slots[i], p.active_links(i), p.gem_lvs())
 	if p.effects.has("inferno") and "fire" in Data.SKILLS[p.slots[i]].tags:
 		s.aoe *= 1.3
 	return s
@@ -6396,7 +6562,7 @@ func unlock_gem(id: String) -> void:
 		return
 	p.gems.append(id)
 	var g := Data.support(id)
-	var when := "%sでリンク" % Keybinds.text("skills") if p.level >= g.lvl else "Lv %d からリンクできる" % g.lvl
+	var when := "%sでリンク" % Keybinds.text("skills") if p.level >= p.gem_req(false, id) else "Lv %d からリンクできる" % p.gem_req(false, id)
 	hud.message("%s「%s」を入手！（%s）" % [Data.gem_info(false, id).kind, g.name, when], g.color)
 	hud.skill_ui.refresh()
 
@@ -6409,7 +6575,7 @@ func learn_skill(id: String) -> void:
 		return
 	p.skills.append(id)
 	var sk: Dictionary = Data.SKILLS[id]
-	var when := "%sで付け替え" % Keybinds.text("skills") if p.level >= sk.lvl else "Lv %d から使える" % sk.lvl
+	var when := "%sで付け替え" % Keybinds.text("skills") if p.level >= p.gem_req(true, id) else "Lv %d から使える" % p.gem_req(true, id)
 	hud.message("スキルジェム「%s」を入手！（%s）" % [sk.name, when], sk.color)
 	hud.skill_ui.refresh()
 
@@ -6704,7 +6870,7 @@ func save_data() -> Dictionary:
 	var p := player
 	return {"floor": floor_level, "level": p.level, "xp": p.xp, "potions": p.potions,
 		"equip": p.equip, "bag": p.bag, "cur": p.cur, "atlas": atlas.to_dict(), "shop": shop,
-		"slots": p.slots, "links": p.links, "gems": p.gems, "skills": p.skills, "tree": p.tree, "filter": p.filter,
+		"slots": p.slots, "links": p.links, "gems": p.gems, "gem_xp": p.gem_xp, "skills": p.skills, "tree": p.tree, "filter": p.filter,
 		"cls": p.cls, "asc": p.asc, "asc_ranks": p.asc_ranks, "asc_cores": p.asc_cores, "auras": p.auras, "tablets": p.tablets, "jewels": p.jewels,
 		"charms": p.charms, "charm_slots": p.charm_slots}
 
@@ -6744,8 +6910,18 @@ func apply_save(data: Dictionary) -> void:
 	for id in p.slots:
 		if not id in p.skills:
 			p.skills.append(id)
+	# gem experience (#68): only for gems still owned, as whole numbers capped at the top level; none (an older save) is Lv 1
+	p.gem_xp = {}
+	var gx = data.get("gem_xp", {})
+	if typeof(gx) == TYPE_DICTIONARY:
+		for k in gx:
+			var sk := str(k).begins_with(Data.SKILL_KEY)
+			var id := str(k).trim_prefix(Data.SKILL_KEY) if sk else str(k)
+			var v = gx[k]
+			if (id in p.skills if sk else id in p.gems) and (v is int or v is float) and v > 0:
+				p.gem_xp[str(k)] = mini(int(v), Data.gem_xp_at(Data.GEM_MAX_LV))
 	# links that need more level than the character has come off (the gems stay owned)
-	p.links = p.links.map(func(l): return l.filter(func(id): return p.level >= Data.support(id).lvl))
+	p.links = p.links.map(func(l): return l.filter(func(id): return p.level >= p.gem_req(false, id)))
 	# talents came before the passive tree: their points come back as passive points
 	# jewels first: a ring jewel's nodes have to be in the tree before the saved tree is checked against it
 	p.jewels = Jewels.normalize(data.get("jewels", []))

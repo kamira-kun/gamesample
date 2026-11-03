@@ -45,6 +45,7 @@ var slots: Array = Data.DEFAULT_SLOTS.duplicate()
 var skills: Array = Data.DEFAULT_SLOTS.duplicate()
 var links: Array = [[], [], [], [], [], []]
 var gems: Array = Data.DEFAULT_GEMS.duplicate()
+var gem_xp := {}             # gem experience in total by Data.gem_key (a gem missing here is Lv 1)
 var tablets: Array = []      # rune tablets owned, on the 6x6 board or not (Tablets)
 var jewels: Array = []       # ジュエル and リングジュエル owned, socketed in the passive tree or not (Jewels)
 var charms := {}             # ember shells owned: id -> count (Charms)
@@ -97,6 +98,7 @@ func set_class(k: String, kit := false) -> void:
 		skills = bc.slots.duplicate()
 		links = [[], [], [], [], [], []]
 		gems = bc.gems.duplicate()
+		gem_xp = {}
 	if rig:
 		Heroine.paint(self, cls)
 	recalc(true)
@@ -245,11 +247,67 @@ func refresh_gear() -> void:
 # ---- gems ----
 ## a skill this character owns and is high enough level for
 func can_use_skill(id: String) -> bool:
-	return id in skills and level >= Data.SKILLS[id].lvl
+	return id in skills and level >= gem_req(true, id)
 
 
 func can_use_gem(gid: String) -> bool:
-	return gid in gems and level >= Data.support(gid).get("lvl", 1)
+	return gid in gems and not Data.support(gid).is_empty() and level >= gem_req(false, gid)
+
+
+## the level of a gem this character owns (Lv 1 until it has taken experience)
+func gem_lv(skill: bool, id: String) -> int:
+	return Data.gem_level(int(gem_xp.get(Data.gem_key(skill, id), 0)))
+
+
+## the character level the gem asks for at its current gem level
+func gem_req(skill: bool, id: String) -> int:
+	return Data.gem_req(skill, id, gem_lv(skill, id))
+
+
+## every gem above Lv 1, by gem key: what Data.build_sup takes
+func gem_lvs() -> Dictionary:
+	var out := {}
+	for k in gem_xp:
+		var lv := Data.gem_level(int(gem_xp[k]))
+		if lv > 1:
+			out[k] = lv
+	return out
+
+
+## [experience into the current level, experience the level needs]; [0, 0] at the top level
+func gem_progress(skill: bool, id: String) -> Array:
+	var lv := gem_lv(skill, id)
+	if lv >= Data.GEM_MAX_LV:
+		return [0, 0]
+	return [int(gem_xp.get(Data.gem_key(skill, id), 0)) - Data.gem_xp_at(lv), Data.gem_xp_need(lv)]
+
+
+## set a gem straight to gem level `lv` (an exchange gem bought at a higher level, tests)
+func set_gem_lv(skill: bool, id: String, lv: int) -> void:
+	var k := Data.gem_key(skill, id)
+	if lv <= 1:
+		gem_xp.erase(k)
+	else:
+		gem_xp[k] = Data.gem_xp_at(lv)
+
+
+## give a gem `v` experience; returns its new level. it won't grow past the level the character can use (it fills
+## up to just short of the next level and waits) nor past GEM_MAX_LV
+func add_gem_xp(skill: bool, id: String, v: int) -> int:
+	var k := Data.gem_key(skill, id)
+	var lv := gem_lv(skill, id)
+	var top := lv
+	while top < Data.GEM_MAX_LV and Data.gem_req(skill, id, top + 1) <= level:
+		top += 1
+	var cap := Data.gem_xp_at(top) if top >= Data.GEM_MAX_LV else Data.gem_xp_at(top + 1) - 1
+	gem_xp[k] = mini(int(gem_xp.get(k, 0)) + maxi(v, 0), maxi(cap, int(gem_xp.get(k, 0))))
+	return gem_lv(skill, id)
+
+
+## a gem can't grow until the character levels up (it is full at the last level the character can use)
+func gem_waiting(skill: bool, id: String) -> bool:
+	var lv := gem_lv(skill, id)
+	return lv < Data.GEM_MAX_LV and Data.gem_req(skill, id, lv + 1) > level 		and int(gem_xp.get(Data.gem_key(skill, id), 0)) >= Data.gem_xp_at(lv + 1) - 1
 
 
 # ---- support gem energy ----
@@ -379,7 +437,7 @@ func tstat(k: String) -> float:
 ## the support modifiers of an aura on the bar (its reservation scales with their mana multiplier)
 func aura_sup(id: String) -> Dictionary:
 	var i := slots.find(id)
-	return Data.build_sup(id, active_links(i) if i >= 0 else [])
+	return Data.build_sup(id, active_links(i) if i >= 0 else [], gem_lvs())
 
 
 ## how much of `pool` ("life" | "mana") aura `id` holds while it is on
