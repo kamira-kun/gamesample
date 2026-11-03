@@ -148,7 +148,7 @@ func _refresh_jewels(p: Player) -> void:
 	if j.is_empty():
 		info.text = "ジュエルを選ぶと、ツリーの台座にはめたりクラフトしたりできます。"
 		return
-	info.text = "選択中：%s　→ %sをクリックではめる" % [j.name, "環晶の大台座（最外周の六角）" if Jewels.is_ring(j) else "燈晶の台座（ひし形）"]
+	info.text = "選択中：%s　→ %sをクリックではめる" % [j.name, "リングジュエルの大台座（最外周の六角）" if Jewels.is_ring(j) else "ジュエルの台座（ひし形）"]
 	if j.socket == "":
 		for c in CRAFTS:
 			var cd := Data.currency(c[0])
@@ -230,7 +230,7 @@ func socket_jewel(uid: String, id: String) -> String:
 	if j.is_empty() or n.is_empty():
 		return "はめられない"
 	if n.kind != Jewels.socket_kind(j):
-		return "環晶は環晶の大台座に、燈晶は燈晶の台座にはめる"
+		return "リングジュエルはリングジュエルの大台座に、ジュエルはジュエルの台座にはめる"
 	if j.socket == id:
 		return ""
 	if not id in p.tree and not _take(id):
@@ -329,7 +329,7 @@ func tip_lines(id: String) -> Array:
 	if n.kind in ["socket", "ring_socket"]:
 		var j := Jewels.at_socket(p.jewels, id)
 		if j.is_empty():
-			out.append(["空き：%sをはめられる" % ("環晶" if n.kind == "ring_socket" else "燈晶"), Color("#a89878"), 13])
+			out.append(["空き：%sをはめられる" % ("リングジュエル" if n.kind == "ring_socket" else "ジュエル"), Color("#a89878"), 13])
 		else:
 			for l in Jewels.lines(j):
 				out.append(l)

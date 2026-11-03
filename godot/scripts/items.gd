@@ -239,7 +239,7 @@ static func tablet_price(t: Dictionary) -> int:
 	return maxi(v * 2, roundi(v * 4 * Data.SHOP_PRICE * (1.0 + 0.25 * t.mods.size()) * discount))
 
 
-## a 燈晶 or 環晶: dearer with its rarity, level and lines (a 環晶's notables); never under twice what breaking it pays
+## a ジュエル or リングジュエル: dearer with its rarity, level and lines (a リングジュエル's notables); never under twice what breaking it pays
 static func jewel_price(j: Dictionary) -> int:
 	var v := Jewels.shard_value(j)
 	var n: int = j.notables.size() if Jewels.is_ring(j) else j.mods.size()
@@ -252,7 +252,7 @@ static func charm_price(id: String) -> int:
 
 
 ## the merchant's stock, a little above the hideout level: SHOP_GEAR_PER_SLOT pieces of every slot in every rarity,
-## plus rune tablets, 燈晶 and 環晶, and ember shells {id: count} in a mix of tiers
+## plus rune tablets, ジュエル and リングジュエル, and ember shells {id: count} in a mix of tiers
 static func gen_shop(level: int) -> Dictionary:
 	var stock := []
 	var w: Array = Data.SHOP_GEAR_RARITY

@@ -1,6 +1,6 @@
 class_name Exchange
 ## The exchange's listing search (#65). Nothing is listed until the player searches; then up to RESULTS listings
-## that fit the search are made on the spot: gear, rune tablets, 燈晶, 環晶, ember shells, gems and currency.
+## that fit the search are made on the spot: gear, rune tablets, ジュエル, リングジュエル, ember shells, gems and currency.
 ## The asked-for lines, base and unique are forced, each line rolled at or over its asked minimum, the rest random.
 ## A search is seeded by itself, the league, the market tick and the refresh count, so the same search shows the
 ## same listings until a map is completed or the player asks for fresh ones.
@@ -29,7 +29,7 @@ const ILVL_STEP := 0.02          # × per item level asked over the hideout leve
 const ILVL_SPREAD := 6           # listings are made at the item level asked (or the hideout's) up to this much over
 const RESALE_GUARD := 2.0
 const ATTEMPTS := 6              # candidates made per listing shown, before the price filter gives up
-const CATEGORIES := [["gear", "装備"], ["tablet", "石板"], ["jewel", "燈晶"], ["ring", "環晶"], ["charm", "燼殻"], ["gem", "ジェム"], ["currency", "カレンシー"]]
+const CATEGORIES := [["gear", "装備"], ["tablet", "ルーンタブレット"], ["jewel", "ジュエル"], ["ring", "リングジュエル"], ["charm", "コンパス"], ["gem", "ジェム"], ["currency", "カレンシー"]]
 const CURRENCY_LOTS := [1, 3, 5, 10, 20]
 const CHARM_LOTS := [1, 2, 3]
 const SP := "sp:"                # mod keys of 刻紋 (special) lines in a query
@@ -193,9 +193,9 @@ static func check(q: Dictionary, level := 1) -> String:
 			return _check_gear(q, level)
 		"tablet":
 			if q.rarity >= 0:
-				return "石板にはレア度がありません"
+				return "ルーンタブレットにはレア度がありません"
 			if q.mods.size() > 3:
-				return "石板の行は最大 3 行です"
+				return "ルーンタブレットの行は最大 3 行です"
 			# the biggest piece carries the biggest line
 			var t := {"shape": _shape_id(q.base) if q.base != "" else "slab6", "ilvl": _ilvl_hi(q, level)}
 			if q.mods.size() > Tablets.max_mods(t):
@@ -205,18 +205,18 @@ static func check(q: Dictionary, level := 1) -> String:
 					return _too_high(m, Tablets.value_at(t, m.k, 1.2))
 		"jewel":
 			if q.rarity == 3:
-				return "燈晶にユニークはありません"
+				return "ジュエルにユニークはありません"
 			if q.rarity == 0 and not q.mods.is_empty():
-				return "ノーマルの燈晶にはオプションが付きません"
+				return "ノーマルのジュエルにはオプションが付きません"
 			if q.rarity == 1 and q.mods.size() > Data.RARITY[1].aff[1]:
-				return "マジックの燈晶に付くオプションは %d つまでです" % Data.RARITY[1].aff[1]
+				return "マジックのジュエルに付くオプションは %d つまでです" % Data.RARITY[1].aff[1]
 			for m in q.mods:
 				var best := Jewels.value_at({"ilvl": _ilvl_hi(q, level)}, Jewels.affix(m.k), 1.0)
 				if best < m.min:
 					return _too_high(m, best)
 		"ring":
 			if q.rarity == 0 or q.rarity == 3:
-				return "環晶はマジックかレアだけです"
+				return "リングジュエルはマジックかレアだけです"
 		_:
 			if q.rarity >= 0:
 				return "%sにはレア度がありません" % _cat_name(q.cat)

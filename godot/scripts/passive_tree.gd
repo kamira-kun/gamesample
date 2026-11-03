@@ -5,12 +5,12 @@ class_name PassiveTree
 ## - the three base classes start near the centre, on a hub ring of HUB_N small nodes;
 ## - LAYERS rings of clusters spread outward. A cluster is a ring of small nodes around a notable (or a jewel socket,
 ##   or nothing), joined to its neighbours on the same layer and to the nearest cluster one layer in by short bridges;
-## - past the last layer, OUTER_SLOTS keystones and large ring sockets (環晶の大台座) close the web.
+## - past the last layer, OUTER_SLOTS keystones and large ring sockets (リングジュエルの大台座) close the web.
 ##
 ## The circle is split into six zones of 60°: each class's own zone and the three halfway zones that mix two classes
 ## (灰刃 life/armor/attacks, 燼紋 spells/mana/elements, 灯影 crits/speed/minions). A node's stats come from its zone.
 ##
-## Ring jewels (環晶, see Jewels) socketed in a large socket add their own small ring of nodes past it while they sit
+## Ring jewels (リングジュエル, see Jewels) socketed in a large socket add their own small ring of nodes past it while they sit
 ## there (set_rings); those nodes join `nodes()` like the rest and are taken and refunded the same way.
 ##
 ## Positions are in tree units around the centre; angles are in degrees clockwise from the right.
@@ -112,7 +112,7 @@ const FMT := {
 }
 
 const KIND_NAMES := {"small": "", "notable": "注目ノード", "keystone": "キーストーン", "start": "起点",
-	"socket": "燈晶の台座", "ring_socket": "環晶の大台座"}
+	"socket": "ジュエルの台座", "ring_socket": "リングジュエルの大台座"}
 
 static var _nodes := {}     # id -> {id, name, kind, ang, pos, stats, links, sector, zone, layer}
 static var _order: Array = []

@@ -21,11 +21,11 @@ var rot := 0              # the turn the picked tablet is set with
 
 
 func _title() -> String:
-	return "石板盤"
+	return "タブレット盤"
 
 
 func _hint() -> String:
-	return "石板を選んでマスをクリックで設置　R：回転　盤の石板をクリック：選ぶ　右クリック：外す"
+	return "ルーンタブレットを選んでマスをクリックで設置　R：回転　盤のルーンタブレットをクリック：選ぶ　右クリック：外す"
 
 
 func _build() -> void:
@@ -49,7 +49,7 @@ func _build() -> void:
 	var right := VBoxContainer.new()
 	right.add_theme_constant_override("separation", 8)
 	row.add_child(right)
-	right.add_child(sub("所持している石板"))
+	right.add_child(sub("所持しているルーンタブレット"))
 	var scroll := ScrollContainer.new()
 	scroll.custom_minimum_size = Vector2(400, 230)
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
@@ -98,13 +98,13 @@ func refresh() -> void:
 	var t := picked()
 	if t.is_empty():
 		sel = ""
-	used.text = "使用マス %d / %d　　置いた石板 %d　所持 %d / %d" % [Tablets.used_cells(p.tablets), Tablets.SIZE * Tablets.SIZE,
+	used.text = "使用マス %d / %d　　置いたルーンタブレット %d　所持 %d / %d" % [Tablets.used_cells(p.tablets), Tablets.SIZE * Tablets.SIZE,
 		p.tablets.filter(func(x): return x.placed).size(), p.tablets.size(), Tablets.MAX_OWNED]
 	var st := Tablets.stats(p.tablets)
 	totals.text = "盤の能力：" + ("なし" if st.is_empty() else "、".join(PackedStringArray(st.keys().map(func(k): return Data.affix(k).fmt % st[k]))))
 	clear(list)
 	if p.tablets.is_empty():
-		list.add_child(sub("石板はまだない（ボスが落とす）"))
+		list.add_child(sub("ルーンタブレットはまだない（ボスが落とす）"))
 	for x in p.tablets:
 		var on: bool = x.uid == sel
 		var mods := "、".join(PackedStringArray(x.mods.keys().map(func(k): return Data.affix(k).fmt % x.mods[k])))
@@ -118,7 +118,7 @@ func refresh() -> void:
 		list.add_child(card)
 	clear(actions)
 	if t.is_empty():
-		info.text = "石板を選ぶと、ここで能力を刻めます。"
+		info.text = "ルーンタブレットを選ぶと、ここで能力を刻めます。"
 	else:
 		info.text = "選択中：%s　向き %d°　（%d / %d 行）" % [Tablets.name_of(t), rot * 90, t.mods.size(), Tablets.max_mods(t)]
 		var turn := Button.new()

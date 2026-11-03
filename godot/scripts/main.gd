@@ -776,9 +776,9 @@ func _view_tree_goals(n: int) -> Array:
 	return ids.slice(0, n)
 
 
-## jewels: a 燈晶 in a socket gives its lines only while the socket is taken and comes out with it, wrong-kind sockets
-## refuse, the currencies craft jewels the way they craft gear (and not while socketed), a 環晶 in a large socket
-## grows its ring (taken, refunded and saved like the rest, with a 燈晶 in its small socket), and drops reach the collection
+## jewels: a ジュエル in a socket gives its lines only while the socket is taken and comes out with it, wrong-kind sockets
+## refuse, the currencies craft jewels the way they craft gear (and not while socketed), a リングジュエル in a large socket
+## grows its ring (taken, refunded and saved like the rest, with a ジュエル in its small socket), and drops reach the collection
 func _smoke_jewels() -> void:
 	var p := player
 	var keep := [p.level, p.tree.duplicate(), p.cls, p.jewels, p.cur.duplicate()]
@@ -874,6 +874,20 @@ func _smoke_jewels() -> void:
 		j2.socket, is_equal_approx(p.s.max_life, life_r)])
 	_expect("jewels_ring_save", {"nodes": PassiveTree.nodes().size() == n0 + grown, "tree": p.tree == tree_r, "ring": ring2.socket == big, "small": j2.socket == rs[0],
 		"life": is_equal_approx(p.s.max_life, life_r), "same_json": JSON.stringify(save_data().jewels) == JSON.stringify(d.jewels)})
+	# #64: a save from before the rename, its jewels named in the old words, loads with every jewel in place under the new words
+	var old_save = JSON.parse_string(JSON.stringify(d))
+	var old_word := {}
+	for w in Data.OLD_KIND_WORDS:
+		old_word[Data.OLD_KIND_WORDS[w]] = w
+	for x in old_save.jewels:
+		x.name = "灰の" + old_word["リングジュエル" if x.kind == "ring" else "ジュエル"]
+	apply_save(old_save)
+	var renamed_ok: bool = p.jewels.size() == d.jewels.size() and p.jewels.all(func(x): return x.name == "灰の" + ("リングジュエル" if x.kind == "ring" else "ジュエル"))
+	var placed_ok: bool = range(p.jewels.size()).all(func(i): return p.jewels[i].socket == d.jewels[i].socket and p.jewels[i].uid == d.jewels[i].uid)
+	print("SMOKE jewels old_names jewels=%d names=%s renamed=%s placed=%s tree_same=%s" % [p.jewels.size(), p.jewels.map(func(x): return x.name), renamed_ok,
+		placed_ok, p.tree == tree_r])
+	_expect("jewels_old_names", {"renamed": renamed_ok, "placed": placed_ok, "tree": p.tree == tree_r, "life": is_equal_approx(p.s.max_life, life_r)})
+	apply_save(JSON.parse_string(JSON.stringify(d)))
 	# a hand-edited save: the ring moved to a small socket, a second jewel in the same small socket, an unknown base
 	var junk = JSON.parse_string(JSON.stringify(d))
 	var ri: int = junk.jewels.map(func(x): return x.kind).find("ring")
@@ -1444,7 +1458,7 @@ func _smoke_exchange_search() -> void:
 	var r_lvl := Exchange.search({"cat": "gear", "ilvl": lvl + 20}, lg, lvl)
 	var r_tab := Exchange.search({"cat": "tablet", "base": "大石碑", "mods": [{"k": "life", "min": 40}]}, lg, lvl)
 	var r_jw := Exchange.search({"cat": "jewel", "rarity": 2, "mods": [{"k": "crit_multi", "min": 8}]}, lg, lvl)
-	var r_ring := Exchange.search({"cat": "ring", "base": "大環晶"}, lg, lvl)
+	var r_ring := Exchange.search({"cat": "ring", "base": "大リングジュエル"}, lg, lvl)
 	var r_charm := Exchange.search({"cat": "charm", "base": Charms.name_of("horde_2")}, lg, lvl)
 	var r_gem := Exchange.search({"cat": "gem"}, lg, lvl)
 	var r_cur := Exchange.search({"cat": "currency", "base": Data.currency("divine").name}, lg, lvl)
@@ -2198,6 +2212,42 @@ func _smoke_shop() -> void:
 	shop = keep[5]
 
 
+## #64: the renamed item kinds — the merchant's tabs and every text on its panel, the exchange's categories, the G board,
+## the passive tree's sockets, the tooltips (Alt ranges included) and the docs say ルーンタブレット / ジュエル / リングジュエル /
+## コンパス and none of the old words (Data.OLD_KIND_WORDS)
+func _smoke_names() -> void:
+	var texts := []
+	texts.append_array(ShopUI.TABS.map(func(t): return t[1]))
+	texts.append_array(Exchange.CATEGORIES.map(func(c): return c[1]))
+	texts.append_array([Keybinds.action("tablets").name, hud.tablet_ui._title(), hud.tablet_ui._hint()])
+	texts.append_array(PassiveTree.KIND_NAMES.values())
+	var t := Tablets.generate(20, "", 2)
+	var tips := [Tablets.lines(t), Jewels.lines(Jewels.generate(20, 1)), Jewels.lines(Jewels.generate_ring(20, 2, "l")), Charms.lines("relic_3", 2)]
+	for tip in tips:
+		texts.append_array(tip.map(func(l): return str(l)))   # each line with its Alt text
+	texts.append_array(DataDocs.files().values())
+	open_interact("merchant")
+	await get_tree().process_frame
+	for tab in ShopUI.TABS:
+		hud.shop_ui.set_tab(tab[0])
+		await get_tree().process_frame
+		for c in hud.shop_ui.find_children("*", "", true, false):
+			for prop in ["text", "tooltip_text"]:
+				if prop in c:
+					texts.append(str(c.get(prop)))
+	hud.close_panels()
+	await get_tree().process_frame
+	var all := "\n".join(texts)
+	var left: Array = Data.OLD_KIND_WORDS.keys().filter(func(w): return w in all)
+	var tabs: Array = ShopUI.TABS.map(func(x): return x[1])
+	var cats: Array = Exchange.CATEGORIES.map(func(x): return x[1])
+	print("SMOKE names texts=%d old_left=%s tabs=%s cats=%s" % [texts.size(), left, tabs, cats])
+	_expect("names", {"old_gone": left.is_empty(), "new": Data.OLD_KIND_WORDS.values().all(func(w): return w in all),
+		"shop_tabs": ["ルーンタブレット", "ジュエル", "コンパス"].all(func(w): return w in tabs),
+		"exchange": ["ルーンタブレット", "ジュエル", "リングジュエル", "コンパス"].all(func(w): return w in cats),
+		"board": Keybinds.action("tablets").name == "タブレット盤", "socket": PassiveTree.KIND_NAMES.ring_socket == "リングジュエルの大台座"})
+
+
 func _smoke_charms() -> void:
 	var p := player
 	p.invuln = 1e9
@@ -2315,7 +2365,7 @@ func _smoke_charms() -> void:
 ").size()])
 	_expect("charm_save", {"same": same, "cleaned": cleaned, "tip_tiers": tip[2][3].split("
 ").size() == 4,
-		"docs": "燃え盛る燼冠の燼殻" in DataDocs.files().get("charms.md", ""), "glyph": Data.ui_font.has_char(Charms.ICON.unicode_at(0))})
+		"docs": "燃え盛る燼冠のコンパス" in DataDocs.files().get("charms.md", ""), "glyph": Data.ui_font.has_char(Charms.ICON.unicode_at(0))})
 	apply_save(JSON.parse_string(JSON.stringify(sd)))
 	p.filter.rarity = keep_filter
 	p.charms = {}
@@ -2772,6 +2822,7 @@ func _smoke_test() -> void:
 	_expect("shop_sell", {"sold": p.bag.is_empty()})
 	hud.close_panels()
 	await _smoke_shop()
+	await _smoke_names()
 	await _smoke_exchange()
 	await _smoke_exchange_search()
 	_smoke_seasons()
@@ -3721,7 +3772,7 @@ func _spawn_enemies() -> void:
 			boss.max_life *= (1.0 + 0.12 * (f - 1)) * mod_fx.get("boss_life", 1.0)
 			boss.life = boss.max_life
 			boss.dmg *= mod_fx.get("boss_dmg", 1.0)
-			if mod_fx.get("boss_life", 1.0) > 1.0:   # an ember-crowned boss (燼冠の燼殻)
+			if mod_fx.get("boss_life", 1.0) > 1.0:   # an ember-crowned boss (燼冠のコンパス)
 				boss.display_name = "燼冠の" + boss.display_name
 			for g in bt.guards:
 				_make_enemy(g, map.random_floor_in(room), pack_id)
@@ -6072,10 +6123,10 @@ func gain_tablet(t: Dictionary) -> void:
 	var p := player
 	if p.tablets.size() >= Tablets.MAX_OWNED:
 		p.cur.ember += Tablets.shard_value(t)
-		hud.message("石板が一杯のため %s を砕いた（+%d 灰燼の欠片）" % [Tablets.name_of(t), Tablets.shard_value(t)], Color("#ffcf3a"))
+		hud.message("ルーンタブレットが一杯のため %s を砕いた（+%d 灰燼の欠片）" % [Tablets.name_of(t), Tablets.shard_value(t)], Color("#ffcf3a"))
 		return
 	p.tablets.append(t)
-	hud.message("石板「%s」（%dマス）を手に入れた（%s）" % [Tablets.name_of(t), Tablets.cell_count(t), Keybinds.text("tablets")], Tablets.COLOR)
+	hud.message("ルーンタブレット「%s」（%dマス）を手に入れた（%s）" % [Tablets.name_of(t), Tablets.cell_count(t), Keybinds.text("tablets")], Tablets.COLOR)
 	hud.tablet_ui.refresh()
 
 
@@ -6114,7 +6165,7 @@ func gain_jewel(j: Dictionary) -> void:
 		hud.message("ジュエルが一杯のため %s を砕いた（+%d 灰燼の欠片）" % [j.name, Jewels.shard_value(j)], Color("#ffcf3a"))
 		return
 	p.jewels.append(j)
-	hud.message("%s「%s」を手に入れた（%s）" % ["環晶" if Jewels.is_ring(j) else "燈晶", j.name, Keybinds.text("talents")], Jewels.RING_COLOR if Jewels.is_ring(j) else Jewels.COLOR)
+	hud.message("%s「%s」を手に入れた（%s）" % ["リングジュエル" if Jewels.is_ring(j) else "ジュエル", j.name, Keybinds.text("talents")], Jewels.RING_COLOR if Jewels.is_ring(j) else Jewels.COLOR)
 	hud.tree_ui.refresh()
 
 
@@ -6180,7 +6231,7 @@ func _drop_loot(e: Enemy) -> void:
 		for i in (6 if e.boss else 3 if not e.elite.is_empty() else 1):
 			_drop_currency("ember", roundi(randf_range(2, 6) * floor_level * (2 if not e.elite.is_empty() else 1) * mod_fx.gold), e.pos)
 	var cn := randi_range(3, 5) if e.boss else (randi_range(1, 2) if not e.elite.is_empty() and randf() < 0.5 else (1 if randf() < 0.035 else 0))
-	var cm: float = mod_fx.get("cur", 1.0)   # 蓄財の燼殻: whole extra drops, and the fraction as a chance of one more
+	var cm: float = mod_fx.get("cur", 1.0)   # 蓄財のコンパス: whole extra drops, and the fraction as a chance of one more
 	cn = floori(cn * cm) + (1 if randf() < cn * cm - floori(cn * cm) else 0)
 	for i in cn:
 		_drop_currency(_weighted(Data.CURRENCIES.filter(func(c): return c.w > 0.0)).k, 1, e.pos)

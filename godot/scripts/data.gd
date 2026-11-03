@@ -682,9 +682,14 @@ const SHOP_PRICE := 2.5           # × every gear, tablet, jewel and ember shell
 const SHOP_GEAR_PER_SLOT := 6     # gear pieces of each slot (× 7 slots)
 const SHOP_GEAR_RARITY := [12.0, 46.0, 34.0, 8.0]   # weights of normal / magic / rare / unique in the stock
 const SHOP_TABLETS := 8
-const SHOP_JEWELS := 5            # 燈晶
-const SHOP_RINGS := 5             # 環晶
-const SHOP_CHARMS := 12           # ember shells (燼殻), counted by piece
+const SHOP_JEWELS := 5            # ジュエル
+const SHOP_RINGS := 5             # リングジュエル
+const SHOP_CHARMS := 12           # ember shells (コンパス), counted by piece
+
+# item-kind words retired in #64, each with its new word: rune tablets, jewels, ring jewels and compasses (ember shells)
+# went by these. Written escaped so a search finds only real leftovers; Jewels.normalize renames saved jewels, and the
+# smoke test (_smoke_names) and tools/run_check.gd fail if one shows up again
+const OLD_KIND_WORDS := {"\u77f3\u677f": "ルーンタブレット", "\u71c8\u6676": "ジュエル", "\u74b0\u6676": "リングジュエル", "\u71fc\u6bbb": "コンパス"}
 
 const SLOTS := ["weapon", "helm", "armor", "gloves", "boots", "ring", "amulet"]
 const SLOT_INFO := {
