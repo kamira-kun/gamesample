@@ -35,7 +35,9 @@ func _process(_delta: float) -> bool:
 		print("  rename these to %s" % [old.values()])
 	var awake := _check_awakened()
 	print("AWAKENED problems=%s" % [awake])
-	quit(code if stale.is_empty() and hits.is_empty() and awake.is_empty() else 1)
+	var glv := _check_gem_levels()
+	print("GEM_LEVELS problems=%s" % [glv])
+	quit(code if stale.is_empty() and hits.is_empty() and awake.is_empty() and glv.is_empty() else 1)
 	return true
 
 
@@ -81,4 +83,63 @@ func _check_awakened() -> Array:
 	var open: Array = ex._lots(ex._clean({"cat": "gem"})).slice(0, ex.RESULTS)
 	if open.filter(func(l): return data.is_awakened(l.id)).size() != ex.AWAKE_OPEN 			or not aw.all(func(a): return a.name in ex.base_names("gem") and ex._lots(ex._clean({"cat": "gem", "base": a.name}))[0].id == a.id):
 		bad.append("exchange")
+	return bad
+
+
+## #68: gem levels run 1..20 on a rising curve, experience levels a gem up only as far as the character's level lets
+## it and never past 20, every level is at least as strong as the one before (and Lv 20 does more damage than Lv 1),
+## and the character level a gem asks for rises with its level and gates using it
+func _check_gem_levels() -> Array:
+	var data = load("res://scripts/data.gd")
+	var bad := []
+	var top: int = data.GEM_MAX_LV
+	if top != 20:
+		bad.append("max")
+	for lv in range(1, top + 1):
+		if data.gem_level(data.gem_xp_at(lv)) != lv or (lv > 1 and data.gem_level(data.gem_xp_at(lv) - 1) != lv - 1):
+			bad.append("curve:%d" % lv)
+		if lv < top - 1 and data.gem_xp_need(lv + 1) <= data.gem_xp_need(lv):
+			bad.append("need:%d" % lv)
+	if data.gem_level(1 << 40) != top:
+		bad.append("level_cap")
+	for g in data.all_supports():
+		var sk: String = data.SKILL_ORDER.filter(func(id): return data.support_fits(g, id))[0]
+		var prev: Dictionary = data.build_sup(sk, [g.id])
+		for lv in range(2, top + 1):
+			var cur: Dictionary = data.build_sup(sk, [g.id], {g.id: lv})
+			for k in cur:
+				if (cur[k] is float or cur[k] is int) and ((prev[k] - cur[k]) if k == "mana" else (cur[k] - prev[k])) < -0.0001:
+					bad.append("weaker:%s@%d.%s" % [g.id, lv, k])
+			prev = cur
+		if prev.dmg <= data.build_sup(sk, [g.id]).dmg:
+			bad.append("flat:" + g.id)
+		if data.gem_req(false, g.id, top) != g.lvl + (top - 1) * data.GEM_LV_REQ:
+			bad.append("req:" + g.id)
+	for id in data.SKILL_ORDER:
+		if data.build_sup(id, [], {data.gem_key(true, id): top}).dmg <= data.build_sup(id, []).dmg:
+			bad.append("skill_flat:" + id)
+	var p = load("res://scripts/player.gd").new()
+	p.gems = ["power", data.AWAKE_ID + "power"]
+	p.level = 1
+	p.add_gem_xp(false, "power", 1 << 30)
+	if p.gem_lv(false, "power") != 1 or not p.gem_waiting(false, "power"):
+		bad.append("gate_growth")
+	p.level = 10
+	if p.add_gem_xp(false, "power", 1 << 30) != 5:
+		bad.append("grow_to_req")
+	p.level = 200
+	p.add_gem_xp(false, "power", 1 << 30)
+	p.add_gem_xp(false, "power", 1 << 30)
+	if p.gem_lv(false, "power") != top or p.gem_xp.power != data.gem_xp_at(top):
+		bad.append("cap")
+	# awakened gems level too, from their own higher requirement
+	var a_id: String = data.AWAKE_ID + "power"
+	p.set_gem_lv(false, a_id, 5)
+	var need: int = data.support(a_id).lvl + 4 * data.GEM_LV_REQ
+	p.level = need - 1
+	var low: bool = p.can_use_gem(a_id)
+	p.level = need
+	if low or not p.can_use_gem(a_id) or p.gem_req(false, a_id) != need or need <= data.gem_req(false, "power", 5):
+		bad.append("awake_req")
+	p.free()
 	return bad

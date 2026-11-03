@@ -138,14 +138,19 @@ func _hover(c: Control, lines: Array) -> void:
 	c.mouse_exited.connect(func(): hud.hide_tip())
 
 
-func skill_tip(id: String, slot := -1) -> Array:
+## `glv`: the gem level to show (-1: the character's own gem, with its experience)
+func skill_tip(id: String, slot := -1, glv := -1) -> Array:
 	var sk: Dictionary = Data.SKILLS[id]
+	var p: Player = hud.main.player
 	var lines := [[sk.name, sk.color, 17], [Data.tag_text(sk.tags), Color("#9a9080"), 12],
 		[Data.cost_text(sk) + ("　CD %s秒" % sk.cd if sk.cd > 0.0 else ""), Color("#9a9080"), 12], [sk.desc, Color("#dddddd"), 13]]
+	var mine := glv < 0
+	if mine:
+		glv = p.gem_lv(true, id)
+	lines.append_array(gem_lv_lines(true, id, glv, p if mine and id in p.skills else null))
 	if slot < 0:
-		lines.append(_req_line(sk.lvl, hud.main.player.level))
+		lines.append(_req_line(Data.gem_req(true, id, glv), p.level))
 	if sk.has("aura"):
-		var p: Player = hud.main.player
 		var pool: String = sk.aura.pool
 		var key := "%sを" % Keybinds.text(Keybinds.skill_action(slot)) if slot >= 0 else ""
 		lines.append(["範囲 %dm　%s押すたびに発動／解除" % [sk.aura.r, key], Color("#9a9080"), 12])
@@ -156,8 +161,26 @@ func skill_tip(id: String, slot := -1) -> Array:
 		var s: Dictionary = hud.main.slot_sup(slot)
 		for gid in s.ids:
 			var g := Data.support(gid)
-			lines.append(["◆ %s：%s" % [g.name, g.desc], g.color, 12])
+			lines.append(["◆ %s Lv%d：%s" % [g.name, p.gem_lv(false, gid), g.desc], g.color, 12])
 	return lines
+
+
+## a thin bar of a gem's experience toward its next level (full and gold at the top level)
+static func xp_bar(p: Player, skill: bool, id: String, w: float) -> ProgressBar:
+	var bar := ProgressBar.new()
+	bar.show_percentage = false
+	bar.custom_minimum_size = Vector2(w, 5)
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var pr := p.gem_progress(skill, id)
+	bar.max_value = maxi(1, pr[1])
+	bar.value = bar.max_value if pr[1] == 0 else pr[0]
+	var bg := StyleBoxFlat.new()
+	bg.bg_color = Color("#0c0a08")
+	var fg := StyleBoxFlat.new()
+	fg.bg_color = Color("#ffd36a") if pr[1] == 0 else (Color("#ff9a70") if p.gem_waiting(skill, id) else Data.GEM_XP_COLOR)
+	bar.add_theme_stylebox_override("background", bg)
+	bar.add_theme_stylebox_override("fill", fg)
+	return bar
 
 
 ## "必要レベル N", red while the character is below it
@@ -165,14 +188,38 @@ static func _req_line(need: int, level: int) -> Array:
 	return ["必要レベル %d" % need, Color("#dddddd") if level >= need else Color("#ff8080"), 12]
 
 
-static func gem_tip(g: Dictionary, level := 999) -> Array:
+## the gem level lines of a tooltip: "ジェムLv N / 20", what the level adds, and with `p` (the gem's owner) its
+## experience toward the next level
+static func gem_lv_lines(skill: bool, id: String, lv: int, p: Player = null) -> Array:
+	var out := [["ジェムLv %d / %d" % [lv, Data.GEM_MAX_LV], Data.GEM_XP_COLOR, 13]]
+	var t := Data.gem_lv_text(skill, id, lv)
+	if t != "":
+		out.append([t, Data.GEM_XP_COLOR, 12])
+	if p == null:
+		return out
+	if lv >= Data.GEM_MAX_LV:
+		out.append(["最大レベルに達している", Color("#ffd36a"), 12])
+		return out
+	var pr := p.gem_progress(skill, id)
+	out.append(["ジェム経験値 %d / %d（%d%%）" % [pr[0], pr[1], floori(100.0 * pr[0] / maxf(1.0, pr[1]))], Data.GEM_XP_COLOR, 12])
+	if p.gem_waiting(skill, id):
+		out.append(["次のジェムLvにはキャラクター Lv %d が必要（経験値は満タンで待機中）" % Data.gem_req(skill, id, lv + 1), Color("#ff9a70"), 12])
+	else:
+		out.append(["スキルバーに付けている間、敵を倒すと経験値がたまる", Color("#9a9080"), 11])
+	return out
+
+
+## `glv`: the gem level shown (its requirement and its strength); `p`: the owner, to show its experience
+static func gem_tip(g: Dictionary, level := 999, glv := 1, p: Player = null) -> Array:
 	var target := "対象：" + Data.tag_text(g.tags)
 	if g.has("not"):
 		target += "（%sを除く）" % Data.tag_text(g.not)
 	if g.has("need"):
 		target += "\n%sスキルのみ" %"・".join(PackedStringArray(g.need.map(func(k): return Data.NEED_NAMES[k])))
 	var lines := [[g.name, g.color, 17], ["%s　エネルギー消費 %d" % [Data.AWAKE_KIND if g.get("awake", false) else "サポートジェム", g.energy], Color("#9a9080"), 12],
-		[g.desc, Color("#dddddd"), 13], [target, Color("#8fb4ff"), 12], _req_line(g.lvl, level)]
+		[g.desc, Color("#dddddd"), 13], [target, Color("#8fb4ff"), 12]]
+	lines.append_array(gem_lv_lines(false, g.id, glv, p))
+	lines.append(_req_line(Data.gem_req(false, g.id, glv), level))
 	if g.get("awake", false):
 		var base := Data.support(g.base)
 		lines.append(["「%s」の覚醒体。同じスキルに元のジェムとは一緒にリンクできない" % base.name, Data.AWAKE_COLOR, 12])
@@ -204,7 +251,7 @@ func refresh() -> void:
 		var sk: Dictionary = Data.SKILLS[id]
 		var card := VBoxContainer.new()
 		card.add_theme_constant_override("separation", 3)
-		var b := card("%s\n%s" % [Keybinds.text(Keybinds.skill_action(i)), sk.name], Color("#2a2014") if i == sel else Color("#120e0a"),
+		var b := card("%s　Lv%d\n%s" % [Keybinds.text(Keybinds.skill_action(i)), p.gem_lv(true, id), sk.name], Color("#2a2014") if i == sel else Color("#120e0a"),
 			Color("#ffd36a") if i == sel else Color("#4a3a26"), sk.color, 2 if i == sel else 1)
 		b.custom_minimum_size = Vector2(150, 52)
 		var iv := SkillIcon.View.new()
@@ -215,6 +262,7 @@ func refresh() -> void:
 			refresh())
 		_hover(b, skill_tip(id, i))
 		card.add_child(b)
+		card.add_child(xp_bar(p, true, id, 150))
 		var socks := HBoxContainer.new()
 		socks.add_theme_constant_override("separation", 2)
 		socks.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -235,8 +283,9 @@ func refresh() -> void:
 				var gv := SkillIcon.View.new()
 				gv.gem = g
 				gv.mark = "✕" if not fits else ("!" if dark else "")
+				gv.lv = p.gem_lv(false, gid)
 				s.add_child(gv)
-				var tip := gem_tip(g, p.level)
+				var tip := gem_tip(g, p.level, gv.lv, p)
 				if dark:
 					tip.append(["エネルギー不足で無効", Color("#ff8080"), 12])
 				tip.append(["クリックで外す" + ("" if fits else "（このスキルには無効）"), Color("#ffd36a"), 12])
@@ -255,8 +304,8 @@ func refresh() -> void:
 			continue
 		var locked: bool = not p.can_use_skill(id)
 		var at := p.slots.find(id)
-		var tag := ("未入手（Lv %d）" % sk.lvl) if not id in p.skills else ("Lv %d から使える" % sk.lvl) if locked 			else ("装備中：%s" % Keybinds.text(Keybinds.skill_action(at)) if at >= 0 else "")
-		var b := card("%s　%s\n%s%s　%s" % [sk.name, tag, Data.cost_text(sk), "　CD %s秒" % sk.cd if sk.cd > 0.0 else "", Data.tag_text(sk.tags)],
+		var tag := ("未入手（Lv %d）" % sk.lvl) if not id in p.skills else ("Lv %d から使える" % p.gem_req(true, id)) if locked 			else ("装備中：%s" % Keybinds.text(Keybinds.skill_action(at)) if at >= 0 else "")
+		var b := card("%s%s　%s\n%s%s　%s" % [sk.name, "　Lv%d" % p.gem_lv(true, id) if id in p.skills else "", tag, Data.cost_text(sk), "　CD %s秒" % sk.cd if sk.cd > 0.0 else "", Data.tag_text(sk.tags)],
 			Color("#120e0a"), Color("#6a5a44") if at >= 0 else Color("#3a3024"), sk.color.darkened(0.55) if locked else sk.color)
 		b.custom_minimum_size = Vector2(250, 48)
 		var iv := SkillIcon.View.new()
@@ -280,21 +329,24 @@ func refresh() -> void:
 	for g in gems:
 		var owned: bool = g.id in p.gems
 		var twin := _twin_linked(g.id, sel_links)
-		var fits: bool = Data.support_fits(g, sel_id) and p.level >= g.lvl and twin == ""
+		var req := p.gem_req(false, g.id)
+		var glv := p.gem_lv(false, g.id) if owned else 1
+		var fits: bool = Data.support_fits(g, sel_id) and p.level >= req and twin == ""
 		if fit_only.button_pressed and not Data.support_fits(g, sel_id) and not g.id in sel_links:
 			continue
 		var linked: bool = g.id in sel_links
-		var tag := ("未入手（Lv %d）" % g.lvl) if not owned else ("リンク中" if linked else ("Lv %d から" % g.lvl if p.level < g.lvl
+		var tag := ("未入手（Lv %d）" % g.lvl) if not owned else ("リンク中" if linked else ("Lv %d から" % req if p.level < req
 			else ("" if fits else ("重複" if twin != "" else "対象外"))))
 		tag = "✦%d　%s" % [g.energy, tag]
 		var font: Color = g.color if owned and fits else g.color.darkened(0.6)
-		var b := card("%s　%s" % [g.name, tag], Color("#1c2a1c") if linked else Color("#120e0a"), g.color if linked else Color("#3a3024"), font, 2 if linked else 1)
+		var b := card("%s%s　%s" % [g.name, "　Lv%d" % glv if owned else "", tag], Color("#1c2a1c") if linked else Color("#120e0a"), g.color if linked else Color("#3a3024"), font, 2 if linked else 1)
 		b.custom_minimum_size = Vector2(200, 34)
 		var gv := SkillIcon.View.new()
 		gv.gem = g
 		gv.dim = not (owned and fits)
+		gv.lv = glv if owned else 0
 		SkillIcon.attach(b, gv, 26)
-		_hover(b, gem_tip(g, p.level))
+		_hover(b, gem_tip(g, p.level, glv, p if owned else null))
 		b.pressed.connect(_toggle_gem.bind(g.id))
 		gem_grid.add_child(b)
 
@@ -304,7 +356,7 @@ func _assign(id: String) -> void:
 	var p: Player = hud.main.player
 	if not p.can_use_skill(id):
 		var sk: Dictionary = Data.SKILLS[id]
-		hud.message(("「%s」のスキルジェムを持っていない" % sk.name) if not id in p.skills else ("「%s」は Lv %d から使える" % [sk.name, sk.lvl]), Color("#ff8080"))
+		hud.message(("「%s」のスキルジェムを持っていない" % sk.name) if not id in p.skills else ("「%s」（ジェムLv %d）は Lv %d から使える" % [sk.name, p.gem_lv(true, id), p.gem_req(true, id)]), Color("#ff8080"))
 		return
 	var at := p.slots.find(id)
 	if at >= 0:
@@ -328,8 +380,8 @@ func _toggle_gem(gid: String) -> void:
 		return
 	if gid in links:
 		links.erase(gid)
-	elif p.level < g.lvl:
-		hud.message("%sは Lv %d からリンクできる（いまは Lv %d）" % [g.name, g.lvl, p.level], Color("#ff8080"))
+	elif p.level < p.gem_req(false, gid):
+		hud.message("%s（ジェムLv %d）は Lv %d からリンクできる（いまは Lv %d）" % [g.name, p.gem_lv(false, gid), p.gem_req(false, gid), p.level], Color("#ff8080"))
 		return
 	elif _twin_linked(gid, links) != "":
 		hud.message("%sは「%s」と同じスキルにリンクできない" % [g.name, Data.support(_twin_linked(gid, links)).name], Color("#ff8080"))

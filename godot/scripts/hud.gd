@@ -277,6 +277,9 @@ func refresh_inventory() -> void:
 	stash_ui.refresh()
 
 
+var tip_pin := Vector2.ZERO   # set: the tooltip stays here instead of following the cursor
+
+
 ## lines: [text, color, size] or [text, color, size, detail text]; the detail text (the ranges the lines could roll,
 ## ModRange) shows while Alt is held, and swaps in and out at once when Alt goes down or up over the same tooltip
 func show_tip(lines: Array) -> void:
@@ -321,6 +324,9 @@ func _notification(what: int) -> void:
 
 
 func _place_tip() -> void:
+	if tip_pin != Vector2.ZERO:   # a `--view` showing a tooltip puts it where the screenshot sees it
+		tip.position = tip_pin
+		return
 	var m := root.get_global_mouse_position() + Vector2(18, 18)
 	var vp := root.get_viewport_rect().size
 	if m.x + tip.size.x > vp.x - 8:

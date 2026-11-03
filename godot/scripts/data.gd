@@ -475,29 +475,130 @@ static func all_supports() -> Array:
 ## max grows (whole numbers round up, behavior switches stay), drawbacks stay. if damage isn't one of the benefits,
 ## the gem also gives AWAKE_DMG more of it. values are rounded to whole percents for the description to match.
 static func awaken(g: Dictionary, gain: float) -> Dictionary:
-	var a: Dictionary = g.duplicate(true)
+	var a := _grow(g, gain, AWAKE_DMG, true, 0.01)
 	a["id"] = AWAKE_ID + g.id
 	a["name"] = AWAKE_NAME + g.name
 	a["base"] = g.id
 	a["awake"] = true
 	a["lvl"] = maxi(AWAKE_LVL_MIN, int(g.lvl) + AWAKE_LVL_ADD)
 	a["desc"] = AWAKE_DESC.get(g.id, g.desc)
+	return a
+
+
+## support gem `g` with its benefits `gain` times as big (see awaken) and `dmg` times the damage if damage isn't one of
+## them; whole-number adds grow (rounded up) only with `ints`, multipliers snap to `snap`
+static func _grow(g: Dictionary, gain: float, dmg: float, ints: bool, snap: float) -> Dictionary:
+	var a: Dictionary = g.duplicate(true)
 	var mul: Dictionary = a.get("mul", {})
 	for k in mul:
 		var v: float = mul[k]
 		if (k == "mana" and v < 1.0) or (k in AWAKE_UP and v > 1.0):
-			mul[k] = snappedf(1.0 + (v - 1.0) * gain, 0.01)
+			mul[k] = snappedf(1.0 + (v - 1.0) * gain, snap)
 	if mul.get("dmg", 1.0) <= 1.0:
-		mul["dmg"] = snappedf(mul.get("dmg", 1.0) * AWAKE_DMG, 0.01)
+		mul["dmg"] = snappedf(mul.get("dmg", 1.0) * dmg, snap)
 	a["mul"] = mul
 	for k in a.get("add", {}):
 		var v = a.add[k]
-		if k in AWAKE_FLAGS:
+		if k in AWAKE_FLAGS or (v is int and not ints):
 			continue
 		a.add[k] = ceili(v * gain) if v is int else snappedf(v * gain, 0.001)
 	for k in a.get("max", {}):
 		a.max[k] = snappedf(a.max[k] * gain, 0.001)
 	return a
+
+
+# ---- gem levels (#68) ----
+# every skill gem and support gem (awakened ones too) grows from Lv 1 to GEM_MAX_LV while it sits on the skill bar:
+# the skill in a slot and the gems powered in its links take the same experience the character does. each gem level
+# asks GEM_LV_REQ more character levels on top of the gem's own `lvl`, and a gem stops growing at the last level the
+# character can use until the character catches up. a gem's experience is kept as a running total (Player.gem_xp,
+# keyed by gem_key); a gem with none is Lv 1, so saves from before #68 load with every gem at Lv 1.
+# per level a support gem's benefits grow GEM_LV_GAIN of themselves (counts such as +projectiles stay; when damage
+# isn't a benefit it gets GEM_LV_DMG more damage a level instead) and a skill gem deals SKILL_LV_DMG more damage
+# (SKILL_LV_BEFF more buff and aura effect).
+const GEM_MAX_LV := 20
+const GEM_LV_REQ := 2
+const GEM_LV_GAIN := 0.03
+const GEM_LV_DMG := 0.01
+const SKILL_LV_DMG := 0.04
+const SKILL_LV_BEFF := 0.015
+const SKILL_KEY := "s:"
+const GEM_XP_COLOR := Color("#8fd0ff")
+static var _leveled := {}
+
+
+## the key of a gem in Player.gem_xp and in the level maps build_sup takes: support gems by id, skill gems "s:" + id
+static func gem_key(skill: bool, id: String) -> String:
+	return SKILL_KEY + id if skill else id
+
+
+## experience a gem needs to go from `lv` to lv + 1: two character levels' worth, so a gem kept on the bar keeps
+## pace with the GEM_LV_REQ character levels each of its levels asks for
+static func gem_xp_need(lv: int) -> int:
+	return xp_need(2 * lv - 1) + xp_need(2 * lv)
+
+
+## total experience a gem holds at the start of Lv `lv`
+static func gem_xp_at(lv: int) -> int:
+	var t := 0
+	for l in range(1, clampi(lv, 1, GEM_MAX_LV)):
+		t += gem_xp_need(l)
+	return t
+
+
+## the level of a gem holding `xp` experience in total
+static func gem_level(xp: int) -> int:
+	var lv := 1
+	while lv < GEM_MAX_LV and xp >= gem_xp_at(lv + 1):
+		lv += 1
+	return lv
+
+
+## character level a gem needs at gem level `lv` (awakened gems start from their own higher `lvl`)
+static func gem_req(skill: bool, id: String, lv: int) -> int:
+	var base: int = SKILLS[id].lvl if skill else support(id).get("lvl", 1)
+	return base + (clampi(lv, 1, GEM_MAX_LV) - 1) * GEM_LV_REQ
+
+
+## how much bigger a support gem's benefits are at `lv` (1.0 at Lv 1)
+static func gem_gain(lv: int) -> float:
+	return 1.0 + (clampi(lv, 1, GEM_MAX_LV) - 1) * GEM_LV_GAIN
+
+
+## a skill gem's damage multiplier at `lv`
+static func skill_lv_dmg(lv: int) -> float:
+	return 1.0 + (clampi(lv, 1, GEM_MAX_LV) - 1) * SKILL_LV_DMG
+
+
+## support gem `id` at gem level `lv` (cached; at Lv 1 it is the gem itself)
+static func support_at(id: String, lv: int) -> Dictionary:
+	lv = clampi(lv, 1, GEM_MAX_LV)
+	var g := support(id)
+	if lv == 1 or g.is_empty():
+		return g
+	var key := "%s@%d" % [id, lv]
+	if not _leveled.has(key):
+		var a := _grow(g, gem_gain(lv), 1.0 + (lv - 1) * GEM_LV_DMG, false, 0.001)
+		a["glv"] = lv
+		_leveled[key] = a
+	return _leveled[key]
+
+
+## what gem level `lv` adds, as one line of tooltip text ("" at Lv 1)
+static func gem_lv_text(skill: bool, id: String, lv: int) -> String:
+	if lv <= 1:
+		return ""
+	var t := ""
+	if skill:
+		t = "ダメージ +%d%%" % roundi((skill_lv_dmg(lv) - 1.0) * 100.0)
+		if SKILLS[id].has("aura") or "buff" in SKILLS[id].tags:
+			t += "、強化・オーラの効果 +%s%%" % snappedf((lv - 1) * SKILL_LV_BEFF * 100.0, 0.1)
+	else:
+		t = "利点の数値 ×%s" % snappedf(gem_gain(lv), 0.01)
+		if support(id).get("mul", {}).get("dmg", 1.0) <= 1.0:
+			t += "、ダメージ +%d%%" % roundi((lv - 1) * GEM_LV_DMG * 100.0)
+		t += "（数の増える効果はそのまま）"
+	return "ジェムLvの伸び：" + t
 
 
 static func support_fits(g: Dictionary, skill_id: String) -> bool:
@@ -530,7 +631,8 @@ static func tag_text(tags: Array) -> String:
 
 
 ## the support modifiers a slot's linked gems give its skill (gems that don't fit are skipped)
-static func build_sup(skill_id: String, ids: Array) -> Dictionary:
+## `lv`: gem levels by gem_key (a gem missing from it is Lv 1)
+static func build_sup(skill_id: String, ids: Array, lv := {}) -> Dictionary:
 	var s := {"dmg": 1.0, "mana": 1.0, "speed": 1.0, "proj": 0, "aoe": 1.0, "chain": 0, "leech": 0.0, "freeze": 0.0,
 		"totem": 0, "mlife": 1.0, "mcount": 0, "ids": [], "skill": skill_id,
 		"m_phys": 1.0, "m_fire": 1.0, "m_cold": 1.0, "m_light": 1.0, "m_chaos": 1.0, "conv": "", "crit": 0.0, "critm": 0.0,
@@ -544,8 +646,11 @@ static func build_sup(skill_id: String, ids: Array) -> Dictionary:
 	var own: Dictionary = SKILLS[skill_id].get("sup", {})
 	for k in own:
 		s[k] += own[k]
+	var slv: int = clampi(lv.get(SKILL_KEY + skill_id, 1), 1, GEM_MAX_LV)
+	s.dmg *= skill_lv_dmg(slv)
+	s.beff *= 1.0 + (slv - 1) * SKILL_LV_BEFF
 	for id in ids:
-		var g := support(id)
+		var g := support_at(id, lv.get(id, 1))
 		# a gem and its awakened twin don't stack: only the first linked counts
 		if g.is_empty() or not support_fits(g, skill_id) or s.ids.any(func(o): return base_gem(o) == base_gem(id)):
 			continue

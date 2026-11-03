@@ -60,6 +60,9 @@ var unique_hits := VBoxContainer.new()
 var mod_opts: Array[OptionButton] = []
 var mod_mins: Array[SpinBox] = []
 var ilvl_spin := SpinBox.new()
+var glv_spin := SpinBox.new()    # gems: the least gem level asked for
+var ilvl_row: HBoxContainer
+var glv_row: HBoxContainer
 var price_lo := SpinBox.new()
 var price_hi := SpinBox.new()
 var slot_row: HBoxContainer    # made by _field in _build_search
@@ -294,7 +297,12 @@ func _build_search() -> void:
 		mod_mins.append(mn)
 	ilvl_spin.max_value = 200
 	ilvl_spin.tooltip_text = "この値以上のアイテムレベル（0 で隠れ家の水準）"
-	left.add_child(_field("iLv 以上", ilvl_spin))
+	ilvl_row = _field("iLv 以上", ilvl_spin)
+	left.add_child(ilvl_row)
+	glv_spin.max_value = Data.GEM_MAX_LV
+	glv_spin.tooltip_text = "この値以上のジェムLv（0 で指定なし。ほとんどは Lv 1）"
+	glv_row = _field("ジェムLv 以上", glv_spin)
+	left.add_child(glv_row)
 	var prow := HBoxContainer.new()
 	prow.add_theme_constant_override("separation", 4)
 	var pl := sub("価格 ✺", 13)
@@ -356,6 +364,9 @@ func _sync_filters() -> void:
 	var cat := _cat()
 	slot_row.visible = cat == "gear"
 	unique_row.visible = cat == "gear"
+	if glv_row:
+		glv_row.visible = cat == "gem"
+		ilvl_row.visible = cat != "gem"
 	var keep_base := base_opt.get_item_text(base_opt.selected) if base_opt.selected > 0 else ""
 	base_opt.clear()
 	base_opt.add_item("指定なし")
@@ -412,7 +423,8 @@ func read_query() -> Dictionary:
 		var o := mod_opts[i]
 		if o.selected > 0 and mod_box.visible:
 			q.mods.append({"k": o.get_item_metadata(o.selected), "min": int(mod_mins[i].value)})
-	q.ilvl = int(ilvl_spin.value)
+	q.ilvl = int(ilvl_spin.value) if q.cat != "gem" else 0
+	q.glv = int(glv_spin.value) if q.cat == "gem" else 0
 	q.price_min = int(price_lo.value)
 	q.price_max = int(price_hi.value)
 	return q
@@ -445,6 +457,7 @@ func set_query(q: Dictionary) -> void:
 					mod_opts[i].select(j)
 			mod_mins[i].value = int(c.mods[i].get("min", 0))
 	ilvl_spin.value = c.ilvl
+	glv_spin.value = c.glv
 	price_lo.value = c.price_min
 	price_hi.value = c.price_max
 	clear(unique_hits)
@@ -537,7 +550,7 @@ func _listing_label(l: Dictionary) -> Array:
 			return ["%s %s ×%d" % [Charms.ICON, Charms.name_of(l.id), l.n], Charms.color_of(l.id)]
 		"gem":
 			var gi := Data.gem_info(l.skill, l.id)
-			return ["%s %s Lv%d" % ["◈" if l.skill else "◇", gi.name, gi.lvl], gi.color]
+			return ["%s %s ジェムLv%d（必要Lv%d）" % ["◈" if l.skill else "◇", gi.name, l.get("glv", 1), Data.gem_req(l.skill, l.id, l.get("glv", 1))], gi.color]
 		"currency":
 			var c := Data.currency(l.id)
 			return ["%s %s ×%d" % [c.icon, c.name, l.n], c.color]
@@ -553,7 +566,8 @@ func _listing_tip(l: Dictionary) -> Array:
 		"charm":
 			return Charms.lines(l.id, l.n)
 		"gem":
-			return hud.skill_ui.skill_tip(l.id) if l.skill else SkillUI.gem_tip(Data.support(l.id), hud.main.player.level)
+			var glv: int = l.get("glv", 1)
+			return hud.skill_ui.skill_tip(l.id, -1, glv) if l.skill else SkillUI.gem_tip(Data.support_at(l.id, glv), hud.main.player.level, glv)
 		"currency":
 			var c := Data.currency(l.id)
 			return [[c.name, c.color, 16], [c.desc, Color("#b8a888"), 13]]
@@ -578,9 +592,13 @@ func buy_result(i: int) -> void:
 		"jewel", "ring":
 			if p.jewels.size() >= Jewels.MAX_OWNED:
 				err = "ジュエルが一杯です（%d）" % Jewels.MAX_OWNED
-		"gem":
+		"gem":   # an owned gem can be bought again only at a higher gem level the character can use (it then takes that level)
+			var glv: int = l.get("glv", 1)
 			if l.id in (p.skills if l.skill else p.gems):
-				err = "そのジェムはもう持っている"
+				if glv <= p.gem_lv(l.skill, l.id):
+					err = "そのジェムはもう持っている（ジェムLv %d）" % p.gem_lv(l.skill, l.id)
+				elif Data.gem_req(l.skill, l.id, glv) > p.level:
+					err = "持っているジェムをジェムLv %d にするにはキャラクター Lv %d が必要" % [glv, Data.gem_req(l.skill, l.id, glv)]
 	if err == "":
 		err = Exchange.pay(l, wallet())
 	if err != "":
@@ -597,10 +615,18 @@ func buy_result(i: int) -> void:
 		"charm":
 			m.gain_charm(l.id, l.n)
 		"gem":
-			if l.skill:
-				m.learn_skill(l.id)
+			var glv: int = l.get("glv", 1)
+			if l.id in (p.skills if l.skill else p.gems):
+				p.set_gem_lv(l.skill, l.id, glv)
+				hud.message("%s「%s」を ジェムLv %d のものに入れ替えた" % [Data.gem_info(l.skill, l.id).kind, Data.gem_info(l.skill, l.id).name, glv], Data.GEM_XP_COLOR)
+				p.recalc()
+				hud.skill_ui.refresh()
 			else:
-				m.unlock_gem(l.id)
+				p.set_gem_lv(l.skill, l.id, glv)
+				if l.skill:
+					m.learn_skill(l.id)
+				else:
+					m.unlock_gem(l.id)
 		"currency":
 			p.cur[l.id] = p.cur.get(l.id, 0) + l.n
 			hud.message("%s ×%d を ✺ %d で買った" % [Data.currency(l.id).name, l.n, l.price], Color("#c070ff"))

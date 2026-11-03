@@ -314,7 +314,21 @@ static func _gems() -> Dictionary:
 				"Lv %d 以上のエリアのエリート（%s%%）とボス（%s%%）のドロップか、取引所でのみ手に入り、商人や燼火の炉では手に入らない。") % [
 				Data.AWAKE_GAIN, roundi((Data.AWAKE_DMG - 1.0) * 100), Data.AWAKE_LVL_ADD, Data.AWAKE_LVL_MIN, Data.AWAKE_DROP_ILVL,
 				_pct(Data.AWAKE_DROP.elite), _pct(Data.AWAKE_DROP.boss)],
-				"head": ["覚醒ジェム", "必要Lv", "エネルギー", "効果"], "rows": ar}]}
+				"head": ["覚醒ジェム", "必要Lv", "エネルギー", "効果"], "rows": ar},
+			{"title": "ジェムレベル（1〜%d）" % Data.GEM_MAX_LV, "note": ("スキルバーに付けたスキルジェムと、そのスロットで有効なサポートジェム（覚醒ジェムも）は、" +
+				"キャラクターと同じ経験値を得てレベルが上がる。ジェムLvが1上がるごとに必要Lvが %d 上がり、キャラクターが次のジェムLvの必要Lvに届くまでは経験値が満タンのまま止まる。" +
+				"サポートジェムは利点が1レベルごとに %d%% 伸びる（投射物数などの個数は変わらない。ダメージが利点でないものはダメージ +%d%%/Lv）。" +
+				"ドロップと商人のジェムは Lv 1。取引所はほとんどが Lv 1 で、ジェムLvを指定して探すこともできる。") % [
+				Data.GEM_LV_REQ, roundi(Data.GEM_LV_GAIN * 100), roundi(Data.GEM_LV_DMG * 100)],
+				"head": ["ジェムLv", "次のLvまでの経験値", "累計経験値", "必要Lv（元のLvに加算）", "サポート：利点", "スキル：ダメージ"], "rows": _gem_lv_rows()}]}
+
+
+static func _gem_lv_rows() -> Array:
+	var rows := []
+	for lv in range(1, Data.GEM_MAX_LV + 1):
+		rows.append([str(lv), str(Data.gem_xp_need(lv)) if lv < Data.GEM_MAX_LV else "—", str(Data.gem_xp_at(lv)),
+			"+%d" % ((lv - 1) * Data.GEM_LV_REQ), "×%s" % snappedf(Data.gem_gain(lv), 0.01), "+%d%%" % roundi((Data.skill_lv_dmg(lv) - 1.0) * 100.0)])
+	return rows
 
 
 # =================== values ===================

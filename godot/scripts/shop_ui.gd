@@ -312,7 +312,7 @@ func _fill_gems() -> void:
 		b.add_theme_font_size_override("font_size", 13)
 		b.custom_minimum_size = Vector2(245, 28)
 		b.disabled = p.cur.ember < cost
-		var tip: Array = hud.skill_ui.skill_tip(m_gem.id) if m_gem.skill else SkillUI.gem_tip(Data.support(m_gem.id), p.level)
+		var tip: Array = hud.skill_ui.skill_tip(m_gem.id, -1, 1) if m_gem.skill else SkillUI.gem_tip(Data.support(m_gem.id), p.level)
 		b.mouse_entered.connect(func(): hud.show_tip(tip))
 		b.mouse_exited.connect(func(): hud.hide_tip())
 		b.pressed.connect((_buy_skill if m_gem.skill else _buy_gem).bind(m_gem.id))
