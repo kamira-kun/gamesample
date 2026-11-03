@@ -30,6 +30,7 @@ static func pages() -> Array:
 		ps.append(_uniques(slot))
 	ps.append(_rares())
 	ps.append(_tablets())
+	ps.append(_charms())
 	ps.append(_ascendancies())
 	ps.append(_passives())
 	ps.append(_jewels())
@@ -155,6 +156,19 @@ static func _tablets() -> Dictionary:
 	return {"file": "tablets.md", "title": "石板と特殊修飾子",
 		"intro": "石板はボスが必ず1つ落とします（半分は能力を1行刻んだ状態、残りは無地）。6×6の石板盤に回して置き、盤に置いた石板の能力だけが効きます。%sは刻紋の封碑（マップの約%d%%に1つ。封印を解いて番人をすべて倒す）からだけ得られます。" % [b.name, roundi(Seal.CHANCE * 100)],
 		"sections": secs}
+
+
+static func _charms() -> Dictionary:
+	var rows := []
+	for f in Charms.FAMILIES:
+		for t in f.tiers.size():
+			var id := Charms.id_of(f.k, t)
+			rows.append([Charms.name_of(id), f.name, str(t + 1), Charms.effect_text(id), "◆ %d" % Charms.value(id)])
+	return {"file": "charms.md", "title": "燼殻",
+		"intro": "燼殻は燼火の甲虫の殻を灯した護符です。遠征図で出撃前に %d つまで（同じ系統は1つまで）はめると、そのマップ1回にだけ効果が加わり、マップに入ると燃え尽きます。マップの敵が落とし（ボス %d%%・エリート %d%%・通常 %s%%）、所持品とスタッシュで重ねて持てます。エリアレベルが高いほど上の階位が出やすくなります。" % [Charms.SLOTS,
+			roundi(Charms.drop_chance(true, false) * 100), roundi(Charms.drop_chance(false, true) * 100), _num(Charms.drop_chance(false, false) * 100)],
+		"sections": [{"title": "燼殻の一覧", "note": "価値は商人の値付けの基準（灰燼の欠片）です。",
+			"head": ["名前", "系統", "階位", "効果", "価値"], "rows": rows}]}
 
 
 ## one-line crafting: what each action does and what it costs by item level

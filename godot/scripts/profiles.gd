@@ -40,7 +40,7 @@ static func load_all(today := Data.today()) -> Array:
 
 
 static func fresh() -> Dictionary:
-	return {"version": VERSION, "next_id": 1, "chars": [], "stash": {}, "market": {}, "stash_cur": {}, "farm": {}}
+	return {"version": VERSION, "next_id": 1, "chars": [], "stash": {}, "market": {}, "stash_cur": {}, "stash_charms": {}, "farm": {}}
 
 
 ## fill in anything an older or hand-edited file lacks
@@ -82,6 +82,10 @@ static func normalize(d: Dictionary) -> void:
 			continue
 		for k in w.keys():
 			w[k] = int(w[k])
+	if typeof(d.get("stash_charms")) != TYPE_DICTIONARY:
+		d.stash_charms = {}
+	for lg in d.stash_charms.keys():
+		d.stash_charms[lg] = Charms.normalize(d.stash_charms[lg])
 	Farm.normalize(d)
 
 
@@ -148,6 +152,13 @@ static func migrate(d: Dictionary, today: String) -> Array:
 		for k in d.stash_cur[lg]:
 			w[k] = w.get(k, 0) + d.stash_cur[lg][k]
 		d.stash_cur.erase(lg)
+	for lg in d.get("stash_charms", {}).keys():   # a finished season's ember shells join standard's
+		if lg == STANDARD or Data.season_running(lg, today):
+			continue
+		var sc := stash_charms(STANDARD, d)
+		for id in d.stash_charms[lg]:
+			Charms.add(sc, id, int(d.stash_charms[lg][id]))
+		d.stash_charms.erase(lg)
 	notes.append_array(Farm.migrate(d, today))
 	return notes
 
@@ -208,6 +219,15 @@ static func stash_cur(league: String, d := data) -> Dictionary:
 	if not d.stash_cur.has(league):
 		d.stash_cur[league] = {}
 	return d.stash_cur[league]
+
+
+## the ember shells a league's stash holds (Charms: id -> count), made on first use
+static func stash_charms(league: String, d := data) -> Dictionary:
+	if typeof(d.get("stash_charms")) != TYPE_DICTIONARY:
+		d.stash_charms = {}
+	if not d.stash_charms.has(league):
+		d.stash_charms[league] = {}
+	return d.stash_charms[league]
 
 
 ## move a league's stash currency into `wallet`; returns how many pieces moved

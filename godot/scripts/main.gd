@@ -46,6 +46,7 @@ var portal: Dictionary = {}
 var atlas := Atlas.new()
 var area: Dictionary = Data.HIDEOUT   # current atlas node, or the hideout
 var run_mods: Array = []
+var run_charms: Array = []   # ember shells burnt on entering this map (Charms)
 var mod_fx := Atlas.effects([])
 var shop := {}
 var interacts: Array = []   # hideout objects and dormant altars: {kind, name, pos, r}
@@ -258,6 +259,18 @@ func _ready() -> void:
 					# the tooltip follows the real pointer, which may be anywhere: hold it beside the item for the shot
 					var at: Vector2 = hud.inventory.find_children("*", "ItemSlot", true, false).filter(func(c): return is_same(c.item, it))[0].get_global_rect().end
 					RenderingServer.frame_pre_draw.connect(func(): hud.tip.position = at + Vector2(8, -40)))
+			elif kind.begins_with("charms"):   # the atlas with three ember shells set and more owned, one's tooltip up (`charms_alt`: with Alt held)
+				for id in Charms.all_ids():
+					Charms.add(player.charms, id, 1 + randi() % 3)
+				player.charm_slots = ["horde_3", "tyrant_2", "seal_1"]
+				atlas.sel = "ash"
+				hud.atlas_ui.open_close()
+				hud.set_detail(kind == "charms_alt")
+				get_tree().create_timer(2.0).timeout.connect(func():
+					hud.show_tip(Charms.lines("tyrant_2", player.charms.tyrant_2))
+					var sl: Control = hud.atlas_ui.detail.find_children("*", "Control", true, false).filter(func(c): return c is Charms.Slot and c.id == "tyrant_2")[0]
+					var at := Vector2(hud.atlas_ui.detail.get_global_rect().position.x, sl.get_global_rect().position.y)
+					RenderingServer.frame_pre_draw.connect(func(): hud.tip.position = at - Vector2(hud.tip.size.x + 24, 0)))
 			elif kind == "brand_tip":   # a rare chest with a special modifier, its tooltip up
 				var it := Items.generate(20, 0.0, 2, "armor")
 				Items.brand(it)
@@ -341,6 +354,7 @@ func _smoke_docs() -> void:
 	for id in Data.SKILL_ORDER:
 		names.append(Data.SKILLS[id].name)
 	names.append_array(Data.SUPPORTS.map(func(g): return g.name))
+	names.append_array(Charms.all_ids().map(func(id): return Charms.name_of(id)))
 	var md := "".join(PackedStringArray(files.values()))
 	for n in names:
 		if not n in md:
@@ -1890,6 +1904,134 @@ func _smoke_seal() -> void:
 	enter_hideout()
 
 
+## ember shells (issue #60): set into the atlas (4 at most, one per family, only ones owned), they burn away on
+## entering the map and their effects apply there — more and more elite monsters that are tougher, guaranteed
+## monoliths, an ember-crowned boss that drops more items, tablets and currency; enemies drop them; the stash
+## holds them in stacks; they survive a save round trip (and a bad save loses only the bad entries); the docs list them
+func _smoke_charms() -> void:
+	var p := player
+	p.invuln = 1e9
+	var keep_filter: Array = p.filter.rarity.duplicate()
+	p.filter.rarity = ["pick", "pick", "pick", "pick"]
+	p.charms = {}
+	p.charm_slots = []
+	enter_hideout()
+	for id in ["horde_3", "elite_3", "peril_3", "tyrant_3", "relic_3", "hoard_3", "seal_3"]:
+		Charms.add(p.charms, id, 3)
+	Charms.add(p.charms, "horde_1", 1)
+	hud.atlas_ui.open_close()
+	var errs := [hud.atlas_ui.slot("horde_3"), hud.atlas_ui.slot("horde_1"), hud.atlas_ui.slot("elite_1"), hud.atlas_ui.slot("nope_9")]
+	for id in ["elite_3", "peril_3", "tyrant_3"]:
+		hud.atlas_ui.slot(id)
+	var full := Charms.can_slot(p.charm_slots, p.charms, "seal_3")
+	var shown: int = hud.atlas_ui.detail.find_children("*", "Control", true, false).filter(func(c): return c is Charms.Slot).size()
+	hud.atlas_ui.unslot(3)
+	var after_unslot: Array = p.charm_slots.duplicate()
+	print("SMOKE charm slots=%s errs=%s full='%s' shown=%d" % [after_unslot, errs, full, shown])
+	_expect("charm_slot", {"set": after_unslot == ["horde_3", "elite_3", "peril_3"], "same_family": errs[1] != "", "not_owned": errs[2] != "",
+		"unknown": errs[3] != "", "full": full != "", "ui": shown >= Charms.SLOTS})
+	hud.atlas_ui.open_close()
+	# the same maps with and without the shells: the dungeon is the same for the same seed
+	p.charm_slots = []
+	var base := {"enemies": 0, "elites": 0}
+	for i in 3:
+		seed(60600 + i)
+		enter_map("ash")
+		base.enemies += enemies.size()
+		base.elites += enemies.filter(func(e): return not e.elite.is_empty()).size()
+	var with := {"enemies": 0, "elites": 0}
+	var burnt := true
+	var life_ratio := 0.0
+	for i in 3:
+		p.charm_slots = ["horde_3", "elite_3", "peril_3"]
+		var before: int = Charms.count(p.charms)
+		seed(60600 + i)
+		enter_map("ash")
+		burnt = burnt and Charms.count(p.charms) == before - 3 and p.charm_slots.is_empty() and run_charms == ["horde_3", "elite_3", "peril_3"]
+		with.enemies += enemies.size()
+		with.elites += enemies.filter(func(e): return not e.elite.is_empty()).size()
+		if i == 0:
+			var tough := _make_enemy("ghoul", p.pos, 998)
+			var fx := mod_fx
+			mod_fx = atlas.map_effects([])
+			var plain := _make_enemy("ghoul", p.pos, 998)
+			mod_fx = fx
+			life_ratio = tough.max_life / plain.max_life
+	print("SMOKE charm run base=%s with=%s burnt=%s left=%s life_ratio=%.2f" % [base, with, burnt, p.charms, life_ratio])
+	_expect("charm_monsters", {"burnt": burnt, "more": with.enemies > base.enemies * 1.2, "elites": with.elites > base.elites,
+		"tougher": absf(life_ratio - 2.0) < 0.01, "rewards": mod_fx.rarity >= 1.2 and mod_fx.xp >= 1.5})
+	# the loot shells: monoliths are there at once, the crowned boss drops more items, tablets and currency
+	enter_hideout()
+	p.charm_slots = ["tyrant_3", "relic_3", "hoard_3", "seal_3"]
+	enter_map("ash")
+	var crowned := boss != null and boss.display_name.begins_with("燼冠の")
+	var b := boss
+	for d in drops:
+		d.node.queue_free()
+	drops.clear()
+	for g in ground:
+		g.node.queue_free()
+	ground.clear()
+	var hp := b.max_life
+	hit_enemy(b, {"dmg": hp * 10.0, "crit": false, "type": "phys"})
+	await get_tree().create_timer(0.2).timeout
+	var items := ground.size()
+	var tablets := drops.filter(func(d): return d.k == "tablet").size()
+	var curs := drops.filter(func(d): return d.k != "ember" and not Data.currency(d.k).is_empty()).size()
+	for i in 12:   # a boss drops a shell 60% of the time: a dozen rolls of its loot is (nearly) sure to give one
+		_drop_loot(b)
+	var shells := drops.filter(func(d): return d.k == "charm")
+	var c0 := Charms.count(p.charms)
+	p.pos = b.pos
+	_collect_nearby(40.0)
+	print("SMOKE charm boss crowned=%s seals=%d items=%d tablets=%d currency=%d jewel_fx=%.1f shells=%d picked=%d" % [crowned, seals.size(), items,
+		tablets, curs, mod_fx.jewel, shells.size(), Charms.count(p.charms) - c0])
+	_expect("charm_loot", {"crowned": crowned, "seals": seals.size() == 3, "items": items >= 4 + 5, "tablets": tablets == 3, "currency": curs > 5,
+		"jewel": mod_fx.jewel == 3.0, "dropped": shells.size() > 0, "picked": Charms.count(p.charms) - c0 >= shells.size(),
+		"valid": shells.all(func(d): return Charms.valid(d.charm))})
+	var tiers := {}
+	for i in 400:
+		tiers[Charms.parse(Charms.roll(40)).tier] = true
+	_expect("charm_roll", {"tiers": tiers.size() == 3, "prices": Charms.all_ids().all(func(id): return Charms.value(id) > 0),
+		"tier_price": Charms.value("horde_3") > Charms.value("horde_2") and Charms.value("horde_2") > Charms.value("horde_1")})
+	enter_hideout()
+	# the stash keeps stacks; a shell set into the atlas stays with the character
+	hud.toggle(hud.stash_ui)
+	p.charms = {"seal_2": 3, "hoard_1": 1}
+	p.charm_slots = ["hoard_1"]
+	var sc := Profiles.stash_charms(league())
+	sc.clear()
+	hud.stash_ui.move_charm("seal_2", true, false)
+	hud.stash_ui.move_charm("seal_2", true, true)
+	hud.stash_ui.move_charm("hoard_1", true, true)
+	var stashed := sc.duplicate()
+	hud.stash_ui.move_charm("seal_2", false, false)
+	var stash_ui_slots: int = hud.stash_ui.charm_stash.get_child_count()
+	print("SMOKE charm stash stashed=%s back=%s left=%s ui=%d" % [stashed, p.charms, sc, stash_ui_slots])
+	_expect("charm_stash", {"stacked": stashed == {"seal_2": 3}, "slotted_kept": p.charms.get("hoard_1", 0) == 1, "back": p.charms.get("seal_2", 0) == 1,
+		"left": sc.get("seal_2", 0) == 2, "ui": stash_ui_slots == 1})
+	hud.close_panels()
+	# save round trip, and a hand-edited save
+	var sd := save_data()
+	apply_save(JSON.parse_string(JSON.stringify(sd)))
+	var same := p.charms == {"seal_2": 1, "hoard_1": 1} and p.charm_slots == ["hoard_1"]
+	var junk = JSON.parse_string(JSON.stringify(sd))
+	junk.charms = {"seal_2": "4", "nope_1": 3, "horde_0": 1, "horde_4": 2, "elite_1": -2}
+	junk.charm_slots = ["seal_2", "seal_2", "hoard_1", 7]
+	apply_save(junk)
+	var cleaned := p.charms == {"seal_2": 4} and p.charm_slots == ["seal_2"]
+	var tip := Charms.lines("tyrant_3", 2)
+	print("SMOKE charm save same=%s cleaned=%s charms=%s slots=%s tip=%s" % [same, cleaned, p.charms, p.charm_slots, tip[2][3].split("
+").size()])
+	_expect("charm_save", {"same": same, "cleaned": cleaned, "tip_tiers": tip[2][3].split("
+").size() == 4,
+		"docs": "燃え盛る燼冠の燼殻" in DataDocs.files().get("charms.md", ""), "glyph": Data.ui_font.has_char(Charms.ICON.unicode_at(0))})
+	apply_save(JSON.parse_string(JSON.stringify(sd)))
+	p.filter.rarity = keep_filter
+	p.charms = {}
+	p.charm_slots = []
+
+
 ## levelling, potions and damage: experience carries over several level-ups, each level adds a passive point
 ## and energy; a potion heals half the life up to the cap, is kept at full life and refused when none are left;
 ## damage is taken unless invulnerable, and retrying a floor costs 30% of the experience
@@ -2686,6 +2828,7 @@ func _smoke_test() -> void:
 	_smoke_brand()
 	_smoke_line_craft()
 	await _smoke_seal()
+	await _smoke_charms()
 	_smoke_progress()
 	await _smoke_hurt_fx()
 	_smoke_craft()
@@ -3050,11 +3193,13 @@ func spawn_floor() -> void:
 	_reset_world(Dungeon.new(72, 72, floor_level), Data.THEMES[atlas.node_theme(area)])
 	_spawn_enemies()
 	_place_altars()
-	if randf() < Seal.CHANCE:
+	for i in maxi(int(mod_fx.get("seals", 0)), 1 if randf() < Seal.CHANCE else 0):
 		_place_seal()
 	hud.message("%s — エリアレベル %d" % [area.name, floor_level], Color("#e8d8b0"))
 	for k in run_mods:
 		hud.message("◆ " + Data.map_mod(k).name, Color("#ff9a7a"))
+	for id in run_charms:
+		hud.message("%s %s：%s" % [Charms.ICON, Charms.name_of(id), Charms.effect_text(id)], Charms.color_of(id))
 	if altars.size() > 0:
 		hud.message("燼火の祭壇が %d つ眠っている" % altars.size(), Farm.COLOR)
 	if seals.size() > 0:
@@ -3068,6 +3213,7 @@ func enter_hideout() -> void:
 	area = Data.HIDEOUT
 	floor_level = atlas.hideout_level()
 	run_mods = []
+	run_charms = []
 	mod_fx = atlas.map_effects([])
 	_reset_world(Dungeon.new(28, 26, 1, "hideout"), Data.HIDEOUT_THEME)
 	var r := map.start
@@ -3230,7 +3376,9 @@ func enter_map(id: String) -> void:
 	area = n
 	floor_level = atlas.node_level(n)
 	run_mods = atlas.node_mods(n).duplicate()
-	mod_fx = atlas.map_effects(run_mods)
+	run_charms = Charms.consume(player.charm_slots, player.charms)
+	mod_fx = Charms.apply(atlas.map_effects(run_mods), run_charms)
+	hud.refresh_inventory()
 	spawn_floor()
 
 
@@ -3278,8 +3426,11 @@ func _spawn_enemies() -> void:
 		if room == map.boss_room:
 			var bt: Dictionary = Data.BOSS_ROTATION[atlas.node_theme(area)]
 			boss = _make_enemy(bt.type, _room_near(map.tile_center(room.cx, room.cy), Data.ENEMY_TYPES[bt.type].r), pack_id)
-			boss.max_life *= 1.0 + 0.12 * (f - 1)
+			boss.max_life *= (1.0 + 0.12 * (f - 1)) * mod_fx.get("boss_life", 1.0)
 			boss.life = boss.max_life
+			boss.dmg *= mod_fx.get("boss_dmg", 1.0)
+			if mod_fx.get("boss_life", 1.0) > 1.0:   # an ember-crowned boss (燼冠の燼殻)
+				boss.display_name = "燼冠の" + boss.display_name
 			for g in bt.guards:
 				_make_enemy(g, map.random_floor_in(room), pack_id)
 			continue
@@ -3784,7 +3935,8 @@ func _kill_enemy(e: Enemy) -> void:
 			_explosion(at, 3.2, Color("#ff7840"))
 			_damage_area(at, 3.2, dmg))
 	if e.boss:
-		_drop_tablet(e.pos, floor_level + 2)
+		for i in 1 + int(mod_fx.get("tablets", 0)):
+			_drop_tablet(e.pos, floor_level + 2)
 		boss = null
 		hud.set_boss(null)
 		_open_portal(e.pos)
@@ -5503,7 +5655,7 @@ func _place_seal() -> void:
 			var tx: int = randi_range(room.x + 2, room.x + room.w - 3) if tries > 0 else int(room.cx)
 			var ty: int = randi_range(room.y + 2, room.y + room.h - 3) if tries > 0 else int(room.cy)
 			var at := map.tile_center(tx, ty)
-			if map.is_wall(tx, ty) or map.circle_hits(at, 1.4) or altars.any(func(a): return a.pos.distance_to(at) < 12.0):
+			if map.is_wall(tx, ty) or map.circle_hits(at, 1.4) or altars.any(func(a): return a.pos.distance_to(at) < 12.0) 					or seals.any(func(o): return o.pos.distance_to(at) < 12.0):
 				continue
 			place_seal(at)
 			return
@@ -5635,6 +5787,23 @@ func gain_tablet(t: Dictionary) -> void:
 	hud.tablet_ui.refresh()
 
 
+# =================== ember shells ===================
+## an ember shell lying on the floor as a small glowing dome until picked up
+func _drop_charm(at: Vector2, id: String) -> void:
+	var pos := _scatter(at)
+	var dome := SphereMesh.new()
+	dome.radius = 0.22
+	dome.height = 0.26
+	var node := Fx.mesh(level_root, dome, Fx.mat(Charms.color_of(id), 3.0), to3(pos, 0.2))
+	drops.append({"k": "charm", "n": 1, "charm": id, "pos": pos, "node": node})
+
+
+func gain_charm(id: String, n := 1) -> void:
+	Charms.add(player.charms, id, n)
+	hud.message("%s %s を拾った（所持 %d）" % [Charms.ICON, Charms.name_of(id), player.charms.get(id, 0)], Charms.color_of(id))
+	hud.refresh_inventory()
+
+
 # =================== jewels ===================
 ## a jewel (or, with `ring`, a ring jewel) lying on the floor as a small glowing gem until picked up
 func _drop_jewel(at: Vector2, ilvl: int, ring := false) -> void:
@@ -5705,7 +5874,7 @@ func _drop_loot(e: Enemy) -> void:
 	var n := 0
 	var boost: float = mod_fx.rarity
 	if e.boss:
-		n = 4
+		n = 4 + int(mod_fx.get("boss_loot", 0))
 		boost += 2.5
 	elif not e.elite.is_empty():
 		n = randi_range(1, 2)
@@ -5719,12 +5888,16 @@ func _drop_loot(e: Enemy) -> void:
 		for i in (6 if e.boss else 3 if not e.elite.is_empty() else 1):
 			_drop_currency("ember", roundi(randf_range(2, 6) * floor_level * (2 if not e.elite.is_empty() else 1) * mod_fx.gold), e.pos)
 	var cn := randi_range(3, 5) if e.boss else (randi_range(1, 2) if not e.elite.is_empty() and randf() < 0.5 else (1 if randf() < 0.035 else 0))
+	var cm: float = mod_fx.get("cur", 1.0)   # 蓄財の燼殻: whole extra drops, and the fraction as a chance of one more
+	cn = floori(cn * cm) + (1 if randf() < cn * cm - floori(cn * cm) else 0)
 	for i in cn:
 		_drop_currency(_weighted(Data.CURRENCIES.filter(func(c): return c.w > 0.0)).k, 1, e.pos)
 	if randf() < (0.8 if e.boss else (0.3 if not e.elite.is_empty() else 0.02)):
 		_drop_gem(e.pos, ilvl)
-	if randf() < (0.6 if e.boss else (0.12 if not e.elite.is_empty() else 0.006)):
+	if randf() < (0.6 if e.boss else (0.12 if not e.elite.is_empty() else 0.006)) * mod_fx.get("jewel", 1.0):
 		_drop_jewel(e.pos, ilvl, randf() < (0.4 if e.boss else 0.15))
+	if randf() < Charms.drop_chance(e.boss, not e.elite.is_empty()):
+		_drop_charm(e.pos, Charms.roll(floor_level))
 
 
 ## a skill gem or support gem the player doesn't own yet, mostly ones the area level is close to
@@ -5875,6 +6048,9 @@ func _take(g: Dictionary) -> void:
 		return
 	if g.k == "jewel":
 		gain_jewel(g.jewel)
+		return
+	if g.k == "charm":
+		gain_charm(g.charm, g.n)
 		return
 	if g.k == "gem":
 		if g.get("skill", false):
@@ -6058,7 +6234,8 @@ func save_data() -> Dictionary:
 	return {"floor": floor_level, "level": p.level, "xp": p.xp, "potions": p.potions,
 		"equip": p.equip, "bag": p.bag, "cur": p.cur, "atlas": atlas.to_dict(), "shop": shop,
 		"slots": p.slots, "links": p.links, "gems": p.gems, "skills": p.skills, "tree": p.tree, "filter": p.filter,
-		"cls": p.cls, "asc": p.asc, "asc_ranks": p.asc_ranks, "asc_cores": p.asc_cores, "auras": p.auras, "tablets": p.tablets, "jewels": p.jewels}
+		"cls": p.cls, "asc": p.asc, "asc_ranks": p.asc_ranks, "asc_cores": p.asc_cores, "auras": p.auras, "tablets": p.tablets, "jewels": p.jewels,
+		"charms": p.charms, "charm_slots": p.charm_slots}
 
 
 func load_game() -> bool:
@@ -6130,6 +6307,8 @@ func apply_save(data: Dictionary) -> void:
 		if p.filter.slots.has(k):
 			p.filter.slots[k] = bool(fs[k])
 	p.tablets = Tablets.normalize(data.get("tablets", []))
+	p.charms = Charms.normalize(data.get("charms", {}))
+	p.charm_slots = Charms.normalize_slots(data.get("charm_slots", []), p.charms)
 	atlas.from_dict(data.get("atlas", {}))
 	var sd: Dictionary = data.get("shop", {})
 	if sd.has("items"):
