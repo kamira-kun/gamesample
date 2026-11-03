@@ -301,11 +301,20 @@ static func _gems() -> Dictionary:
 		if g.has("need"):
 			target += "・%sスキルのみ" % "・".join(PackedStringArray(g.need.map(func(k): return Data.NEED_NAMES[k])))
 		gr.append([g.name, str(g.lvl), str(g.energy), target, g.desc])
+	var ar := []
+	for g in Data.awakened():
+		ar.append([g.name, str(g.lvl), str(g.energy), g.desc])
 	return {"file": "gems.md", "title": "スキルジェムとサポートジェム",
 		"intro": "初期スキルバー以外のスキルジェムとサポートジェムは、敵のドロップか商人で手に入ります。必要レベルに達するまではスロットに付けたりリンクしたりできません。",
 		"sections": [{"title": "スキル（%d）" % sr.size(), "note": "", "head": ["スキル", "必要Lv", "タグ", "コスト", "説明"], "rows": sr},
 			{"title": "サポートジェム（%d）" % gr.size(), "note": "リンクの合計エネルギーは 2＋キャラクターレベル＋装備 まで。1スロットにつき最大%d個。" % Data.LINK_MAX,
-				"head": ["サポートジェム", "必要Lv", "エネルギー", "対象", "効果"], "rows": gr}]}
+				"head": ["サポートジェム", "必要Lv", "エネルギー", "対象", "効果"], "rows": gr},
+			{"title": "覚醒ジェム（%d）" % ar.size(), "note": ("各サポートジェムの強化版。利点が%s倍（欠点はそのまま）、ダメージが利点でないジェムはさらにダメージ +%d%%。" +
+				"必要Lv は 元のLv＋%d（最低 %d）。対象は元のジェムと同じで、同じスキルに元のジェムと一緒にはリンクできない。" +
+				"Lv %d 以上のエリアのエリート（%s%%）とボス（%s%%）のドロップか、取引所でのみ手に入り、商人や燼火の炉では手に入らない。") % [
+				Data.AWAKE_GAIN, roundi((Data.AWAKE_DMG - 1.0) * 100), Data.AWAKE_LVL_ADD, Data.AWAKE_LVL_MIN, Data.AWAKE_DROP_ILVL,
+				_pct(Data.AWAKE_DROP.elite), _pct(Data.AWAKE_DROP.boss)],
+				"head": ["覚醒ジェム", "必要Lv", "エネルギー", "効果"], "rows": ar}]}
 
 
 # =================== values ===================
@@ -540,3 +549,9 @@ document.getElementById('fit').onclick=()=>{fit();draw();};
 window.treeFind=w=>{found=w?new Set(N.flatMap((n,i)=>(n[4]+' '+n[5].join(' ')+' '+(T.kinds[n[2]]||'')).toLowerCase().includes(w)?[i]:[])):null;draw();return found?found.size:0;};
 new ResizeObserver(size).observe(cv);}
 """
+
+
+# a chance as a percent without a trailing ".0" (0.12 -> "12", 0.015 -> "1.5")
+static func _pct(p: float) -> String:
+	var v := snappedf(p * 100.0, 0.1)
+	return str(roundi(v)) if is_equal_approx(v, roundi(v)) else str(v)

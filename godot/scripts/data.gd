@@ -346,14 +346,158 @@ static func gem_info(skill: bool, id: String) -> Dictionary:
 		var sk: Dictionary = SKILLS[id]
 		return {"name": sk.name, "color": sk.color, "lvl": sk.lvl, "kind": "スキルジェム"}
 	var g := support(id)
-	return {"name": g.name, "color": g.color, "lvl": g.lvl, "kind": "サポートジェム"}
+	return {"name": g.name, "color": g.color, "lvl": g.lvl, "kind": AWAKE_KIND if g.get("awake", false) else "サポートジェム"}
 
 
 static func support(id: String) -> Dictionary:
+	if id.begins_with(AWAKE_ID):
+		for g in awakened():
+			if g.id == id:
+				return g
+		return {}
 	for g in SUPPORTS:
 		if g.id == id:
 			return g
 	return {}
+
+
+# ---- awakened support gems (#63) ----
+# every support gem has an awakened twin (id AWAKE_ID + base id): the same gem with its benefits AWAKE_GAIN times as big
+# (drawbacks and energy unchanged), and AWAKE_DMG more damage on gems whose benefit isn't damage. it needs character
+# level max(AWAKE_LVL_MIN, base lvl + AWAKE_LVL_ADD) before it can be linked, and it can't share a skill with its base.
+# they only come from drops (elites and bosses in areas of AWAKE_DROP_ILVL and up) and exchange listings: never the
+# merchant or the cinder forge, which both draw from SUPPORTS alone.
+# the stats come from awaken(g, AWAKE_GAIN), so a later per-level gem scale can pass its own gain.
+const AWAKE_ID := "aw_"
+const AWAKE_NAME := "覚醒・"
+const AWAKE_KIND := "覚醒ジェム"
+const AWAKE_GAIN := 1.5
+const AWAKE_DMG := 1.1
+const AWAKE_LVL_MIN := 12
+const AWAKE_LVL_ADD := 8
+const AWAKE_DROP_ILVL := 8                 # 霜の大聖堂 and deeper
+const AWAKE_DROP := {"boss": 0.12, "elite": 0.015}
+const AWAKE_PRICE := 4.0                   # × a base gem's worth on the exchange
+const AWAKE_COLOR := Color("#ffe6a0")      # the halo round an awakened gem's icon and its drop
+# mul keys where a value over 1 is a benefit (under 1 is a drawback); for `mana` it's the other way round
+const AWAKE_UP := ["dmg", "speed", "aoe", "mlife", "m_phys", "m_fire", "m_cold", "m_light", "m_chaos", "pspeed", "dur",
+	"ceff", "beff", "mdist"]
+# add keys that switch a behavior on (a value of 1): they stay as they are
+const AWAKE_FLAGS := ["totem", "trap", "echo", "kboom", "mland", "after", "extra", "fork", "pierce"]
+# the awakened description of each support gem, matching what awaken() gives it
+const AWAKE_DESC := {
+	"power": "ダメージ +45%（ミニオンにも有効）／マナコスト +30%",
+	"haste": "攻撃・詠唱速度 +38%（トーテム・ミニオンにも有効）、ダメージ +10%",
+	"multi": "投射物 +3／ダメージ -12%",
+	"aoe": "効果範囲 +53%、ダメージ +10%",
+	"chain_s": "連鎖回数 +5、ダメージ +10%",
+	"leech": "与えたダメージの4.5%をライフとして回復、ダメージ +10%",
+	"frostbite": "命中した敵を0.6秒凍結させる、ダメージ +10%",
+	"totem": "スキルの代わりにカーソル位置へトーテムを設置。トーテムが10秒間スキルを自動で放つ（最大2本）／ダメージ -6%",
+	"minion_power": "ミニオンのライフ +75%、ダメージ +45%",
+	"swarm": "ミニオンの最大数 +3、ダメージ +10%",
+	"brutal": "物理ダメージ +60%、ダメージ +10%",
+	"fire_amp": "火炎ダメージ +53%、ダメージ +10%",
+	"cold_amp": "冷気ダメージ +53%、ダメージ +10%",
+	"light_amp": "雷ダメージ +53%、ダメージ +10%",
+	"chaos_amp": "混沌ダメージ +53%、ダメージ +10%",
+	"conv_fire": "物理ダメージを火炎ダメージに変換し、ダメージ +15%",
+	"conv_cold": "物理ダメージを冷気ダメージに変換し、ダメージ +15%",
+	"conv_light": "物理ダメージを雷ダメージに変換し、ダメージ +15%",
+	"conv_chaos": "すべてのダメージを混沌ダメージに変換し、ダメージ +22%",
+	"crit_chance": "クリティカル率 +12%、ダメージ +10%",
+	"crit_dmg": "クリティカルダメージ +68%、ダメージ +10%",
+	"pspeed": "投射物の速度 +90%、ダメージ +15%",
+	"pierce": "投射物が敵を貫通する／ダメージ -1%",
+	"homing": "投射物が近くの敵を強く追いかける、ダメージ +10%",
+	"fork": "投射物が最初に命中したとき、左右2つに分かれる、ダメージ +10%",
+	"pchain": "投射物が命中後、別の敵へ3回まで跳ね返る／ダメージ -1%",
+	"volley": "投射物 +6／ダメージ -29%",
+	"conc": "効果範囲 -25%、ダメージ +53%",
+	"wide": "効果範囲 +90%／ダメージ -7%",
+	"dur_long": "効果時間 +75%、ダメージ +10%",
+	"dur_short": "効果時間 -30%、ダメージ +45%",
+	"aftershock": "範囲攻撃の0.5秒後、同じ場所に小さな余波（範囲70%・ダメージ50%）が起きる、ダメージ +10%",
+	"extra": "設置・落下する範囲の数 +1／ダメージ -1%",
+	"ignite_s": "命中時45%で燃焼させ、3秒かけてヒットの50%の火炎ダメージ、ダメージ +10%",
+	"shock_s": "命中時53%で4秒間感電させる（受けるダメージ +20%）、ダメージ +10%",
+	"chill_s": "命中した敵を2.25秒間減速させる、ダメージ +10%",
+	"bleed_s": "命中時53%で出血させ、4秒かけてヒットの60%の物理ダメージ、ダメージ +10%",
+	"poison_s": "命中時60%で毒を与え、3秒かけてヒットの30%の混沌ダメージ（重複する）、ダメージ +10%",
+	"stun_s": "命中時38%で敵を0.4秒行動不能にする、ダメージ +10%",
+	"cull": "ボス以外のライフ18%以下の敵を即座に倒す、ダメージ +10%",
+	"knock": "命中した敵（ボス以外）を強く押し返す、ダメージ +10%",
+	"kboom": "このスキルで倒した敵が爆発し、周囲にダメージを与える、ダメージ +10%",
+	"mleech": "与えたダメージの3%をマナとして回復、ダメージ +10%",
+	"loh": "敵に命中するたびライフを6回復、ダメージ +10%",
+	"hexhit": "命中した敵を3秒間呪い、受けるダメージ +23%、ダメージ +10%",
+	"lowlife": "ライフ50%以下の間、ダメージ +90%（それ以外でもダメージ +10%）",
+	"elite": "エリートとボスへのダメージ +60%、ダメージ +10%",
+	"close": "4.5m以内の敵へのダメージ +53%、ダメージ +10%",
+	"vsfrozen": "凍結・減速中の敵へのダメージ +68%、ダメージ +10%",
+	"efficient": "マナコスト・オーラのリザーブ -60%／ダメージ -1%",
+	"heavy": "ダメージ +75%／攻撃・詠唱速度 -20%",
+	"rapid": "攻撃・詠唱速度 +60%／ダメージ -12%",
+	"echo": "0.25秒後にもう一度発動する（2回目のダメージ -30%）、ダメージ +10%",
+	"trap": "スキルの代わりにカーソル位置へ罠を設置。敵が近づくとスキルを1回発動する（最大3個、12秒）、ダメージ +30%",
+	"minion_speed": "ミニオンの攻撃速度 +45%、ダメージ +10%",
+	"minion_tough": "ミニオンのライフ +150%／ダメージ -1%",
+	"curse_eff": "呪いの効果 +75%、ダメージ +10%",
+	"buff_eff": "強化・オーラスキルの効果 +60%（オーラのリザーブ +20%）、ダメージ +10%",
+	"move_far": "移動距離 +60%、ダメージ +10%",
+	"move_land": "移動の終点で衝撃波を起こし、周囲に物理ダメージ、ダメージ +10%",
+}
+static var _awakened: Array = []
+
+
+## every awakened support gem, in SUPPORTS order
+static func awakened() -> Array:
+	if _awakened.is_empty():
+		_awakened = SUPPORTS.map(func(g): return awaken(g, AWAKE_GAIN))
+	return _awakened
+
+
+static func is_awakened(id: String) -> bool:
+	return id.begins_with(AWAKE_ID)
+
+
+## the support gem an awakened gem grows out of (itself for a base gem)
+static func base_gem(id: String) -> String:
+	return id.trim_prefix(AWAKE_ID)
+
+
+## the support gems the skill panel, the exchange and the data docs list: SUPPORTS, then the awakened ones
+static func all_supports() -> Array:
+	return SUPPORTS + awakened()
+
+
+## support gem `g` with its benefits `gain` times as big: a mul over 1 (mana: under 1) grows away from 1, an add or
+## max grows (whole numbers round up, behavior switches stay), drawbacks stay. if damage isn't one of the benefits,
+## the gem also gives AWAKE_DMG more of it. values are rounded to whole percents for the description to match.
+static func awaken(g: Dictionary, gain: float) -> Dictionary:
+	var a: Dictionary = g.duplicate(true)
+	a["id"] = AWAKE_ID + g.id
+	a["name"] = AWAKE_NAME + g.name
+	a["base"] = g.id
+	a["awake"] = true
+	a["lvl"] = maxi(AWAKE_LVL_MIN, int(g.lvl) + AWAKE_LVL_ADD)
+	a["desc"] = AWAKE_DESC.get(g.id, g.desc)
+	var mul: Dictionary = a.get("mul", {})
+	for k in mul:
+		var v: float = mul[k]
+		if (k == "mana" and v < 1.0) or (k in AWAKE_UP and v > 1.0):
+			mul[k] = snappedf(1.0 + (v - 1.0) * gain, 0.01)
+	if mul.get("dmg", 1.0) <= 1.0:
+		mul["dmg"] = snappedf(mul.get("dmg", 1.0) * AWAKE_DMG, 0.01)
+	a["mul"] = mul
+	for k in a.get("add", {}):
+		var v = a.add[k]
+		if k in AWAKE_FLAGS:
+			continue
+		a.add[k] = ceili(v * gain) if v is int else snappedf(v * gain, 0.001)
+	for k in a.get("max", {}):
+		a.max[k] = snappedf(a.max[k] * gain, 0.001)
+	return a
 
 
 static func support_fits(g: Dictionary, skill_id: String) -> bool:
@@ -402,7 +546,8 @@ static func build_sup(skill_id: String, ids: Array) -> Dictionary:
 		s[k] += own[k]
 	for id in ids:
 		var g := support(id)
-		if g.is_empty() or not support_fits(g, skill_id):
+		# a gem and its awakened twin don't stack: only the first linked counts
+		if g.is_empty() or not support_fits(g, skill_id) or s.ids.any(func(o): return base_gem(o) == base_gem(id)):
 			continue
 		for k in g.get("mul", {}):
 			s[k] *= g.mul[k]

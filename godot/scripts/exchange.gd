@@ -15,6 +15,7 @@ class_name Exchange
 ## A query is a Dictionary: {cat, slot, rarity (-1 any), base (name), unique (name), mods [{k, min}], ilvl (min, 0 any),
 ## price_min, price_max (0 none)}. A listing: {kind, item (gear/tablet/jewel/ring Dictionary), id (charm/gem/currency
 ## key), n (count), price, fee, key}.
+## Awakened support gems (#63) are listed under gems; an open gem search shows AWAKE_OPEN of them.
 
 const RESULTS := 12
 const MAX_MODS := 3
@@ -32,6 +33,7 @@ const ATTEMPTS := 6              # candidates made per listing shown, before the
 const CATEGORIES := [["gear", "装備"], ["tablet", "ルーンタブレット"], ["jewel", "ジュエル"], ["ring", "リングジュエル"], ["charm", "コンパス"], ["gem", "ジェム"], ["currency", "カレンシー"]]
 const CURRENCY_LOTS := [1, 3, 5, 10, 20]
 const CHARM_LOTS := [1, 2, 3]
+const AWAKE_OPEN := 2             # awakened gems among an open gem search's listings (any one can be searched by name)
 const SP := "sp:"                # mod keys of 刻紋 (special) lines in a query
 
 static var sold := {}            # listing keys bought already, so a search made again doesn't list them twice
@@ -64,7 +66,7 @@ static func base_names(cat: String, slot := "") -> Array:
 			var out := []
 			for id in Data.SKILL_ORDER:
 				out.append(Data.SKILLS[id].name)
-			for g in Data.SUPPORTS:
+			for g in Data.all_supports():
 				out.append(g.name)
 			return out
 		"currency":
@@ -342,9 +344,16 @@ static func _lots(q: Dictionary) -> Array:
 			for id in Data.SKILL_ORDER:
 				if q.base == "" or Data.SKILLS[id].name == q.base:
 					out.append({"skill": true, "id": id})
-			for g in Data.SUPPORTS:
+			for g in Data.SUPPORTS if q.base == "" else Data.all_supports():
 				if q.base == "" or g.name == q.base:
 					out.append({"skill": false, "id": g.id})
+			if q.base == "":
+				# seeded by the search: an open search mixes skill and support gems with a few awakened ones
+				out.shuffle()
+				var aw: Array = Data.awakened().duplicate()
+				aw.shuffle()
+				for g in aw.slice(0, AWAKE_OPEN):
+					out.insert(randi_range(0, RESULTS - AWAKE_OPEN), {"skill": false, "id": g.id})
 			return out
 		"currency":
 			return currency_keys().filter(func(k): return q.base == "" or Data.currency(k).name == q.base)
@@ -529,6 +538,8 @@ static func worth(l: Dictionary) -> float:
 		"charm":
 			return Charms.value(l.id) * l.n / float(Items.EMBER_PER_CHAOS)
 		"gem":
+			if not l.skill and Data.is_awakened(l.id):   # priced off its base gem, times the awakened premium
+				return (300 + 45 * Data.support(Data.base_gem(l.id)).lvl) / float(Items.EMBER_PER_CHAOS) * Data.AWAKE_PRICE
 			var lvl: int = Data.SKILLS[l.id].lvl if l.skill else Data.support(l.id).lvl
 			return (300 + 45 * lvl) / float(Items.EMBER_PER_CHAOS)
 		"currency":
