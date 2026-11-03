@@ -1,6 +1,7 @@
 class_name Exchange
 ## The exchange's listing search (#65). Nothing is listed until the player searches; then up to RESULTS listings
-## that fit the search are made on the spot: gear, rune tablets, ジュエル, リングジュエル, ember shells, gems and currency.
+## that fit the search are made on the spot: gear, rune tablets, ジュエル, リングジュエル, ember shells, gems, currency
+## and map items (#74: priced off Maps.value, so a deeper tier costs more; a map search's `ilvl` is the lowest tier).
 ## The asked-for lines, base and unique are forced, each line rolled at or over its asked minimum, the rest random.
 ## A search is seeded by itself, the league, the market tick and the refresh count, so the same search shows the
 ## same listings until a map is completed or the player asks for fresh ones.
@@ -31,7 +32,7 @@ const ILVL_STEP := 0.02          # × per item level asked over the hideout leve
 const ILVL_SPREAD := 6           # listings are made at the item level asked (or the hideout's) up to this much over
 const RESALE_GUARD := 2.0
 const ATTEMPTS := 6              # candidates made per listing shown, before the price filter gives up
-const CATEGORIES := [["gear", "装備"], ["tablet", "ルーンタブレット"], ["jewel", "ジュエル"], ["ring", "リングジュエル"], ["charm", "コンパス"], ["gem", "ジェム"], ["currency", "カレンシー"]]
+const CATEGORIES := [["gear", "装備"], ["tablet", "ルーンタブレット"], ["jewel", "ジュエル"], ["ring", "リングジュエル"], ["charm", "コンパス"], ["gem", "ジェム"], ["currency", "カレンシー"], ["map", "遠征地図"]]
 const CURRENCY_LOTS := [1, 3, 5, 10, 20]
 const CHARM_LOTS := [1, 2, 3]
 const AWAKE_OPEN := 2             # awakened gems among an open gem search's listings (any one can be searched by name)
@@ -39,6 +40,7 @@ const GEM_LV_ODDS := 0.15         # gem listings above Lv 1 when no gem level is
 const GEM_LV_TOP := 6
 const GEM_LV_SPREAD := 2          # a listing asked for at least Lv N is Lv N..N+this
 const GEM_LV_WORTH := 0.3         # each gem level over 1 adds this share of the gem's worth
+const MAP_SPREAD := 3             # a map listing is at the tier asked (or a little under the best cleared) up to this much over
 const SP := "sp:"                # mod keys of 刻紋 (special) lines in a query
 
 static var sold := {}            # listing keys bought already, so a search made again doesn't list them twice
@@ -76,6 +78,8 @@ static func base_names(cat: String, slot := "") -> Array:
 			return out
 		"currency":
 			return currency_keys().map(func(k): return Data.currency(k).name)
+		"map":
+			return Maps.LIST.map(func(m): return m.name)
 	return []
 
 
@@ -148,7 +152,7 @@ static func search(q: Dictionary, league: String, level: int, refresh := 0) -> D
 		tries += 1
 		var l := _make(q, level, lots, tries)
 		if l.is_empty():
-			if q.cat in ["charm", "gem", "currency"]:
+			if q.cat in ["charm", "gem", "currency", "map"]:
 				break   # the fixed list ran out
 			continue    # a line couldn't reach its minimum at this item level
 		if l.price < lo or l.price > hi:
@@ -363,7 +367,16 @@ static func _lots(q: Dictionary) -> Array:
 			return out
 		"currency":
 			return currency_keys().filter(func(k): return q.base == "" or Data.currency(k).name == q.base)
+		"map":
+			var ids: Array = Maps.LIST.filter(func(m): return q.base == "" or m.name == q.base).map(func(m): return m.id)
+			ids.shuffle()   # seeded by the search
+			return ids
 	return []
+
+
+## the lowest tier a map search lists: the tier asked, or a little under the best cleared (the hideout level)
+static func map_tier_lo(q: Dictionary, level: int) -> int:
+	return Maps.clamp_tier(int(q.ilvl) if int(q.ilvl) > 0 else level - 1)
 
 
 # =================== making listings ===================
@@ -398,6 +411,11 @@ static func _make(q: Dictionary, level: int, lots: Array, n: int) -> Dictionary:
 			if lots.is_empty():
 				return {}
 			l = {"kind": "currency", "id": lots[(n - 1) % lots.size()], "n": CURRENCY_LOTS.pick_random()}
+		"map":
+			if lots.is_empty():
+				return {}
+			var lo := map_tier_lo(q, level)
+			l = {"kind": "map", "id": Maps.key(lots[(n - 1) % lots.size()], Maps.clamp_tier(randi_range(lo, lo + MAP_SPREAD))), "n": 1}
 	if l.has("item") and l.item.is_empty():
 		return {}
 	l.price = price(l, q, qs, level)
@@ -551,6 +569,8 @@ static func worth(l: Dictionary) -> float:
 			return (300 + 45 * lvl) / float(Items.EMBER_PER_CHAOS) * up
 		"currency":
 			return unit_price(l.id) * l.n
+		"map":
+			return Maps.value(Maps.parse(l.id).get("tier", 1)) * l.n / float(Items.EMBER_PER_CHAOS)
 	return 0.0
 
 
@@ -574,6 +594,8 @@ static func resale(l: Dictionary) -> float:
 			return Jewels.shard_value(l.item) / float(Items.EMBER_PER_CHAOS)
 		"currency":
 			return unit_price(l.id) * l.n
+		"map":   # the map device's buy-back
+			return Maps.sell_price(Maps.parse(l.id).get("tier", 1)) * l.n / float(Items.EMBER_PER_CHAOS)
 	return 0.0
 
 
@@ -595,7 +617,7 @@ static func constraint_mult(q: Dictionary, qs: Array, level := 0) -> float:
 		m *= 1.0 + PICK.rarity
 	if q.get("unique", "") != "":
 		m *= 1.0 + PICK.unique
-	if int(q.get("ilvl", 0)) > level and level > 0:
+	if int(q.get("ilvl", 0)) > level and level > 0 and q.get("cat", "") != "map":   # a map's tier is in its worth already
 		m *= 1.0 + ILVL_STEP * (int(q.ilvl) - level)
 	var mods: Array = q.get("mods", [])
 	for i in mods.size():

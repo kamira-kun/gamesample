@@ -138,14 +138,14 @@ func from_dict(d: Dictionary) -> void:
 	cleared = Array(d.get("cleared", [])).filter(func(id): return not Maps.def(str(id)).is_empty())
 	abyss = int(d.get("abyss", 0))
 	if d.has("best"):
-		best = clampi(int(d.best), 0, Maps.MAX_TIER)
+		best = Maps.tier_from(d.best)
 	else:   # a save from the ten-node atlas: its deepest clear is the best tier, and it gets a map of each element there
 		best = 0
 		for id in d.get("cleared", []):
 			best = maxi(best, int(LEGACY_LEVELS.get(id, 0)))
 		if abyss > 0:
 			best = maxi(best, 9 + abyss)
-		best = mini(best, Maps.MAX_TIER)
+		best = mini(best, Maps.TIER_LIMIT)
 	mods = {}
 	var md = d.get("mods", {})
 	if typeof(md) == TYPE_DICTIONARY:
@@ -161,7 +161,7 @@ func from_dict(d: Dictionary) -> void:
 	sel = str(d.get("sel", "ash"))
 	if Maps.def(sel).is_empty():
 		sel = "ash"
-	sel_tier = clampi(int(d.get("sel_tier", 1)), 1, Maps.MAX_TIER)
+	sel_tier = Maps.clamp_tier(Maps.tier_from(d.get("sel_tier", 1)))
 	passives = {}
 	var pd: Dictionary = d.get("passives", {})
 	for id in pd:

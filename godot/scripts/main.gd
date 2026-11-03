@@ -170,6 +170,22 @@ func _ready() -> void:
 				hud.exchange_ui.set_query({"cat": "gear", "slot": "amulet", "rarity": 2, "mods": [{"k": "life", "min": 20}, {"k": "crit", "min": 2}]})
 				hud.exchange_ui.search_now()
 				hud.exchange_ui.refresh()
+			if kind in ["deep_tier", "exchange_maps"]:   # #74: a deep map item on the device, and maps on the exchange
+				atlas.best = 98
+				for t in [26, 99, 100, 101]:
+					Maps.add(atlas.maps, Maps.key("throne", t), 2 if t == 100 else 1)
+				atlas.sel = "throne"
+				atlas.sel_tier = 100
+				player.cur.chaos = 4000000
+				player.cur.ember = 9000000
+				if kind == "deep_tier":
+					open_interact("device")
+				else:
+					open_interact("exchange")
+					hud.exchange_ui.page = "search"
+					hud.exchange_ui.set_query({"cat": "map", "ilvl": 100})
+					hud.exchange_ui.search_now()
+					hud.exchange_ui.refresh()
 			if kind in ["merchant", "device", "stash", "exchange"]:
 				open_interact(kind)
 			if kind.begins_with("merchant_"):   # the merchant on one stock tab (`merchant_gear`, `merchant_charms`, ...), shards to spend
@@ -2780,18 +2796,20 @@ func _smoke_dungeon() -> void:
 		shapes.size(), sigs.size(), cut, rooms_ok, same, sizes.min(), sizes.max()])
 	_expect("maps_fixed", {"fifty": Data.ATLAS_NODES.size() == 50, "per_elem": per_elem == [10, 10, 10, 10, 10], "shapes": shapes.size() == 50,
 		"distinct": sigs.size() == 50, "connected": cut == 0, "rooms": rooms_ok, "same": same, "themes": Data.THEMES.size() == 5 and Data.BOSS_ROTATION.size() == 5})
-	var keys_ok: bool = Maps.parse("ash:3").get("tier", 0) == 3 and ["ash:0", "ash:17", "nope:1", "ash:03", "ash"].all(func(k): return not Maps.valid(k))
+	var keys_ok: bool = Maps.parse("ash:3").get("tier", 0) == 3 and ["ash:0", "ash:10000", "nope:1", "ash:03", "ash", "ash:-2"].all(func(k): return not Maps.valid(k))
 	var clean := Maps.normalize({"ash:2": 2, "bad": 1, "ember:3": -1, "frost:1": 1.0, "rot:4": "x"})
 	var at := Atlas.new()
 	var none := range(20).all(func(_i): return at.roll_mods(1).is_empty())
-	var deep := range(20).all(func(_i): return at.roll_mods(Maps.MAX_TIER).size() in [2, 3])
+	var deep := range(20).all(func(_i): return at.roll_mods(Maps.OLD_MAX_TIER).size() in [2, 3] and at.roll_mods(100).size() in [2, 3])
 	var boss_t := range(300).map(func(_i): return Maps.parse(Maps.roll(5, true)).tier)
 	var low_t := range(300).map(func(_i): return Maps.parse(Maps.roll(1)).tier)
-	var top_t := range(300).map(func(_i): return Maps.parse(Maps.roll(Maps.MAX_TIER, true)).tier)
+	var top_t := range(300).map(func(_i): return Maps.parse(Maps.roll(Maps.OLD_MAX_TIER, true)).tier)   # no cap (#74): past the old one
+	var edge_t := range(50).map(func(_i): return Maps.parse(Maps.roll(Maps.TIER_LIMIT, true)).tier)
 	print("SMOKE map_items keys=%s clean=%s mods none=%s deep=%s boss_tiers=%d-%d low=%d-%d top=%d" % [keys_ok, clean, none, deep, boss_t.min(), boss_t.max(),
 		low_t.min(), low_t.max(), top_t.max()])
 	_expect("map_items", {"keys": keys_ok, "clean": clean == {"ash:2": 2, "frost:1": 1}, "mods_t1": none, "mods_deep": deep,
-		"boss_up": boss_t.min() == 5 and boss_t.max() == 7, "low": low_t.min() == 1 and low_t.max() == 2, "cap": top_t.max() == Maps.MAX_TIER,
+		"boss_up": boss_t.min() == 5 and boss_t.max() == 7, "low": low_t.min() == 1 and low_t.max() == 2, "uncapped": top_t.max() == Maps.OLD_MAX_TIER + 2 and Maps.valid("ash:17") and Maps.valid("ash:100"),
+		"limit": edge_t.max() == Maps.TIER_LIMIT,
 		"value": Maps.value(5) > Maps.value(1)})
 	# a save from the ten-node atlas: its clears stay, the deepest becomes the best tier, a map of each element at that tier
 	var old := Atlas.new()
@@ -3491,11 +3509,161 @@ func _smoke_test() -> void:
 	await _smoke_map()
 	await _smoke_status()
 	await _smoke_ranges()
+	await _smoke_deep_tiers()
 	print("SMOKE errors locked=%d %s" % [smoke_log.count(), smoke_log.locked])
 	_expect("errors", {"no_locked_free": smoke_log.count() == 0})
 	OS.remove_logger(smoke_log)
 	print("SMOKE RESULT checks=%d failed=%d %s" % [smoke_checks, smoke_failed.size(), smoke_failed])
 	get_tree().quit(1 if smoke_failed.size() > 0 else 0)
+
+
+## tiers without a cap (#74): each tier up is a bigger step for the monsters than the last, with matching rewards; the
+## old cap + 10 and T100 open and run without errors and drop deeper maps; a map item is worth more every tier, the
+## device buys it back for less than it sells it, the exchange lists it at the tier asked and dearer deeper; the
+## numbers stay finite and in range up to Maps.TIER_LIMIT; a deep atlas survives a save and an older save still loads
+func _smoke_deep_tiers() -> void:
+	var p := player
+	var errs := ErrorCount.new()
+	OS.add_logger(errs)
+	hud.close_panels()
+	enter_hideout()
+	await get_tree().process_frame
+	# the curve: monster life (area level × tier power) grows each tier by a step that never shrinks, and more steeply
+	# than before #74 (area level only)
+	var old_life := func(t: int) -> float:
+		var f := t - 1
+		return (1.0 + 0.5 * f + 0.05 * f * f) * (1.0 + 0.012 * f)
+	var steps := []
+	var rises := true
+	var finite := true
+	for t in range(1, 301):
+		var a: float = old_life.call(t) * Maps.life_mult(t)
+		var b: float = old_life.call(t + 1) * Maps.life_mult(t + 1)
+		rises = rises and b > a and Maps.value(t + 1) > Maps.value(t) and (t >= 250 or Maps.dmg_mult(t + 1) > Maps.dmg_mult(t))   # power tops out ~T258
+		steps.append(Maps.power(t + 1) / Maps.power(t))
+		for v in [Maps.power(t), Maps.dmg_mult(t), Maps.gold_mult(t), Maps.quantity_bonus(t), Maps.rarity_bonus(t)]:
+			finite = finite and is_finite(v) and v >= 0.0
+	var widening := true
+	for i in range(1, 250):   # until the power reaches POWER_MAX (~T258)
+		widening = widening and steps[i] >= steps[i - 1] - 1e-9
+	var steeper: bool = Maps.life_mult(26) / Maps.life_mult(16) > 2.0 and Maps.life_mult(100) / Maps.life_mult(99) > 1.1
+	var top := Maps.TIER_LIMIT
+	var edge: bool = [Maps.power(top), Maps.dmg_mult(top), Maps.gold_mult(top)].all(func(v): return is_finite(v) and v <= Maps.POWER_MAX) \
+		and Maps.value(top) > Maps.value(top - 1) and Maps.value(top) > 0 and Maps.value(top) < (1 << 60) and Maps.sell_price(top) > 0 \
+		and Maps.parse(Maps.key("ash", top)).tier == top and not Maps.valid(Maps.key("ash", top + 1)) and Maps.level_of(top * 10) == top
+	var low: bool = absf(Maps.life_mult(1) - 1.0) < 1e-9 and Maps.life_mult(3) < 1.1 and Maps.dmg_mult(5) < 1.1 and Maps.value(1) == 40 \
+		and Maps.quantity_bonus(1) == 0.0 and Maps.rarity_bonus(1) == 0.0
+	print("SMOKE tier_curve life T1/16/26/50/100=%s step T2=%.3f T20=%.3f T60=%.3f value T1/16/26/100/%d=%s" % [
+		[1, 16, 26, 50, 100].map(func(t): return snappedf(Maps.life_mult(t), 0.01)), steps[0], steps[18], steps[58], top,
+		[1, 16, 26, 100, top].map(func(t): return Maps.num(Maps.value(t)))])
+	_expect("tier_curve", {"rises": rises, "widening": widening, "steeper": steeper, "finite": finite, "edge": edge, "low_tiers": low,
+		"num": Maps.num(1234567) == "1,234,567" and Maps.num(-1000) == "-1,000" and Maps.num(999) == "999"})
+	# past the old cap: T26 and T100 open, run a moment and drop deeper maps from the boss
+	var runs := {}
+	for tier in [Maps.OLD_MAX_TIER + 10, 100]:
+		p.invuln = 1e9
+		atlas.mods[Maps.key("ash", tier)] = []   # no map modifiers: the tier's own effects only
+		var ok := dev_map("ash", tier)
+		for i in 20:
+			await get_tree().process_frame
+		var lives_ok := enemies.all(func(e): return is_finite(e.max_life) and e.max_life > 0.0 and is_finite(e.dmg) and e.dmg > 0.0)
+		var boss_life: float = boss.max_life if boss else 0.0
+		var d0 := drops.size()
+		if boss:
+			hit_enemy(boss, {"dmg": maxi(999999, ceili(boss.life) + 1), "crit": false, "type": "phys"})
+		for i in 5:
+			await get_tree().process_frame
+		var got: Array = drops.slice(d0).filter(func(d): return d.k == "map").map(func(d): return Maps.parse(d.map).get("tier", 0))
+		runs[tier] = {"ok": ok and run_tier == tier and floor_level == tier, "enemies": enemies.size(), "lives": lives_ok, "boss": boss_life,
+			"fx": mod_fx.get("tier", 0) == tier and mod_fx.life >= Maps.life_mult(tier) * 0.999 and mod_fx.quantity >= 1.0 + Maps.quantity_bonus(tier) - 1e-6,
+			"maps": got, "deeper": not got.is_empty() and got.all(func(t): return t >= tier and t <= tier + 2)}
+		enter_hideout()
+		await get_tree().process_frame
+	print("SMOKE tier_runs %s" % [runs])
+	_expect("tier_runs", {"t26": runs[26].ok and runs[26].enemies > 0 and runs[26].lives and runs[26].fx and runs[26].deeper,
+		"t100": runs[100].ok and runs[100].enemies > 0 and runs[100].lives and runs[100].fx and runs[100].deeper,
+		"boss_tougher": runs[100].boss > runs[26].boss * 100.0})
+	# selling at the device: deeper pays more, never as much as the device's own price
+	var at := atlas
+	for t in Maps.tiers_of(at.maps, "bone"):   # drops picked up earlier in the run
+		at.maps.erase(Maps.key("bone", t))
+	for t in [1, 26, 100]:
+		Maps.add(at.maps, Maps.key("bone", t))
+	open_interact("device")
+	await get_tree().process_frame
+	var ui := hud.atlas_ui
+	ui.select("bone")
+	var paid := {}
+	for t in [1, 26, 100]:
+		ui.pick_tier(t)
+		var e0: int = p.cur.ember
+		var err := ui.sell()
+		paid[t] = p.cur.ember - e0 if err == "" else -1
+	print("SMOKE tier_sell paid=%s device_price=%d left=%s" % [paid, AtlasUI.buy_price(), Maps.tiers_of(at.maps, "bone")])
+	_expect("tier_sell", {"paid": paid[1] == Maps.sell_price(1) and paid[26] == Maps.sell_price(26) and paid[100] == Maps.sell_price(100),
+		"deeper_pays": paid[100] > paid[26] and paid[26] > paid[1], "no_profit": paid[1] < AtlasUI.buy_price(),
+		"gone": Maps.tiers_of(at.maps, "bone").is_empty(), "none_left": ui.sell() == "none"})
+	hud.close_panels()
+	# the exchange: map items at the tier asked, dearer deeper, bought into the atlas, never worth reselling
+	var lg := league()
+	var lvl := at.hideout_level()
+	var r5 := Exchange.search({"cat": "map", "ilvl": 5}, lg, lvl)
+	var r50 := Exchange.search({"cat": "map", "ilvl": 50}, lg, lvl)
+	var r_base := Exchange.search({"cat": "map", "base": Maps.def("frost").name, "ilvl": 120}, lg, lvl)
+	var r_open := Exchange.search({"cat": "map"}, lg, lvl)
+	var bad := Exchange.search({"cat": "map", "rarity": 2}, lg, lvl)
+	var tier_of := func(l): return Maps.parse(l.id).get("tier", 0)
+	var med := func(r):
+		var ps: Array = r.items.map(func(l): return l.price)
+		ps.sort()
+		return ps[ps.size() / 2] if not ps.is_empty() else 0
+	p.cur.chaos = 1 << 40
+	p.cur.ember = 1 << 40
+	open_interact("exchange")
+	await get_tree().process_frame
+	var ex := hud.exchange_ui
+	ex.page = "search"
+	ex.set_query({"cat": "map", "ilvl": 100})
+	ex.search_now()
+	ex.refresh()
+	await get_tree().process_frame
+	var lst: Dictionary = ex.results[0] if not ex.results.is_empty() else {}
+	var had: int = at.maps.get(lst.get("id", ""), 0)
+	if not lst.is_empty():
+		ex.buy_result(0)
+	await get_tree().process_frame
+	var resale_ok: bool = (r5.items + r50.items).all(func(l): return Maps.sell_price(tier_of.call(l)) / float(Items.EMBER_PER_CHAOS) < l.price * 0.6)
+	print("SMOKE tier_exchange n=%d/%d/%d/%d t5=%s t50=%s med=%d/%d bad=%s bought=%s" % [r5.items.size(), r50.items.size(), r_base.items.size(),
+		r_open.items.size(), r5.items.map(tier_of), r50.items.map(tier_of), med.call(r5), med.call(r50), bad.error, lst.get("id", "")])
+	_expect("tier_exchange", {"found": [r5, r50, r_base, r_open].all(func(r): return r.items.size() > 0 and r.error == ""),
+		"tiers": r5.items.all(func(l): return tier_of.call(l) >= 5) and r50.items.all(func(l): return tier_of.call(l) >= 50),
+		"base": r_base.items.all(func(l): return l.id.begins_with("frost:") and tier_of.call(l) >= 120),
+		"open": r_open.items.all(func(l): return tier_of.call(l) >= lvl - 1),
+		"dearer": med.call(r50) > med.call(r5) * 100, "resale": resale_ok, "no_rarity": bad.error != "",
+		"bought": not lst.is_empty() and at.maps.get(lst.id, 0) == had + 1})
+	hud.close_panels()
+	ex.page = "currency"
+	# saves: a deep atlas round-trips, junk and huge values are clamped, a save from before #74 loads as it was
+	var deep := Atlas.new()
+	deep.best = 120
+	deep.sel_tier = 120
+	deep.maps = {"ash:120": 2, "rot:26": 1}
+	var back := Atlas.new()
+	back.from_dict(JSON.parse_string(JSON.stringify(deep.to_dict())))
+	var huge := Atlas.new()
+	huge.from_dict({"best": 1e30, "sel_tier": -5, "maps": {"ash:99999": 1, "ash:20": 3.0, "ash:NaN": 1}, "cleared": ["ash"]})
+	var pre := Atlas.new()
+	pre.from_dict({"best": 16, "sel_tier": 16, "maps": {"ash:16": 1, "bone:3": 2}, "cleared": ["ash", "bone"], "sel": "bone"})
+	print("SMOKE tier_save back=%s huge best=%d sel=%d maps=%s pre best=%d maps=%s" % [back.to_dict() == deep.to_dict(), huge.best, huge.sel_tier,
+		huge.maps, pre.best, pre.maps])
+	_expect("tier_save", {"round_trip": back.best == 120 and back.sel_tier == 120 and back.maps == deep.maps,
+		"clamped": huge.best == Maps.TIER_LIMIT and huge.sel_tier == 1 and huge.maps == {"ash:20": 3},
+		"old_save": pre.best == 16 and pre.sel_tier == 16 and pre.maps == {"ash:16": 1, "bone:3": 2} and pre.sel == "bone"})
+	p.cur.chaos = 0
+	p.cur.ember = 0
+	OS.remove_logger(errs)
+	print("SMOKE tier errors=%d %s" % [errs.n, errs.first])
+	_expect("tier_errors", {"none": errs.n == 0})
 
 
 ## the texts the tooltip of `lines` shows, as the HUD has drawn them
@@ -4043,7 +4211,7 @@ func enter_map(id: String, tier := 0) -> bool:
 	floor_level = Maps.level_of(tier)
 	run_mods = used
 	run_charms = Charms.consume(player.charm_slots, player.charms)
-	mod_fx = Charms.apply(atlas.map_effects(run_mods), run_charms)
+	mod_fx = Maps.apply_tier(Charms.apply(atlas.map_effects(run_mods), run_charms), tier)
 	hud.refresh_inventory()
 	spawn_floor()
 	return true
@@ -4081,7 +4249,7 @@ func abandon_map() -> void:
 
 
 func _spawn_enemies() -> void:
-	var f := floor_level
+	var f := Maps.crowd(floor_level)   # pack sizes stop growing deep in; the tier power and area level carry on
 	var pool := [{"k": "imp", "w": 3.0}, {"k": "ghoul", "w": 4.0}, {"k": "archer", "w": 2.0},
 		{"k": "brute", "w": 1.5 if f >= 2 else 0.4}, {"k": "shaman", "w": 1.5 if f >= 2 else 0.5}]
 	var bias: Dictionary = Maps.element(area).pool   # each element favours a few kinds
@@ -4095,7 +4263,7 @@ func _spawn_enemies() -> void:
 		if room == map.boss_room:
 			var bt: Dictionary = Data.BOSS_ROTATION[area.elem]
 			boss = _make_enemy(bt.type, _room_near(map.tile_center(room.cx, room.cy), Data.ENEMY_TYPES[bt.type].r), pack_id)
-			boss.max_life *= (1.0 + 0.12 * (f - 1)) * mod_fx.get("boss_life", 1.0)
+			boss.max_life *= (1.0 + 0.12 * (floor_level - 1)) * mod_fx.get("boss_life", 1.0)
 			boss.life = boss.max_life
 			boss.dmg *= mod_fx.get("boss_dmg", 1.0)
 			if mod_fx.get("boss_life", 1.0) > 1.0:   # an ember-crowned boss (燼冠のコンパス)
@@ -4141,7 +4309,7 @@ static func _weighted(list: Array) -> Dictionary:
 
 func _spawn_pack(c: Vector2, pack_id: int, n: int, pool: Array) -> void:
 	var main_kind: String = _weighted(pool).k
-	if randf() < (0.13 + floor_level * 0.01) * mod_fx.elite:
+	if randf() < (0.13 + Maps.crowd(floor_level) * 0.01) * mod_fx.elite:
 		_make_enemy(main_kind, c, pack_id, Data.ELITE_AFFIXES.pick_random())
 	for i in n:
 		var kind: String = main_kind if randf() < 0.7 else _weighted(pool).k

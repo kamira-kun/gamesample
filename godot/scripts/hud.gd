@@ -349,7 +349,7 @@ func refresh() -> void:
 	var where: String = main.area.name if main.in_hideout() else "%s T%d エリアLv %d" % [main.area.name, main.run_tier, main.floor_level]
 	var lg: String = main.league()
 	var tag := "" if Profiles.current().is_empty() else "[%s] " % Profiles.league_name(lg)
-	info.text = "%s%s　Lv %d　◆ %d　%s %d" % [tag, where, p.level, p.cur.ember, Farm.CURRENCY.icon, Farm.state(lg).cinder]
+	info.text = "%s%s　Lv %d　◆ %s　%s %d" % [tag, where, p.level, Maps.num(p.cur.ember), Farm.CURRENCY.icon, Farm.state(lg).cinder]
 	for line in [main.altar_status(), main.seal_status()]:
 		if line != "":
 			info.text += "　｜ " + line

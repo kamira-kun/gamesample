@@ -107,11 +107,29 @@ func buy() -> String:
 	return ""
 
 
+## sell one map item of the selected map and tier back to the device for Maps.sell_price; returns why not, or ""
+func sell() -> String:
+	var at: Atlas = hud.main.atlas
+	var p: Player = hud.main.player
+	var k := Maps.key(at.sel, at.sel_tier)
+	if not at.owns(at.sel, at.sel_tier):
+		return "none"
+	var g := Maps.sell_price(at.sel_tier)
+	Maps.add(at.maps, k, -1)
+	if not at.maps.has(k):
+		at.mods.erase(k)
+		at.sel_tier = maxi(1, at.lowest_tier(at.sel))
+	p.cur.ember += g
+	hud.message("%s %s を売却（◆ %s）" % [Maps.ICON, Maps.name_of(k), Maps.num(g)], Color("#ffcf3a"))
+	refresh()
+	return ""
+
+
 func refresh() -> void:
 	var m = hud.main
 	var at: Atlas = m.atlas
 	var p: Player = m.player
-	info.text = "Lv %d　◆ %d　✧ %d　%s 地図 %d　踏破 %d/%d　最高 T%d    " % [p.level, p.cur.ember, p.cur.compass, Maps.ICON, Maps.count(at.maps),
+	info.text = "Lv %d　◆ %s　✧ %d　%s 地図 %d　踏破 %d/%d　最高 T%d    " % [p.level, Maps.num(p.cur.ember), p.cur.compass, Maps.ICON, Maps.count(at.maps),
 		at.cleared.size(), Data.ATLAS_NODES.size(), at.best]
 	var pts := at.points_free()
 	passive_btn.text = "  遠征パッシブ [%s]%s  " % [Keybinds.text("passives"), "（%d）" % pts if pts > 0 else ""]
@@ -123,7 +141,7 @@ func refresh() -> void:
 	var tiers := Maps.tiers_of(at.maps, n.id)
 	var owned := at.owns(n.id, at.sel_tier)
 	var mods: Array = at.item_mods(n.id, at.sel_tier) if owned else []
-	var fx := Charms.apply(at.map_effects(mods), p.charm_slots)
+	var fx := Maps.apply_tier(Charms.apply(at.map_effects(mods), p.charm_slots), at.sel_tier)
 	_line(n.name, el.color, 24)
 	_line("%s属性　・　%s　・　%s" % [el.name, n.shape, "踏破済み" if at.is_cleared(n.id) else "未踏"], Color("#a89878"), 14)
 	_wrap(_line(n.desc, Color("#d8c8a8"), 14))
@@ -149,14 +167,15 @@ func refresh() -> void:
 	if tiers.is_empty():
 		_line("この地図を持っていない（マップの敵とボスが落とす）", Color("#776a58"), 12)
 	if owned:
-		_line("Tier %d　・　エリアレベル %d" % [at.sel_tier, Maps.level_of(at.sel_tier)], Color("#f0d8a0"), 15)
+		for ln in Maps.tier_lines(at.sel_tier):
+			_line(ln[0], ln[1], ln[2])
 		_line("マップ効果", Color("#f0d8a0"), 16)
 		if mods.is_empty():
 			_line("なし", Color("#776a58"), 14)
 		for k in mods:
 			_line("◆ " + Data.map_mod(k).name, Color("#ff9a7a"), 14)
 		if fx.rarity > 0.0:
-			_line("アイテムレア度 +%d%%　アイテム数量 +%d%%" % [roundi(fx.rarity * 100), roundi((fx.quantity - 1.0) * 100)], Color("#8fd18f"), 13)
+			_line("合計：アイテムレア度 +%d%%　アイテム数量 +%d%%" % [roundi(fx.rarity * 100), roundi((fx.quantity - 1.0) * 100)], Color("#8fd18f"), 13)
 	_charms(p)
 	var go := Button.new()
 	go.text = ("出撃する（T%d の地図を使う）" % at.sel_tier) if owned else "この地図を持っていない"
@@ -176,6 +195,12 @@ func refresh() -> void:
 			at.mods[Maps.key(n.id, at.sel_tier)] = at.roll_mods(at.sel_tier)
 			refresh())
 		detail.add_child(rr)
+	if owned:   # a deeper map item is worth more (#74)
+		var sb := Button.new()
+		sb.text = "T%d の地図を1枚売る（◆ %s）" % [at.sel_tier, Maps.num(Maps.sell_price(at.sel_tier))]
+		sb.add_theme_font_size_override("font_size", 13)
+		sb.pressed.connect(sell)
+		detail.add_child(sb)
 	var bb := Button.new()
 	bb.text = "T%d の地図を買う（◆ %d）" % [Maps.BUY_TIER, buy_price()]
 	bb.add_theme_font_size_override("font_size", 13)

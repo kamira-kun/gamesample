@@ -134,7 +134,7 @@ static func plan(level: int, vow_id: String) -> Dictionary:
 	var v := vow(vow_id)
 	var waves := []
 	for i in WAVES + int(v.get("waves", 0)):
-		waves.append(5 + level / 2 + i * 2)
+		waves.append(5 + Maps.crowd(level) / 2 + i * 2)
 	return {"waves": waves, "guards": 1 + int(v.get("guards", 0)), "timer": float(v.get("timer", 0.0))}
 
 

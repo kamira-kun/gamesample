@@ -5,8 +5,11 @@ class_name Maps
 ## look (room sizes, ragged edges, pillars, floor tiles, props) comes from a seed fixed per map, so a map
 ## looks and walks the same on every visit.
 ## A map item is a stack in a Dictionary "<map id>:<tier>" -> n (Atlas.maps).
+## Tiers have no cap (#74): clearing tier N can drop tier N+1, and each tier up makes the monsters stronger by a
+## growing step (POWER_STEPS) and pays more for it (more and rarer loot, more ember, and dearer map items).
 
-const MAX_TIER := 16
+const TIER_LIMIT := 9999    # not a design cap, only a guard that keeps every number finite (keys and saves above it are clamped)
+const OLD_MAX_TIER := 16    # the cap before #74, for tests and docs
 const ICON := "◈"
 const COLOR := Color("#e8c890")
 const GRID := 12            # route points are on a 0..GRID grid
@@ -194,7 +197,7 @@ static func parse(k: String) -> Dictionary:
 		return {}
 	var m := def(k.left(i))
 	var t := int(k.substr(i + 1))
-	if m.is_empty() or t < 1 or t > MAX_TIER or str(t) != k.substr(i + 1):
+	if m.is_empty() or t < 1 or t > TIER_LIMIT or str(t) != k.substr(i + 1):
 		return {}
 	return {"id": m.id, "tier": t, "def": m}
 
@@ -215,7 +218,83 @@ static func color_of(k: String) -> Color:
 
 ## the area level a tier gives
 static func level_of(tier: int) -> int:
-	return tier
+	return clamp_tier(tier)
+
+
+static func clamp_tier(tier: int) -> int:
+	return clampi(tier, 1, TIER_LIMIT)
+
+
+## a tier (or best tier) read from a save: 0..TIER_LIMIT, a huge or broken number clamped before it becomes an int
+static func tier_from(v) -> int:
+	var f := float(v) if (v is int or v is float or v is String) else 0.0
+	if is_nan(f):
+		return 0
+	return int(clampf(f, 0.0, TIER_LIMIT))
+
+
+# =================== tier scaling (#74) ===================
+# On top of the area level, each tier multiplies monster life by a step that grows with depth: the first steps are
+# gentle so the early tiers play as before, the deep ones are steep. Damage takes POWER_DMG of the same growth.
+const POWER_STEPS := [[5, 1.04], [15, 1.08], [30, 1.12], [TIER_LIMIT, 1.15]]   # [up to tier, × per tier]
+const POWER_DMG := 0.6
+const POWER_MAX := 1e15     # clamp: past ~T250 the power stops growing (the area level still does)
+const GOLD_SHARE := 0.5     # ember drops grow with power ^ this
+const QUANTITY_PER_TIER := 0.025   # item quantity +2.5% per tier over 1, up to QUANTITY_MAX
+const QUANTITY_MAX := 3.0
+const RARITY_PER_TIER := 0.02      # item rarity +2% per tier over 1, up to RARITY_MAX
+const RARITY_MAX := 2.0
+const CROWD_LEVEL := 24     # pack sizes, ambushes, altar waves and the elite chance stop growing at this area level
+
+
+## the monster life multiplier of a tier (1 at T1)
+static func power(tier: int) -> float:
+	var t := clamp_tier(tier)
+	var lg := 0.0
+	var from := 1
+	for st in POWER_STEPS:
+		var n := clampi(mini(t, st[0]) - from, 0, TIER_LIMIT)
+		lg += n * log(float(st[1]))
+		from = maxi(from, st[0])
+	return POWER_MAX if lg >= log(POWER_MAX) else minf(exp(lg), POWER_MAX)
+
+
+static func life_mult(tier: int) -> float:
+	return power(tier)
+
+
+static func dmg_mult(tier: int) -> float:
+	return pow(power(tier), POWER_DMG)
+
+
+static func gold_mult(tier: int) -> float:
+	return pow(power(tier), GOLD_SHARE)
+
+
+## extra item quantity (a multiplier on the drop chances and counts) and item rarity a tier gives
+static func quantity_bonus(tier: int) -> float:
+	return minf(QUANTITY_PER_TIER * (clamp_tier(tier) - 1), QUANTITY_MAX)
+
+
+static func rarity_bonus(tier: int) -> float:
+	return minf(RARITY_PER_TIER * (clamp_tier(tier) - 1), RARITY_MAX)
+
+
+## a run's effects (Atlas.map_effects, Charms.apply) with what its tier adds: monster life and damage, ember,
+## item quantity and rarity
+static func apply_tier(fx: Dictionary, tier: int) -> Dictionary:
+	fx.life = fx.get("life", 1.0) * life_mult(tier)
+	fx.dmg = fx.get("dmg", 1.0) * dmg_mult(tier)
+	fx.gold = fx.get("gold", 1.0) * gold_mult(tier)
+	fx.quantity = fx.get("quantity", 1.0) + quantity_bonus(tier)
+	fx.rarity = fx.get("rarity", 0.0) + rarity_bonus(tier)
+	fx.tier = clamp_tier(tier)
+	return fx
+
+
+## an area level as far as crowd sizes go
+static func crowd(level: int) -> int:
+	return clampi(level, 1, CROWD_LEVEL)
 
 
 static func add(owned: Dictionary, k: String, n := 1) -> void:
@@ -269,9 +348,20 @@ static func mod_count(tier: int) -> Vector2i:
 	return Vector2i(0, 0)
 
 
-## worth in ember shards (the map device's price for BUY_TIER, the exchange-free value of a drop)
+## worth in ember shards (the map device's price for BUY_TIER, the exchange's base price). It follows the ember a run
+## of the tier brings in (area level × gold_mult), and more on top the deeper it is (× (1 + VALUE_GROWTH × (tier - 1))),
+## so it rises every tier and stays a sane int up to TIER_LIMIT
+const VALUE_BASE := 40.0
+const VALUE_GROWTH := 0.15
+const SELL_SHARE := 0.4     # the map device buys a map item back for this share of its value
 static func value(tier: int) -> int:
-	return roundi(40.0 * pow(1.35, tier - 1))
+	var t := clamp_tier(tier)
+	return roundi(VALUE_BASE * t * gold_mult(t) * (1.0 + VALUE_GROWTH * (t - 1)))
+
+
+## what the map device pays for one map item of `tier`
+static func sell_price(tier: int) -> int:
+	return maxi(1, roundi(value(tier) * SELL_SHARE))
 
 
 static func drop_chance(boss: bool, elite: bool) -> float:
@@ -288,4 +378,46 @@ static func roll(tier: int, boss := false, elite := false) -> String:
 		d = 1 if r < 0.25 else (-1 if r < 0.35 else 0)
 	else:
 		d = 1 if r < 0.1 else (-1 if r < 0.35 else 0)
-	return key(LIST.pick_random().id, clampi(tier + d, 1, MAX_TIER))
+	return key(LIST.pick_random().id, clamp_tier(tier + d))
+
+
+## a multiplier for the UI: "×2.83", "×41.5", "×1,234"
+static func mult_text(x: float) -> String:
+	if not is_finite(x):
+		return "×∞"
+	if x < 10.0:
+		return "×%.2f" % x
+	if x < 100.0:
+		return "×%.1f" % x
+	return "×" + num(roundi(minf(x, POWER_MAX)))
+
+
+## what a tier does, for the map device and the tooltips
+static func tier_lines(tier: int) -> Array:
+	var t := clamp_tier(tier)
+	return [["Tier %d　・　エリアレベル %d" % [t, level_of(t)], Color("#f0d8a0"), 15],
+		["モンスターのライフ %s　ダメージ %s" % [mult_text(life_mult(t)), mult_text(dmg_mult(t))], Color("#ff9a7a"), 13],
+		["アイテム数量 +%d%%　レア度 +%d%%　灰燼の欠片 %s" % [roundi(quantity_bonus(t) * 100), roundi(rarity_bonus(t) * 100), mult_text(gold_mult(t))],
+			Color("#8fd18f"), 13],
+		["価値 ◆ %s（地図装置の買取 ◆ %s）" % [num(value(t)), num(sell_price(t))], Color("#f0e0c0"), 13]]
+
+
+## a map item's tooltip
+static func lines(k: String) -> Array:
+	var c := parse(k)
+	if c.is_empty():
+		return [[k, COLOR, 16]]
+	var el := element(c.def)
+	var out := [[name_of(k), el.color, 16], ["%s属性　・　%s" % [el.name, c.def.shape], Color("#a89878"), 13]]
+	out.append_array(tier_lines(c.tier))
+	return out
+
+
+## a whole number with thousands separators ("1,234,567"), for the big values of deep tiers
+static func num(n: int) -> String:
+	var s := str(absi(n))
+	var out := ""
+	while s.length() > 3:
+		out = "," + s.right(3) + out
+		s = s.left(s.length() - 3)
+	return ("-" if n < 0 else "") + s + out
