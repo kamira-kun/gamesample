@@ -166,7 +166,7 @@ static func _charms() -> Dictionary:
 			var id := Charms.id_of(f.k, t)
 			rows.append([Charms.name_of(id), f.name, str(t + 1), Charms.effect_text(id), "◆ %d" % Charms.value(id)])
 	return {"file": "charms.md", "title": "コンパス",
-		"intro": "コンパスは燼火の甲虫の殻を灯した護符です。遠征図で出撃前に %d つまで（同じ系統は1つまで）はめると、そのマップ1回にだけ効果が加わり、マップに入ると燃え尽きます。マップの敵が落とし（ボス %d%%・エリート %d%%・通常 %s%%）、所持品とスタッシュで重ねて持てます。エリアレベルが高いほど上の階位が出やすくなります。" % [Charms.SLOTS,
+		"intro": "コンパスは燼火で針を灯した真鍮の羅針盤です。遠征図で出撃前に %d つまで（同じ系統は1つまで）はめると、そのマップ1回にだけ効果が加わり、マップに入ると燃え尽きます。マップの敵が落とし（ボス %d%%・エリート %d%%・通常 %s%%）、所持品とスタッシュで重ねて持てます。エリアレベルが高いほど上の階位が出やすくなります。" % [Charms.SLOTS,
 			roundi(Charms.drop_chance(true, false) * 100), roundi(Charms.drop_chance(false, true) * 100), _num(Charms.drop_chance(false, false) * 100)],
 		"sections": [{"title": "コンパスの一覧", "note": "価値は商人の値付けの基準（灰燼の欠片）です。",
 			"head": ["名前", "系統", "階位", "効果", "価値"], "rows": rows}]}
