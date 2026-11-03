@@ -52,7 +52,9 @@ func _process(_delta: float) -> bool:
 	print("GEM_LEVELS problems=%s" % [glv])
 	var icons := _check_compass_icons()
 	print("COMPASS_ICONS drawn=%d problems=%s" % [_icons_drawn, icons])
-	quit(code if stale.is_empty() and hits.is_empty() and awake.is_empty() and glv.is_empty() and icons.is_empty() else 1)
+	var tiers := _check_map_tiers()
+	print("MAP_TIERS problems=%s" % [tiers])
+	quit(code if stale.is_empty() and hits.is_empty() and awake.is_empty() and glv.is_empty() and icons.is_empty() and tiers.is_empty() else 1)
 	return true
 
 
@@ -184,3 +186,49 @@ func _check_compass_icons() -> Array:
 	if ch.ICON != "⊕":
 		bad.append("glyph")
 	return bad
+
+
+## #74: tiers have no cap: monster life, damage, ember and map value rise every tier, the life step widens with depth and
+## is steeper than the area level alone gave; low tiers stay close to before; keys past the old cap are valid; every
+## number stays finite and in range up to TIER_LIMIT; the device buys back for less than it sells
+func _check_map_tiers() -> Array:
+	var M = load("res://scripts/maps.gd")
+	var out := []
+	var prev_step := 0.0
+	for t in range(1, 2001):
+		if not (M.life_mult(t + 1) > M.life_mult(t) or M.life_mult(t) >= M.POWER_MAX):
+			out.append("life T%d" % t)
+		if not (M.dmg_mult(t + 1) > M.dmg_mult(t) or M.life_mult(t) >= M.POWER_MAX):
+			out.append("dmg T%d" % t)
+		if M.value(t + 1) <= M.value(t):
+			out.append("value T%d" % t)
+		var step: float = M.life_mult(t + 1) / M.life_mult(t)
+		if M.life_mult(t + 1) < M.POWER_MAX and step < prev_step - 1e-9:
+			out.append("step T%d" % t)
+		prev_step = step
+		for v in [M.life_mult(t), M.dmg_mult(t), M.gold_mult(t), M.quantity_bonus(t), M.rarity_bonus(t)]:
+			if is_nan(v) or is_inf(v) or v < 0.0:
+				out.append("number T%d" % t)
+	for t in [M.TIER_LIMIT - 1, M.TIER_LIMIT]:
+		if M.value(t) <= 0 or M.value(t) > (1 << 60) or M.sell_price(t) <= 0 or M.sell_price(t) >= M.value(t):
+			out.append("value range T%d" % t)
+	if M.value(M.TIER_LIMIT) <= M.value(M.TIER_LIMIT - 1):
+		out.append("value at the limit")
+	if M.life_mult(16) < 2.0 or M.life_mult(26) / M.life_mult(16) < 2.5:
+		out.append("not steeper")
+	if M.life_mult(2) > 1.05 or M.dmg_mult(3) > 1.06 or M.value(1) != 40 or M.quantity_bonus(1) != 0.0:
+		out.append("low tiers moved")
+	for k in ["ash:17", "ash:26", "ash:100", "ash:%d" % M.TIER_LIMIT]:
+		if not M.valid(k):
+			out.append("invalid " + k)
+	for k in ["ash:0", "ash:%d" % (M.TIER_LIMIT + 1), "ash:-1"]:
+		if M.valid(k):
+			out.append("valid " + k)
+	if M.level_of(1 << 40) != M.TIER_LIMIT or M.tier_from(1e300) != M.TIER_LIMIT or M.tier_from(NAN) != 0 or M.tier_from("x") != 0:
+		out.append("clamps")
+	var top := 0
+	for i in 400:
+		top = maxi(top, M.parse(M.roll(M.OLD_MAX_TIER + 10, true)).tier)
+	if top != M.OLD_MAX_TIER + 12:
+		out.append("boss drop top %d" % top)
+	return out

@@ -295,7 +295,7 @@ func _build_search() -> void:
 		mod_box.add_child(row)
 		mod_opts.append(o)
 		mod_mins.append(mn)
-	ilvl_spin.max_value = 200
+	ilvl_spin.max_value = Maps.TIER_LIMIT   # a map search asks for a tier, and tiers have no cap (#74)
 	ilvl_spin.tooltip_text = "この値以上のアイテムレベル（0 で隠れ家の水準）"
 	ilvl_row = _field("iLv 以上", ilvl_spin)
 	left.add_child(ilvl_row)
@@ -367,6 +367,8 @@ func _sync_filters() -> void:
 	if glv_row:
 		glv_row.visible = cat == "gem"
 		ilvl_row.visible = cat != "gem"
+		ilvl_row.get_child(0).text = "Tier 以上" if cat == "map" else "iLv 以上"
+		ilvl_spin.tooltip_text = "この値以上の Tier（0 で最高踏破 Tier のあたり）" if cat == "map" else "この値以上のアイテムレベル（0 で隠れ家の水準）"
 	var keep_base := base_opt.get_item_text(base_opt.selected) if base_opt.selected > 0 else ""
 	base_opt.clear()
 	base_opt.add_item("指定なし")
@@ -505,8 +507,8 @@ func _show_results() -> void:
 	for i in results.size():
 		var l: Dictionary = results[i]
 		var ok: bool = not l.sold and w.get(Market.BASE, 0) >= l.price and w.get("ember", 0) >= l.fee
-		var price_text := "売約済み" if l.sold else "✺ %d　◆ %d" % [l.price, l.fee]
-		var price_line := ["価格 ✺ %d　手数料 ◆ %d" % [l.price, l.fee], Color("#f0e0c0"), 14]
+		var price_text := "売約済み" if l.sold else "✺ %s　◆ %s" % [Maps.num(l.price), Maps.num(l.fee)]
+		var price_line := ["価格 ✺ %s　手数料 ◆ %s" % [Maps.num(l.price), Maps.num(l.fee)], Color("#f0e0c0"), 14]
 		if l.kind == "gear":
 			var box := VBoxContainer.new()
 			box.add_theme_constant_override("separation", 1)
@@ -554,6 +556,9 @@ func _listing_label(l: Dictionary) -> Array:
 		"currency":
 			var c := Data.currency(l.id)
 			return ["%s %s ×%d" % [c.icon, c.name, l.n], c.color]
+		"map":
+			var c := Maps.parse(l.id)   # short, so the price fits beside it
+			return ["%s %s T%d" % [Maps.ICON, c.def.name, c.tier], Maps.color_of(l.id)]
 	return ["", Color.WHITE]
 
 
@@ -571,6 +576,8 @@ func _listing_tip(l: Dictionary) -> Array:
 		"currency":
 			var c := Data.currency(l.id)
 			return [[c.name, c.color, 16], [c.desc, Color("#b8a888"), 13]]
+		"map":
+			return Maps.lines(l.id)
 	return []
 
 
@@ -630,6 +637,9 @@ func buy_result(i: int) -> void:
 		"currency":
 			p.cur[l.id] = p.cur.get(l.id, 0) + l.n
 			hud.message("%s ×%d を ✺ %d で買った" % [Data.currency(l.id).name, l.n, l.price], Color("#c070ff"))
+		"map":
+			Maps.add(m.atlas.maps, l.id, l.n)
+			hud.message("%s %s を ✺ %s で買った（所持 %d）" % [Maps.ICON, Maps.name_of(l.id), Maps.num(l.price), m.atlas.maps.get(l.id, 0)], Maps.color_of(l.id))
 	hud.hide_tip()
 	m.save_game()
 	hud.refresh_inventory()
@@ -695,7 +705,7 @@ func refresh() -> void:
 	req_page.visible = page == "requests"
 	day_label.text = "%s の相場　市場日 %d（ティック %d）　マップを1つ踏破するごとに 1 ティック進む" % [Profiles.league_name(lg), int(Market.day(m)), m.tick]
 	day_label.add_theme_color_override("font_color", Data.season(lg).get("color", Color("#c8b898")))
-	wallet_label.text = "◆ %d　✺ %d" % [w.get("ember", 0), w.get(Market.BASE, 0)]
+	wallet_label.text = "◆ %s　✺ %s" % [Maps.num(w.get("ember", 0)), Maps.num(w.get(Market.BASE, 0))]
 	_center.call_deferred()   # the pages differ in size
 	if page == "gear":
 		_refresh_gear()

@@ -31,6 +31,7 @@ static func pages() -> Array:
 	ps.append(_rares())
 	ps.append(_tablets())
 	ps.append(_charms())
+	ps.append(_maps())
 	ps.append(_ascendancies())
 	ps.append(_passives())
 	ps.append(_jewels())
@@ -170,6 +171,33 @@ static func _charms() -> Dictionary:
 			roundi(Charms.drop_chance(true, false) * 100), roundi(Charms.drop_chance(false, true) * 100), _num(Charms.drop_chance(false, false) * 100)],
 		"sections": [{"title": "コンパスの一覧", "note": "価値は商人の値付けの基準（灰燼の欠片）です。",
 			"head": ["名前", "系統", "階位", "効果", "価値"], "rows": rows}]}
+
+
+## map tiers (#74): what each tier does to the monsters and the loot, and what its map item is worth
+const MAP_TIERS_SHOWN := [1, 2, 3, 5, 8, 10, 13, 16, 20, 26, 30, 40, 50, 75, 100, 150, 200, 300]
+static func _maps() -> Dictionary:
+	var rows := []
+	for t in MAP_TIERS_SHOWN:
+		var mc := Maps.mod_count(t)
+		rows.append(["T%d" % t, str(Maps.level_of(t)), Maps.mult_text(Maps.life_mult(t)), Maps.mult_text(Maps.dmg_mult(t)),
+			"+%d%%" % roundi(Maps.quantity_bonus(t) * 100), "+%d%%" % roundi(Maps.rarity_bonus(t) * 100), Maps.mult_text(Maps.gold_mult(t)),
+			"%d〜%d" % [mc.x, mc.y], "◆ %s" % Maps.num(Maps.value(t)), "◆ %s" % Maps.num(Maps.sell_price(t))])
+	var steps := []
+	var from := 2
+	for st in Maps.POWER_STEPS:
+		steps.append("T%d〜%s：×%.2f" % [from, "" if st[0] >= Maps.TIER_LIMIT else str(st[0]), st[1]])
+		from = st[0] + 1
+	return {"file": "maps.md", "title": "遠征地図と Tier",
+		"intro": ("遠征地図は50種のマップ（5属性×10）のどれかを、地図に書かれた Tier で開きます。Tier に上限はありません（数値が壊れないよう T%d で頭打ち）。" +
+			"Tier N のマップの敵は Tier N±1 の地図を、ボスは N〜N+2 の地図を落とすので、より深い Tier へ進めます。地図装置は T%d の地図を ◆ %d で売り、" +
+			"持っている地図を価値の %d%% で買い取ります。取引所の「遠征地図」でも Tier を指定して買えます（価格は価値が基準）。") % [Maps.TIER_LIMIT, Maps.BUY_TIER,
+			roundi(Maps.value(Maps.BUY_TIER) * Data.SHOP_PRICE), roundi(Maps.SELL_SHARE * 100)],
+		"sections": [{"title": "Tier ごとの強さと報酬", "note": ("エリアレベル＝Tier。モンスターはエリアレベルによる成長に加えて、Tier ごとに深くなるほど大きい倍率でライフが伸びます（%s）。" +
+			"ダメージはその倍率の %s 乗、灰燼の欠片のドロップは %s 乗。アイテム数量は Tier ごとに +%s%%（最大 +%d%%）、レア度は +%s%%（最大 +%d%%）。" +
+			"群れの大きさとエリートの出やすさはエリアレベル %d で頭打ちです。価値は %d × Tier × 灰燼の倍率 × (1 + %.2f × (Tier − 1))（その Tier の1回の稼ぎに見合い、深いほどそれ以上）。") % ["、".join(PackedStringArray(steps)),
+			_num(Maps.POWER_DMG), _num(Maps.GOLD_SHARE), _num(Maps.QUANTITY_PER_TIER * 100), roundi(Maps.QUANTITY_MAX * 100), _num(Maps.RARITY_PER_TIER * 100),
+			roundi(Maps.RARITY_MAX * 100), Maps.CROWD_LEVEL, roundi(Maps.VALUE_BASE), Maps.VALUE_GROWTH],
+			"head": ["Tier", "エリアLv", "敵ライフ", "敵ダメージ", "アイテム数量", "レア度", "灰燼", "マップ効果", "価値", "買取"], "rows": rows}]}
 
 
 ## one-line crafting: what each action does and what it costs by item level
