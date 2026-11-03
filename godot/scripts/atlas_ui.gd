@@ -83,7 +83,7 @@ func refresh() -> void:
 		n = Data.ATLAS_NODES[0]
 	var unlocked := at.is_unlocked(n)
 	var mods: Array = at.node_mods(n) if unlocked else []
-	var fx := at.map_effects(mods)
+	var fx := Charms.apply(at.map_effects(mods), p.charm_slots)
 	_line(n.name, Data.THEME_COLORS[3 if n.get("endless", false) else n.theme], 24)
 	var status := "踏破済み" if at.is_cleared(n) else ("未踏" if unlocked else "未開放")
 	_line("エリアレベル %d　・　%s" % [at.node_level(n), status], Color("#a89878"), 14)
@@ -99,6 +99,7 @@ func refresh() -> void:
 		_line("◆ " + Data.map_mod(k).name, Color("#ff9a7a"), 14)
 	if fx.rarity > 0.0:
 		_line("アイテムレア度 +%d%%　アイテム数量 +%d%%" % [roundi(fx.rarity * 100), roundi((fx.quantity - 1.0) * 100)], Color("#8fd18f"), 13)
+	_charms(p)
 	var go := Button.new()
 	go.text = "出撃する" if unlocked else "隣接する地点を踏破すると開放"
 	go.disabled = not unlocked
@@ -117,6 +118,60 @@ func refresh() -> void:
 			at.mods[n.id] = at.roll_mods(n)
 			refresh())
 		detail.add_child(rr)
+
+
+## the ember-shell slots: click a set shell to take it out, an owned one to set it; they burn on setting out
+func _charms(p: Player) -> void:
+	_line("%s 燼殻 %d / %d（出撃すると燃え尽きる）" % [Charms.ICON, p.charm_slots.size(), Charms.SLOTS], Charms.COLOR, 16)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 4)
+	detail.add_child(row)
+	for i in Charms.SLOTS:
+		var id: String = p.charm_slots[i] if i < p.charm_slots.size() else ""
+		var sl := Charms.Slot.new(id, 0, hud)
+		sl.extra = [["クリックで外す", Color("#7a7266"), 12]]
+		sl.clicked.connect(unslot.bind(i))
+		row.add_child(sl)
+	for id in p.charm_slots:
+		var l := _line("%s %s" % [Charms.ICON, Charms.effect_text(id)], Charms.color_of(id), 13)
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.custom_minimum_size = Vector2(320, 0)
+	var owned := HFlowContainer.new()
+	detail.add_child(owned)
+	owned.add_theme_constant_override("h_separation", 4)
+	owned.add_theme_constant_override("v_separation", 4)
+	owned.custom_minimum_size = Vector2(320, 0)
+	for id in Charms.all_ids():
+		var left := int(p.charms.get(id, 0)) - p.charm_slots.count(id)
+		if left > 0:
+			var sl := Charms.Slot.new(id, left, hud)
+			sl.custom_minimum_size = Vector2(40, 40)
+			sl.extra = [["クリックではめる", Color("#7a7266"), 12]]
+			sl.clicked.connect(slot.bind(id))
+			owned.add_child(sl)
+	if owned.get_child_count() == 0:
+		_line("燼殻を持っていない（マップの敵が落とす）", Color("#776a58"), 12)
+
+
+## set shell `id` into the next run; returns why not, or ""
+func slot(id: String) -> String:
+	var p: Player = hud.main.player
+	var err := Charms.can_slot(p.charm_slots, p.charms, id)
+	if err != "":
+		hud.message(err, Color("#ff8080"))
+		return err
+	p.charm_slots.append(id)
+	hud.hide_tip()
+	refresh()
+	return ""
+
+
+func unslot(i: int) -> void:
+	var p: Player = hud.main.player
+	if i < p.charm_slots.size():
+		p.charm_slots.remove_at(i)
+		hud.hide_tip()
+		refresh()
 
 
 func _line(text: String, color: Color, size: int) -> Label:

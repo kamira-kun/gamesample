@@ -47,6 +47,8 @@ var links: Array = [[], [], [], [], [], []]
 var gems: Array = Data.DEFAULT_GEMS.duplicate()
 var tablets: Array = []      # rune tablets owned, on the 6x6 board or not (Tablets)
 var jewels: Array = []       # 燈晶 and 環晶 owned, socketed in the passive tree or not (Jewels)
+var charms := {}             # ember shells owned: id -> count (Charms)
+var charm_slots: Array = []  # shells set into the atlas for the next map; burnt on entering it
 # the weapon in hand per weapon base: a mesh already on the Knight rig or a KayKit glTF; two-handers drop the shield
 const WEAPON_MODELS := {
 	"片手剣": {"rig": "1H_Sword"}, "戦斧": {"gltf": "axe_1handed"}, "大槌": {"gltf": "axe_2handed", "two": true},

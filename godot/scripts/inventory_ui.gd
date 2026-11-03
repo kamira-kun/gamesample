@@ -10,6 +10,7 @@ var equip_grid := GridContainer.new()
 var bag_grid := GridContainer.new()
 var stats := Label.new()
 var cur_grid := GridContainer.new()
+var charm_grid := HFlowContainer.new()
 var banner := Label.new()
 var bag_count := Label.new()
 var craft_key := ""           # a currency, or "line" for one-line crafting
@@ -69,6 +70,10 @@ func _ready() -> void:
 	cur_grid.add_theme_constant_override("h_separation", 4)
 	cur_grid.add_theme_constant_override("v_separation", 4)
 	right.add_child(cur_grid)
+	right.add_child(_sub("燼殻（遠征図で出撃前にはめる）"))
+	charm_grid.add_theme_constant_override("h_separation", 4)
+	charm_grid.custom_minimum_size = Vector2(330, 0)
+	right.add_child(charm_grid)
 	banner.add_theme_font_size_override("font_size", 12)
 	banner.add_theme_color_override("font_color", Color("#ffd36a"))
 	banner.visible = false
@@ -139,6 +144,12 @@ func refresh() -> void:
 		sl.right_clicked.connect(_on_bag_right.bind(i))
 		bag_grid.add_child(sl)
 	bag_count.text = "所持品 %d / %d" % [p.bag.size(), Player.BAG_SIZE]
+	BasePanel.clear(charm_grid)
+	for id in Charms.all_ids():
+		if p.charms.get(id, 0) > 0:
+			charm_grid.add_child(Charms.Slot.new(id, p.charms[id], hud))
+	if p.charms.is_empty():
+		charm_grid.add_child(_sub("なし（マップの敵が落とす）"))
 	BasePanel.clear(cur_grid)
 	for cdef in Data.CURRENCIES:
 		var b := Button.new()

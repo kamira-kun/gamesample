@@ -8,6 +8,8 @@ var tab_row := HBoxContainer.new()
 var stash_grid := GridContainer.new()
 var bag_grid := GridContainer.new()
 var bag_count := Label.new()
+var charm_stash := HFlowContainer.new()
+var charm_bag := HFlowContainer.new()
 var tab := 0
 
 
@@ -41,6 +43,20 @@ func _build() -> void:
 	bag_grid.add_theme_constant_override("h_separation", 4)
 	bag_grid.add_theme_constant_override("v_separation", 4)
 	right.add_child(bag_grid)
+	var crow := HBoxContainer.new()
+	crow.add_theme_constant_override("separation", 22)
+	body.add_child(crow)
+	for pair in [["燼殻（スタッシュ・クリックで全部／右クリックで1つ取り出す）", charm_stash], ["燼殻（所持・クリックで全部／右クリックで1つ預ける）", charm_bag]]:
+		var box := VBoxContainer.new()
+		var l := Label.new()
+		l.text = pair[0]
+		l.add_theme_font_size_override("font_size", 12)
+		l.add_theme_color_override("font_color", Charms.COLOR)
+		box.add_child(l)
+		pair[1].custom_minimum_size = Vector2(420, 52)
+		pair[1].add_theme_constant_override("h_separation", 4)
+		box.add_child(pair[1])
+		crow.add_child(box)
 
 
 func tabs() -> Array:
@@ -89,6 +105,34 @@ func refresh() -> void:
 		sl.clicked.connect(_put.bind(i))
 		bag_grid.add_child(sl)
 	bag_count.text = "所持品 %d / %d" % [p.bag.size(), Player.BAG_SIZE]
+	var sc := Profiles.stash_charms(lg)
+	for pair in [[charm_stash, sc, false], [charm_bag, p.charms, true]]:
+		clear(pair[0])
+		for id in Charms.all_ids():
+			if pair[1].get(id, 0) > 0:
+				var sl := Charms.Slot.new(id, pair[1][id], hud)
+				sl.clicked.connect(move_charm.bind(id, pair[2], true))
+				sl.right_clicked.connect(move_charm.bind(id, pair[2], false))
+				pair[0].add_child(sl)
+
+
+## a stack of ember shells (or one of it, without `all`) between the stash and the character
+func move_charm(id: String, to_stash: bool, all: bool) -> void:
+	var p: Player = hud.main.player
+	var sc := Profiles.stash_charms(hud.main.league())
+	var src: Dictionary = p.charms if to_stash else sc
+	var have := int(src.get(id, 0))
+	if to_stash:   # a shell set into the atlas stays with the character
+		have -= p.charm_slots.count(id)
+	var n := have if all else mini(1, have)
+	if n <= 0:
+		return
+	src[id] -= n
+	if src[id] <= 0:
+		src.erase(id)
+	Charms.add(sc if to_stash else p.charms, id, n)
+	hud.refresh_inventory()
+	_moved()
 
 
 ## bag item i into the open tab
