@@ -1,6 +1,6 @@
 class_name Dungeon
 extends RefCounted
-## Grid dungeon: rooms joined by corridors. Gameplay runs on this flat grid;
+## Grid dungeon: rooms joined by corridors, laid out along a map's fixed route (Maps). Gameplay runs on this flat grid;
 ## positions are Vector2(x, z) in meters, one tile = T meters.
 
 const T := 2.0
@@ -32,7 +32,7 @@ func _init(width: int, height: int, lvl: int, layout := "") -> void:
 	if layout == "hideout":
 		_make_hideout()
 	else:
-		_generate()
+		_make_route(Maps.def(layout))
 
 
 func idx(x: int, y: int) -> int:
@@ -91,39 +91,24 @@ func _make_hideout() -> void:
 	boss_room = r
 
 
-func _generate() -> void:
-	var target := 9 + mini(6, level / 2)
-	var attempts := 0
-	while attempts < 500 and rooms.size() < target:
-		attempts += 1
-		var rw := randi_range(7, 13)
-		var rh := randi_range(6, 11)
-		var x := randi_range(2, w - rw - 3)
-		var y := randi_range(2, h - rh - 3)
-		var overlap := false
-		for o in rooms:
-			if x < o.x + o.w + 3 and x + rw + 3 > o.x and y < o.y + o.h + 3 and y + rh + 3 > o.y:
-				overlap = true
-				break
-		if overlap:
-			continue
-		rooms.append({"x": x, "y": y, "w": rw, "h": rh, "cx": x + rw / 2, "cy": y + rh / 2})
-		for yy in range(y, y + rh):
-			for xx in range(x, x + rw):
+## a map's fixed layout (Maps): a room on every route point, corridors along the route's chains; sizes, ragged
+## edges and pillars come from the RNG, which the caller seeds per map (see Main.spawn_floor)
+func _make_route(m: Dictionary) -> void:
+	var cw := randi_range(2, 3)
+	var pts := Maps.points(m)
+	for i in pts.size():
+		var c := Maps.tile_of(pts[i])
+		var boss := i == pts.size() - 1
+		var rw := randi_range(9, 10) if boss else (randi_range(6, 7) if i == 0 else randi_range(4, 7))
+		var rh := randi_range(9, 10) if boss else (randi_range(6, 7) if i == 0 else randi_range(4, 7))
+		var r := {"x": c.x - rw / 2, "y": c.y - rh / 2, "w": rw, "h": rh, "cx": c.x, "cy": c.y}
+		rooms.append(r)
+		for yy in range(r.y, r.y + r.h):
+			for xx in range(r.x, r.x + r.w):
 				_carve(xx, yy)
-
-	# connect every room to its nearest earlier room, then add a couple of loops
-	for i in range(1, rooms.size()):
-		var best := 0
-		var bd := INF
-		for j in i:
-			var d := Vector2(rooms[i].cx, rooms[i].cy).distance_squared_to(Vector2(rooms[j].cx, rooms[j].cy))
-			if d < bd:
-				bd = d
-				best = j
-		_corridor(rooms[i], rooms[best])
-	for k in 2:
-		_corridor(rooms.pick_random(), rooms.pick_random())
+	for ch in Maps.chains(m):
+		for j in range(1, ch.size()):
+			_tunnel(Maps.tile_of(ch[j - 1]), Maps.tile_of(ch[j]), cw)
 
 	for r in rooms:
 		# ragged edges so rooms don't look like boxes
@@ -133,41 +118,24 @@ func _generate() -> void:
 			var y: int = randi_range(r.y, r.y + r.h - 1) if side >= 2 else (r.y - 1 if side == 0 else r.y + r.h)
 			_carve(x, y)
 		# pillars in big rooms
-		if r.w >= 10 and r.h >= 9 and randf() < 0.6:
+		if r.w >= 9 and r.h >= 9 and randf() < 0.6:
 			for pp in [Vector2i(r.x + 2, r.y + 2), Vector2i(r.x + r.w - 3, r.y + 2), Vector2i(r.x + 2, r.y + r.h - 3), Vector2i(r.x + r.w - 3, r.y + r.h - 3)]:
 				tiles[idx(pp.x, pp.y)] = 0
 
 	start = rooms[0]
-	compute_flow(tile_center(start.cx, start.cy), 9999)
-	boss_room = rooms[1]
-	var far := -1
-	for r in rooms.slice(1):
-		var d := flow[idx(r.cx, r.cy)]
-		if d > far:
-			far = d
-			boss_room = r
+	boss_room = rooms[-1]
 
 
-func _corridor(a: Dictionary, b: Dictionary) -> void:
-	var cw := randi_range(2, 3)
-	if randf() < 0.5:
-		_hline(a.cx, b.cx, a.cy, cw)
-		_vline(a.cy, b.cy, b.cx, cw)
-	else:
-		_vline(a.cy, b.cy, a.cx, cw)
-		_hline(a.cx, b.cx, b.cy, cw)
-
-
-func _hline(x0: int, x1: int, y: int, cw: int) -> void:
-	for x in range(mini(x0, x1), maxi(x0, x1) + cw):
-		for k in cw:
-			_carve(x, y + k)
-
-
-func _vline(y0: int, y1: int, x: int, cw: int) -> void:
-	for y in range(mini(y0, y1), maxi(y0, y1) + cw):
-		for k in cw:
-			_carve(x + k, y)
+## a straight corridor `cw` tiles wide from tile a to tile b (diagonals one tile wider, so they stay walkable)
+func _tunnel(a: Vector2i, b: Vector2i, cw: int) -> void:
+	var d := b - a
+	var steps := maxi(absi(d.x), absi(d.y))
+	var wide := cw + (1 if d.x != 0 and d.y != 0 else 0)
+	for s in steps + 1:
+		var p := Vector2(a).lerp(Vector2(b), float(s) / maxi(steps, 1)).round()
+		for yy in wide:
+			for xx in wide:
+				_carve(int(p.x) - wide / 2 + xx, int(p.y) - wide / 2 + yy)
 
 
 func random_floor_in(room: Dictionary) -> Vector2:

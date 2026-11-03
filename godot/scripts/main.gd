@@ -46,6 +46,7 @@ var portal: Dictionary = {}
 var atlas := Atlas.new()
 var area: Dictionary = Data.HIDEOUT   # current atlas node, or the hideout
 var run_mods: Array = []
+var run_tier := 0            # tier of the map item this run was entered with (0 in the hideout)
 var run_charms: Array = []   # ember shells burnt on entering this map (Charms)
 var mod_fx := Atlas.effects([])
 var shop := {}
@@ -128,6 +129,10 @@ func _ready() -> void:
 	else:
 		hud.message("%sで移動、%sで斬撃、%sでファイアボール" % [move_keys(), Keybinds.text("skill_1"), Keybinds.text("skill_2")], Color("#e8d8b0"))
 	hud.message("　".join(PackedStringArray(PANEL_ACTIONS.map(func(a): return "%s：%s" % [Keybinds.text(a), Keybinds.action(a).name]))), Color("#b8a888"))
+	var view_map := "ash"   # views that play in a map: `--map=<id>` picks which of the fifty
+	for x in args:
+		if x.begins_with("--map=") and not Maps.def(x.trim_prefix("--map=")).is_empty():
+			view_map = x.trim_prefix("--map=")
 	for x in args:
 		if x.begins_with("--view="):
 			var kind: String = x.trim_prefix("--view=")
@@ -230,11 +235,11 @@ func _ready() -> void:
 				hud.toggle_inventory()
 				get_tree().create_timer(2.0).timeout.connect(func(): hud.show_tip(Items.lines(top)))
 			elif kind in ["colossus", "witch"]:   # a boss next to the player
-				enter_map("ash")
+				dev_map(view_map)
 				var b := _make_enemy(kind, player.pos + Vector2(5, -5), 999)
 				b.sync_node(0.0, false)
 			elif kind == "imp":   # a few imps and the fox right next to the player
-				enter_map("ash")
+				dev_map(view_map)
 				for i in 3:
 					_make_enemy("imp", player.pos + Vector2(2.5 + i * 1.2, -2.5 + i * 0.8), 999)
 			elif kind.begins_with("keys"):   # key config: `keys_swap` just after a swap, `keys_dup` with a duplicate from a hand-edited file
@@ -247,12 +252,12 @@ func _ready() -> void:
 				elif kind == "keys":
 					hud.keyconfig_ui.listen("skill_4", 0)
 			elif kind == "map":   # the map overlay over a map explored from the start room through a few rooms
-				enter_map("ash")
+				dev_map(view_map)
 				player.invuln = 1e9
 				_walk_reveal(map.rooms.slice(1, 4))
 				hud.map_overlay.toggle()
 			elif kind.begins_with("hurt"):   # a hit on the player caught mid-flash: `hurt_low` at 20% life; `--hurt_fx=N` sets the option
-				enter_map("ash")
+				dev_map(view_map)
 				player.invuln = 1e9
 				for y in args:
 					if y.begins_with("--hurt_fx="):
@@ -272,7 +277,7 @@ func _ready() -> void:
 			elif kind.begins_with("tablets"):   # the board with a few tablets set and one picked: `tablets_full` with all 36 cells taken
 				_view_tablets(kind)
 			elif kind.begins_with("seal"):   # a sealed monolith next to the player: `seal_open` with its wardens out
-				enter_map("ash")
+				dev_map(view_map)
 				player.invuln = 1e9
 				var sl := place_seal(_free_spot(player.pos, 5.0))
 				if kind == "seal_open":
@@ -316,7 +321,7 @@ func _ready() -> void:
 				hud.toggle_inventory()
 				get_tree().create_timer(2.0).timeout.connect(func(): hud.show_tip(Items.lines(it)))
 			elif kind == "status_icons":   # the status icons at the top left: skeletons, a totem, two auras, a buff skill and talent stacks
-				enter_map("ash")
+				dev_map(view_map)
 				player.invuln = 1e9
 				player.level = 14
 				player.slots = ["skeleton", "ember_heart", "gale_hymn", "tailwind", "fireball", "slash"]
@@ -334,7 +339,7 @@ func _ready() -> void:
 						a.max_life = 1e7
 						a.life = 1e7)
 			elif kind.begins_with("aura"):   # auras on the bar: `aura0` none on, `aura` three on and a fourth refused, `aura_off` one switched off again
-				enter_map("ash")
+				dev_map(view_map)
 				player.invuln = 1e9
 				player.level = 14
 				player.slots = ["slash", "ember_heart", "frost_veil", "gale_hymn", "crimson_pact", "hearth_ward"]
@@ -1847,7 +1852,7 @@ func _view_altar(kind: String) -> void:
 		player.pos = interacts[4].pos + Vector2(0, 3)
 		open_interact("forge")
 		return
-	enter_map("ash")
+	dev_map("ash")
 	player.invuln = 1e9
 	var a := place_altar(_free_spot(player.pos, 5.0))
 	if kind == "altar_vow":
@@ -1982,12 +1987,12 @@ func _smoke_farm() -> void:
 	p.invuln = 1e9
 	Profiles.data = Profiles.fresh()
 	var f := Farm.state(league())
-	enter_map("ash")
+	dev_map("ash")
 	var placed := altars.size()
 	var dormant := interacts.filter(func(o): return o.kind == "altar").size()
 	var on_floor := altars.all(func(a): return not map.solid_at(a.pos + Vector2(1.6, 0)) or not map.solid_at(a.pos - Vector2(1.6, 0)))
 	f.beacons = 1
-	enter_map("ash")
+	dev_map("ash")
 	print("SMOKE farm placed=%d labels=%d floor=%s beacon_map=%d beacons_left=%d" % [placed, dormant, on_floor, altars.size(), f.beacons])
 	_expect("farm_placed", {"labels": dormant == placed, "floor": on_floor, "beacon_map": altars.size() > placed or altars.size() >= 3, "beacon_spent": f.beacons == 0})
 	# a locked vow is refused; 烈火の誓約 kindles the first altar
@@ -2166,7 +2171,7 @@ func _smoke_tablets() -> void:
 	_expect("tablets_save", {"kept": back.size() == 2, "same": kept.mods == life_t.mods and kept.placed, "rot": kept.rot == 2, "clash_off": not back[1].placed,
 		"bogus_gone": not back[1].mods.has("bogus")})
 	# a boss drops one
-	enter_map("ash")
+	dev_map("ash")
 	var n0 := p.tablets.size()
 	hit_enemy(boss, {"dmg": 999999, "crit": false, "type": "phys"})
 	await get_tree().create_timer(0.2).timeout
@@ -2309,7 +2314,7 @@ func _smoke_line_craft() -> void:
 func _smoke_seal() -> void:
 	var p := player
 	p.invuln = 1e9
-	enter_map("ash")
+	dev_map("ash")
 	if seals.is_empty():
 		place_seal(_free_spot(p.pos, 6.0))
 	var sl: Dictionary = seals[0]
@@ -2519,7 +2524,7 @@ func _smoke_charms() -> void:
 	var base := {"enemies": 0, "elites": 0}
 	for i in 3:
 		seed(60600 + i)
-		enter_map("ash")
+		dev_map("ash")
 		base.enemies += enemies.size()
 		base.elites += enemies.filter(func(e): return not e.elite.is_empty()).size()
 	var with := {"enemies": 0, "elites": 0}
@@ -2529,7 +2534,7 @@ func _smoke_charms() -> void:
 		p.charm_slots = ["horde_3", "elite_3", "peril_3"]
 		var before: int = Charms.count(p.charms)
 		seed(60600 + i)
-		enter_map("ash")
+		dev_map("ash")
 		burnt = burnt and Charms.count(p.charms) == before - 3 and p.charm_slots.is_empty() and run_charms == ["horde_3", "elite_3", "peril_3"]
 		with.enemies += enemies.size()
 		with.elites += enemies.filter(func(e): return not e.elite.is_empty()).size()
@@ -2546,7 +2551,7 @@ func _smoke_charms() -> void:
 	# the loot shells: monoliths are there at once, the crowned boss drops more items, tablets and currency
 	enter_hideout()
 	p.charm_slots = ["tyrant_3", "relic_3", "hoard_3", "seal_3"]
-	enter_map("ash")
+	dev_map("ash")
 	var crowned := boss != null and boss.display_name.begins_with("燼冠の")
 	var b := boss
 	for d in drops:
@@ -2738,22 +2743,64 @@ func _smoke_save() -> void:
 
 ## generated maps: every floor tile can be walked to from the start, the boss room is the farthest room,
 ## and the hideout is a single hall
+## the fifty maps: ten of each element, each with a shape of its own; every floor tile reachable from the entrance,
+## a room on every route point with the boss room at the end of the main road; the same map comes out tile for tile
+## the same each time (look and roads fixed), and no two maps alike. Map items: keys and tiers, cleaning saved
+## stacks, modifier counts by tier, drops around the tier, and a save from the ten-node atlas carried over
 func _smoke_dungeon() -> void:
+	var per_elem := [0, 0, 0, 0, 0]
+	var shapes := {}
+	var sigs := {}
 	var cut := 0
-	var boss_far := true
+	var rooms_ok := true
+	var same := true
 	var sizes := []
-	for i in 12:
-		var m := Dungeon.new(72, 72, 1 + i * 2)
-		m.compute_flow(m.tile_center(m.start.cx, m.start.cy), 99999)
-		for t in m.tiles.size():
-			if m.tiles[t] == 1 and m.flow[t] == -1:
+	for m in Data.ATLAS_NODES:
+		per_elem[m.elem] += 1
+		shapes[m.shape] = true
+		var made := []
+		for k in 2:
+			seed(Maps.layout_seed(m.id))
+			made.append(Dungeon.new(Maps.SIZE, Maps.SIZE, 1 + k * 9, m.id))
+		randomize()
+		var d: Dungeon = made[0]
+		same = same and d.tiles == made[1].tiles and d.noise == made[1].noise
+		sigs[hash(d.tiles)] = true
+		d.compute_flow(d.tile_center(d.start.cx, d.start.cy), 99999)
+		for t in d.tiles.size():
+			if d.tiles[t] == 1 and d.flow[t] == -1:
 				cut += 1
-		var far: int = m.flow[m.idx(m.boss_room.cx, m.boss_room.cy)]
-		boss_far = boss_far and far > 0 and m.rooms.all(func(r): return m.flow[m.idx(r.cx, r.cy)] <= far)
-		sizes.append(m.rooms.size())
+		rooms_ok = rooms_ok and d.rooms.size() == Maps.points(m).size() and d.boss_room == d.rooms[-1] and d.start == d.rooms[0] 			and d.flow[d.idx(d.boss_room.cx, d.boss_room.cy)] > 0
+		sizes.append(d.rooms.size())
+	print("SMOKE maps n=%d per_elem=%s shapes=%d distinct=%d unreachable=%d rooms_ok=%s same=%s rooms=%d-%d" % [Data.ATLAS_NODES.size(), per_elem,
+		shapes.size(), sigs.size(), cut, rooms_ok, same, sizes.min(), sizes.max()])
+	_expect("maps_fixed", {"fifty": Data.ATLAS_NODES.size() == 50, "per_elem": per_elem == [10, 10, 10, 10, 10], "shapes": shapes.size() == 50,
+		"distinct": sigs.size() == 50, "connected": cut == 0, "rooms": rooms_ok, "same": same, "themes": Data.THEMES.size() == 5 and Data.BOSS_ROTATION.size() == 5})
+	var keys_ok: bool = Maps.parse("ash:3").get("tier", 0) == 3 and ["ash:0", "ash:17", "nope:1", "ash:03", "ash"].all(func(k): return not Maps.valid(k))
+	var clean := Maps.normalize({"ash:2": 2, "bad": 1, "ember:3": -1, "frost:1": 1.0, "rot:4": "x"})
+	var at := Atlas.new()
+	var none := range(20).all(func(_i): return at.roll_mods(1).is_empty())
+	var deep := range(20).all(func(_i): return at.roll_mods(Maps.MAX_TIER).size() in [2, 3])
+	var boss_t := range(300).map(func(_i): return Maps.parse(Maps.roll(5, true)).tier)
+	var low_t := range(300).map(func(_i): return Maps.parse(Maps.roll(1)).tier)
+	var top_t := range(300).map(func(_i): return Maps.parse(Maps.roll(Maps.MAX_TIER, true)).tier)
+	print("SMOKE map_items keys=%s clean=%s mods none=%s deep=%s boss_tiers=%d-%d low=%d-%d top=%d" % [keys_ok, clean, none, deep, boss_t.min(), boss_t.max(),
+		low_t.min(), low_t.max(), top_t.max()])
+	_expect("map_items", {"keys": keys_ok, "clean": clean == {"ash:2": 2, "frost:1": 1}, "mods_t1": none, "mods_deep": deep,
+		"boss_up": boss_t.min() == 5 and boss_t.max() == 7, "low": low_t.min() == 1 and low_t.max() == 2, "cap": top_t.max() == Maps.MAX_TIER,
+		"value": Maps.value(5) > Maps.value(1)})
+	# a save from the ten-node atlas: its clears stay, the deepest becomes the best tier, a map of each element at that tier
+	var old := Atlas.new()
+	old.from_dict({"cleared": ["ash", "bone", "grave"], "abyss": 2, "mods": {"wail": ["life"]}, "sel": "abyss"})
+	var back := Atlas.new()
+	old.mods["ash:11"] = ["dmg"]
+	back.from_dict(JSON.parse_string(JSON.stringify(old.to_dict())))
+	print("SMOKE map_legacy best=%d maps=%s points=%d sel=%s back=%s" % [old.best, old.maps, old.points_total(), old.sel, back.to_dict() == old.to_dict()])
+	_expect("map_legacy", {"best": old.best == 11, "maps": old.maps.size() == 5 and old.maps.keys().all(func(k): return Maps.parse(k).tier == 11),
+		"points": old.points_total() == 5, "sel": old.sel == "ash", "round_trip": back.maps == old.maps and back.mods == old.mods and back.best == old.best})
 	var h := Dungeon.new(28, 26, 1, "hideout")
-	print("SMOKE dungeon maps=12 unreachable=%d boss_farthest=%s rooms=%d-%d hideout_rooms=%d" % [cut, boss_far, sizes.min(), sizes.max(), h.rooms.size()])
-	_expect("dungeon", {"connected": cut == 0, "boss_farthest": boss_far, "rooms": sizes.min() >= 2, "hideout": h.rooms.size() == 1 and h.start == h.boss_room})
+	print("SMOKE dungeon hideout_rooms=%d" % h.rooms.size())
+	_expect("dungeon", {"hideout": h.rooms.size() == 1 and h.start == h.boss_room})
 	# a boss-sized circle centred on a lone prop tile collides with it (its corners alone fall on open floor)
 	var hr: Dictionary = h.rooms[0]
 	h.blocked[h.idx(hr.cx, hr.cy)] = 1
@@ -2856,7 +2903,7 @@ func _smoke_map() -> void:
 	_expect("map_hideout", {"picture": mo.map == map, "here": map.seen_at(p.pos), "merchant": "merchant" in kinds, "device": "device" in kinds})
 	var hideout_map := map
 	# a map: the start room explored, the farthest room not yet; standing there explores it
-	enter_map("ash")
+	dev_map("ash")
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var start := p.pos
@@ -2926,7 +2973,7 @@ func _smoke_map() -> void:
 	mo.apply_settings()
 	# the same map again is a new map: nothing of the last visit is kept
 	var old := map
-	enter_map("ash")
+	dev_map("ash")
 	await get_tree().process_frame
 	await get_tree().process_frame
 	print("SMOKE map again new=%s seen=%d" % [map != old and mo.map == map, map.seen.count(1)])
@@ -3081,12 +3128,15 @@ func _smoke_test() -> void:
 	await _smoke_keys()
 	open_interact("device")
 	await get_tree().create_timer(0.4).timeout
-	enter_map("wail")
-	print("SMOKE locked map ignored=%s" % in_hideout())
-	_expect("atlas_locked", {"ignored": in_hideout()})
-	enter_map("ash")
-	print("SMOKE entered=%s level=%d atlas_open=%s" % [area.id, floor_level, hud.atlas_ui.visible])
-	_expect("atlas_enter", {"entered": area.id == "ash", "closed": not hud.atlas_ui.visible, "boss": boss != null})
+	# a map is entered with a map item: none of 嘆きの納骨堂 is owned, a new character's 灰の入口 (T1) is, through the device
+	var no_item := enter_map("wail")
+	print("SMOKE map without item refused=%s hideout=%s starter=%s" % [not no_item, in_hideout(), atlas.maps])
+	_expect("atlas_no_item", {"refused": not no_item, "ignored": in_hideout(), "starter": atlas.maps == Atlas.STARTER})
+	hud.atlas_ui.select("ash")
+	hud.atlas_ui.set_out()
+	print("SMOKE entered=%s tier=%d level=%d atlas_open=%s left=%d" % [area.id, run_tier, floor_level, hud.atlas_ui.visible, atlas.maps.get("ash:1", 0)])
+	_expect("atlas_enter", {"entered": area.id == "ash", "tier": run_tier == 1 and floor_level == 1, "used": not atlas.maps.has("ash:1"),
+		"closed": not hud.atlas_ui.visible, "boss": boss != null, "fixed_boss_room": map.boss_room == map.rooms[-1]})
 	var ash_boss := boss
 	var e: Enemy = enemies.filter(func(q): return not q.boss)[0]
 	p.pos = map.move_circle(e.pos + Vector2(-4, -4), p.r, Vector2.ZERO)
@@ -3284,6 +3334,7 @@ func _smoke_test() -> void:
 	hud.close_panels()
 	await get_tree().create_timer(1.0).timeout
 	var killed_before := enemies.size()
+	var maps0 := Maps.count(atlas.maps)
 	if boss:   # a totem or minion left from the tests above may already have finished it
 		hit_enemy(boss, {"dmg": maxi(999999, ceili(boss.life) + 1), "crit": false, "type": "phys"})
 	# killed earlier next to the player, its portal took the player home at once: it opened, and was used
@@ -3293,9 +3344,9 @@ func _smoke_test() -> void:
 	if not portal.is_empty():
 		p.pos = portal.pos
 		await get_tree().create_timer(0.3).timeout
-	print("SMOKE completed hideout=%s cleared=%s bone_unlocked=%s wail_unlocked=%s" % [in_hideout(), atlas.cleared, atlas.is_unlocked(Data.atlas_node("bone")), atlas.is_unlocked(Data.atlas_node("wail"))])
-	_expect("completed", {"hideout": in_hideout(), "cleared": "ash" in atlas.cleared, "bone": atlas.is_unlocked(Data.atlas_node("bone")),
-		"wail": atlas.is_unlocked(Data.atlas_node("wail"))})
+	print("SMOKE completed hideout=%s cleared=%s best=%d maps %d->%d" % [in_hideout(), atlas.cleared, atlas.best, maps0, Maps.count(atlas.maps)])
+	_expect("completed", {"hideout": in_hideout(), "cleared": "ash" in atlas.cleared, "best": atlas.best == 1, "hideout_lv": atlas.hideout_level() == 1,
+		"boss_maps": Maps.count(atlas.maps) > maps0})
 	hud.toggle(hud.passive_ui)
 	hud.passive_ui._rank_up("find")   # locked until 黄金の嗅覚 has a rank
 	hud.passive_ui._rank_up("gold")
@@ -3303,12 +3354,15 @@ func _smoke_test() -> void:
 	print("SMOKE passives free=%d gold=%d find=%d flask=%d gold_fx=%.2f" % [atlas.points_free(), atlas.rank("gold"), atlas.rank("find"), atlas.rank("flask"), atlas.map_effects([]).gold])
 	_expect("atlas_passives", {"gold": atlas.rank("gold") == 1, "locked": atlas.rank("find") == 0, "no_points": atlas.rank("flask") == 0, "gold_fx": atlas.map_effects([]).gold > 1.0})
 	hud.close_panels()
-	atlas.mods["wail"] = ["life", "swarm"]
-	enter_map("wail")
-	print("SMOKE wail level=%d mods=%s enemies=%d rarity=%.2f" % [floor_level, run_mods, enemies.size(), mod_fx.rarity])
-	_expect("map_mods", {"mods": run_mods == ["life", "swarm"], "rarity": mod_fx.rarity > 0.0, "enemies": enemies.size() > 0})
-	# the colossus and the witch go through their moves
-	for kind in ["colossus", "witch"]:
+	# the tier is the map item's: a T7 嘆きの納骨堂 is area level 7 with the modifiers rolled for that item
+	Maps.add(atlas.maps, "wail:7")
+	atlas.mods["wail:7"] = ["life", "swarm"]
+	enter_map("wail", 7)
+	print("SMOKE wail tier=%d level=%d mods=%s enemies=%d rarity=%.2f boss=%s" % [run_tier, floor_level, run_mods, enemies.size(), mod_fx.rarity, boss.type if boss else ""])
+	_expect("map_mods", {"tier": run_tier == 7 and floor_level == 7, "mods": run_mods == ["life", "swarm"], "rarity": mod_fx.rarity > 0.0,
+		"enemies": enemies.size() > 0, "used": not atlas.maps.has("wail:7") and not atlas.mods.has("wail:7"), "boss": boss != null and boss.type == "boss"})
+	# the colossus and the witch go through their moves (the thunder and chaos bosses borrow them)
+	for kind in ["colossus", "witch", "stormlord", "rotking"]:
 		var spot := p.pos
 		for k in 32:
 			var at := p.pos + Vector2.from_angle(k * TAU / 32.0) * (9.0 + k / 8)
@@ -3328,6 +3382,12 @@ func _smoke_test() -> void:
 				await get_tree().create_timer(0.1).timeout
 				chill = maxf(chill, p.chill)
 				shots = maxi(shots, eprojs.size())
+		if kind in ["stormlord", "rotking"]:
+			print("SMOKE %s moves shots=%d" % [kind, shots])
+			_expect("boss_" + kind, {"shots": shots > 0, "alive": not b.dead})
+			hit_enemy(b, {"dmg": 999999, "crit": false, "type": "phys"})
+			await get_tree().create_timer(0.3).timeout
+			continue
 		if kind == "colossus":
 			await get_tree().create_timer(1.0).timeout
 			var hz_old := hazards.duplicate()   # its own earlier fire may burn out meanwhile: count the new patches only
@@ -3778,12 +3838,17 @@ func in_hideout() -> bool:
 
 
 func spawn_floor() -> void:
-	_reset_world(Dungeon.new(72, 72, floor_level), Data.THEMES[atlas.node_theme(area)])
+	# the layout and its dressing draw from the map's own seed, so each map looks the same every time;
+	# what follows (monsters, altars, loot) carries on from wherever the run's randomness was
+	var keep := randi()
+	seed(Maps.layout_seed(area.id))
+	_reset_world(Dungeon.new(Maps.SIZE, Maps.SIZE, floor_level, area.id), Data.THEMES[area.elem])
+	seed(keep)
 	_spawn_enemies()
 	_place_altars()
 	for i in maxi(int(mod_fx.get("seals", 0)), 1 if randf() < Seal.CHANCE else 0):
 		_place_seal()
-	hud.message("%s — エリアレベル %d" % [area.name, floor_level], Color("#e8d8b0"))
+	hud.message("%s（T%d・%s）— エリアレベル %d" % [area.name, run_tier, area.shape, floor_level], Color("#e8d8b0"))
 	for k in run_mods:
 		hud.message("◆ " + Data.map_mod(k).name, Color("#ff9a7a"))
 	for id in run_charms:
@@ -3800,6 +3865,7 @@ func spawn_floor() -> void:
 func enter_hideout() -> void:
 	area = Data.HIDEOUT
 	floor_level = atlas.hideout_level()
+	run_tier = 0
 	run_mods = []
 	run_charms = []
 	mod_fx = atlas.map_effects([])
@@ -3957,38 +4023,46 @@ func open_interact(kind: String, o := {}) -> void:
 		hud.atlas_ui.open_close()
 
 
-func enter_map(id: String) -> void:
+## set out into map `id` with one of its map items: the one of `tier`, or with 0 the lowest tier owned.
+## False (and nothing happens) without such a map item
+func enter_map(id: String, tier := 0) -> bool:
 	var n := Data.atlas_node(id)
-	if n.is_empty() or not atlas.is_unlocked(n):
-		return
+	if tier <= 0:
+		tier = atlas.lowest_tier(id)
+	if n.is_empty() or tier <= 0:
+		return false
+	var used = atlas.use_map(id, tier)
+	if used == null:
+		return false
 	area = n
-	floor_level = atlas.node_level(n)
-	run_mods = atlas.node_mods(n).duplicate()
+	run_tier = tier
+	floor_level = Maps.level_of(tier)
+	run_mods = used
 	run_charms = Charms.consume(player.charm_slots, player.charms)
 	mod_fx = Charms.apply(atlas.map_effects(run_mods), run_charms)
 	hud.refresh_inventory()
 	spawn_floor()
+	return true
+
+
+## dev runs and tests: hand over a map item and enter with it
+func dev_map(id: String, tier := 1) -> bool:
+	Maps.add(atlas.maps, Maps.key(id, tier))
+	return enter_map(id, tier)
 
 
 func complete_map() -> void:
 	var n := area
-	var was_cleared := atlas.is_cleared(n)
-	if not was_cleared:
-		atlas.cleared.append(n.id)
-	var newly: Array = n.links.filter(func(id): return not atlas.is_cleared(Data.atlas_node(id))).map(func(id): return Data.atlas_node(id).name)
-	if n.get("endless", false):
-		atlas.abyss += 1
-	atlas.mods.erase(n.id)
+	var tier := run_tier
+	var first := atlas.clear(n.id, tier)
 	shop = {}   # the merchant restocks after every run
 	Trade.ensure(league(), atlas.hideout_level())   # the gear others put up is made at the hideout level
 	Market.tick(league(), player.cur)   # one market tick per map completed
 	enter_hideout()
-	hud.message("%s を踏破した！" % n.name, Color("#ffd36a"))
+	hud.message("%s（T%d）を踏破した！" % [n.name, tier], Color("#ffd36a"))
 	market_notes()
-	if not newly.is_empty():
-		hud.message("新たな地点が開放：%s" % "、".join(newly), Color("#e8d8b0"))
-	if n.get("endless", false):
-		hud.message("残り火の深淵が Lv %d に深まった" % atlas.node_level(n), Color("#b48cff"))
+	if first:
+		hud.message("%s を初踏破：遠征パッシブポイント +1（踏破 %d/%d）" % [n.name, atlas.cleared.size(), Data.ATLAS_NODES.size()], Color("#e8d8b0"))
 
 
 ## what the exchange did while the player was away (fills, expired orders, the notice board), once each
@@ -4006,13 +4080,16 @@ func _spawn_enemies() -> void:
 	var f := floor_level
 	var pool := [{"k": "imp", "w": 3.0}, {"k": "ghoul", "w": 4.0}, {"k": "archer", "w": 2.0},
 		{"k": "brute", "w": 1.5 if f >= 2 else 0.4}, {"k": "shaman", "w": 1.5 if f >= 2 else 0.5}]
+	var bias: Dictionary = Maps.element(area).pool   # each element favours a few kinds
+	for q in pool:
+		q.w *= bias.get(q.k, 1.0)
 	var pack_id := 0
 	for room in map.rooms:
 		if room == map.start:
 			continue
 		pack_id += 1
 		if room == map.boss_room:
-			var bt: Dictionary = Data.BOSS_ROTATION[atlas.node_theme(area)]
+			var bt: Dictionary = Data.BOSS_ROTATION[area.elem]
 			boss = _make_enemy(bt.type, _room_near(map.tile_center(room.cx, room.cy), Data.ENEMY_TYPES[bt.type].r), pack_id)
 			boss.max_life *= (1.0 + 0.12 * (f - 1)) * mod_fx.get("boss_life", 1.0)
 			boss.life = boss.max_life
@@ -5850,9 +5927,9 @@ func _update_boss(e: Enemy, delta: float, d: float) -> void:
 		shake = maxf(shake, 8.0)
 	e.act_t -= delta
 	if e.act_t <= 0.0:
-		call("_boss_" + e.type, e, d, enraged)
+		call("_boss_" + e.t.get("moves", e.type), e, d, enraged)
 		return
-	if e.type == "witch":
+	if e.t.get("kite", false):
 		# keeps her distance and pelts the player from range
 		var sp: float = e.speed * (0.5 if e.slow > 0.0 else 1.0)
 		if d < 8.8:
@@ -6420,6 +6497,19 @@ func gain_charm(id: String, n := 1) -> void:
 	hud.refresh_inventory()
 
 
+# =================== map items ===================
+## a map item lying on the floor as a small glowing scroll in its element's colour until picked up
+func _drop_map(at: Vector2, k: String) -> void:
+	var pos := _scatter(at)
+	var node := Fx.mesh(level_root, Fx.box(Vector3(0.5, 0.1, 0.34)), Fx.mat(Maps.color_of(k), 3.0), to3(pos, 0.3))
+	drops.append({"k": "map", "n": 1, "map": k, "pos": pos, "node": node})
+
+
+func gain_map(k: String, n := 1) -> void:
+	Maps.add(atlas.maps, k, n)
+	hud.message("%s %s を拾った（所持 %d）" % [Maps.ICON, Maps.name_of(k), atlas.maps.get(k, 0)], Maps.color_of(k))
+
+
 # =================== jewels ===================
 ## a jewel (or, with `ring`, a ring jewel) lying on the floor as a small glowing gem until picked up
 func _drop_jewel(at: Vector2, ilvl: int, ring := false) -> void:
@@ -6516,6 +6606,10 @@ func _drop_loot(e: Enemy) -> void:
 		_drop_jewel(e.pos, ilvl, randf() < (0.4 if e.boss else 0.15))
 	if randf() < Charms.drop_chance(e.boss, not e.elite.is_empty()):
 		_drop_charm(e.pos, Charms.roll(floor_level))
+	if run_tier > 0:   # map items, around this map's tier: always from the boss (half the time two)
+		for i in (2 if randf() < 0.5 else 1) if e.boss else 1:
+			if randf() < Maps.drop_chance(e.boss, not e.elite.is_empty()):
+				_drop_map(e.pos, Maps.roll(run_tier, e.boss, not e.elite.is_empty()))
 
 
 ## a skill gem or support gem the player doesn't own yet, mostly ones the area level is close to
@@ -6688,6 +6782,9 @@ func _take(g: Dictionary) -> void:
 		return
 	if g.k == "charm":
 		gain_charm(g.charm, g.n)
+		return
+	if g.k == "map":
+		gain_map(g.map, g.n)
 		return
 	if g.k == "gem":
 		if g.get("skill", false):

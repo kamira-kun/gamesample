@@ -674,14 +674,19 @@ const ENEMY_TYPES := {
 	"shaman": {"name": "呪術師", "r": 0.5, "life": 16, "dmg": 11, "speed": 3.9, "color": Color("#4fb0c0"), "caster": true, "range": 15.0, "atk_cd": 3.2, "windup": 0.9, "xp": 10, "h": 1.9},
 	"boss": {"name": "深淵の番人", "r": 1.5, "life": 650, "dmg": 20, "speed": 3.7, "color": Color("#b03030"), "boss": true, "atk_range": 1.6, "atk_cd": 1.6, "windup": 0.4, "xp": 220, "h": 4.1},
 	"colossus": {"name": "灼熱の巨像", "r": 1.8, "life": 820, "dmg": 24, "speed": 3.2, "color": Color("#7a3a22"), "boss": true, "atk_range": 2.2, "atk_cd": 1.8, "windup": 0.5, "xp": 260, "h": 5.0},
-	"witch": {"name": "凍嵐の魔女", "r": 1.0, "life": 600, "dmg": 18, "speed": 5.2, "color": Color("#3a6a9a"), "boss": true, "atk_range": 1.6, "atk_cd": 1.5, "windup": 0.4, "xp": 260, "h": 2.9},
+	"witch": {"name": "凍嵐の魔女", "r": 1.0, "life": 600, "dmg": 18, "speed": 5.2, "color": Color("#3a6a9a"), "boss": true, "atk_range": 1.6, "atk_cd": 1.5, "windup": 0.4, "xp": 260, "h": 2.9, "kite": true},
+	# the thunder and chaos bosses fight like the witch and the colossus, in their element's colours (`moves`)
+	"stormlord": {"name": "雷鳴の王", "r": 1.0, "life": 640, "dmg": 19, "speed": 5.4, "color": Color("#6a4a9a"), "boss": true, "atk_range": 1.6, "atk_cd": 1.5, "windup": 0.4, "xp": 260, "h": 2.9, "kite": true, "moves": "witch"},
+	"rotking": {"name": "腐蝕の巨像", "r": 1.8, "life": 860, "dmg": 23, "speed": 3.2, "color": Color("#4a6a2a"), "boss": true, "atk_range": 2.2, "atk_cd": 1.8, "windup": 0.5, "xp": 260, "h": 5.0, "moves": "colossus"},
 }
 
-# the boss of a map follows its theme
+# the boss of a map follows its element (Maps.ELEMENTS)
 const BOSS_ROTATION := [
 	{"type": "boss", "guards": ["ghoul", "ghoul", "ghoul", "ghoul"]},
 	{"type": "colossus", "guards": ["imp", "imp", "imp", "brute"]},
 	{"type": "witch", "guards": ["archer", "archer", "shaman", "shaman"]},
+	{"type": "stormlord", "guards": ["archer", "archer", "imp", "imp"]},
+	{"type": "rotking", "guards": ["ghoul", "ghoul", "shaman", "brute"]},
 ]
 
 # ascendancy: pick one of the three lineages of the character's base class (CLASSES), spend the points levels
@@ -904,6 +909,8 @@ const THEMES := [
 	{"name": "朽ちた地下墓所", "tint": Color.WHITE, "torch": Color("#ffbe78")},
 	{"name": "溶岩の洞窟", "tint": Color("#ffb49a"), "torch": Color("#ff9a5a")},
 	{"name": "凍てつく聖堂", "tint": Color("#b8d0ff"), "torch": Color("#c8dcff")},
+	{"name": "雷鳴の遺跡", "tint": Color("#d8c8ff"), "torch": Color("#c8a8ff")},
+	{"name": "腐蝕の沼窟", "tint": Color("#c4e0a8"), "torch": Color("#a8f080")},
 ]
 
 const DMG_COLORS := {"phys": Color.WHITE, "fire": Color("#ff9a40"), "cold": Color("#8fdcff"), "light": Color("#d9b8ff"), "chaos": Color("#9fe070")}
@@ -1108,19 +1115,9 @@ static func currency(k: String) -> Dictionary:
 
 
 # =================== expedition atlas ===================
-const ATLAS_NODES := [
-	{"id": "ash", "name": "灰の入口", "theme": 0, "level": 1, "x": 0.07, "y": 0.55, "links": ["bone", "wail"], "desc": "深淵へ続く最初の階段。灯火を掲げて進め。"},
-	{"id": "bone", "name": "骨の回廊", "theme": 0, "level": 2, "x": 0.2, "y": 0.3, "links": ["ember"], "desc": "無数の骨が積み上げられた細い通路。"},
-	{"id": "wail", "name": "嘆きの納骨堂", "theme": 0, "level": 3, "x": 0.24, "y": 0.75, "links": ["ember", "obsidian"], "desc": "夜な夜な泣き声が響くという古い納骨堂。"},
-	{"id": "ember", "name": "燻る坑道", "theme": 1, "level": 4, "x": 0.38, "y": 0.42, "links": ["forge"], "desc": "地熱で焼けた岩が赤く光る廃坑。"},
-	{"id": "obsidian", "name": "黒曜の裂け目", "theme": 1, "level": 5, "x": 0.43, "y": 0.8, "links": ["forge", "frost"], "desc": "溶岩が冷えて固まった鋭い岩の谷。"},
-	{"id": "forge", "name": "溶鉄の炉心", "theme": 1, "level": 6, "x": 0.55, "y": 0.52, "links": ["cathedral"], "desc": "巨像が生まれたと伝わる灼熱の炉。"},
-	{"id": "frost", "name": "凍てつく参道", "theme": 2, "level": 7, "x": 0.62, "y": 0.82, "links": ["cathedral", "grave"], "desc": "氷に閉ざされた巡礼者の道。"},
-	{"id": "cathedral", "name": "霜の大聖堂", "theme": 2, "level": 8, "x": 0.72, "y": 0.35, "links": ["abyss"], "desc": "魔女が祈りを捧げる凍った聖堂。"},
-	{"id": "grave", "name": "氷霧の墓標", "theme": 2, "level": 9, "x": 0.8, "y": 0.72, "links": ["abyss"], "desc": "霧の中に墓標が並ぶ静寂の丘。"},
-	{"id": "abyss", "name": "残り火の深淵", "theme": -1, "level": 10, "x": 0.92, "y": 0.5, "links": [], "endless": true, "desc": "終わりなき深淵。踏破するたびに、さらに深く強大になる。"},
-]
-const THEME_COLORS := [Color("#c9b89a"), Color("#ff7a3a"), Color("#7fd4ff"), Color("#b48cff")]
+# the fifty maps (5 elements × 10, see Maps); any of them runs at any tier, set by the map item used
+const ATLAS_NODES := Maps.LIST
+const THEME_COLORS := [Color("#c9b89a"), Color("#ff7a3a"), Color("#7fd4ff"), Color("#d9b8ff"), Color("#9fe070")]
 
 const MAP_MODS := [
 	{"k": "life", "name": "敵のライフ +40%", "life": 1.4},

@@ -1,7 +1,7 @@
 class_name AtlasUI
 extends Control
-## Full-screen expedition atlas, opened from the device in the hideout.
-## Click a node to see its details, then set out from the side panel.
+## Full-screen expedition atlas, opened from the device in the hideout: the fifty maps, a row per element.
+## Click a map to see its route and the map items owned for it, pick a tier, then set out from the side panel.
 
 var hud: Hud
 var board := Board.new()
@@ -49,8 +49,12 @@ func _ready() -> void:
 	side.custom_minimum_size = Vector2(360, 0)
 	side.add_theme_stylebox_override("panel", Hud.panel_box())
 	body.add_child(side)
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	side.add_child(scroll)
 	detail.add_theme_constant_override("separation", 8)
-	side.add_child(detail)
+	detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(detail)
 
 
 func open_close() -> void:
@@ -66,47 +70,101 @@ func _process(_delta: float) -> void:
 
 
 func select(id: String) -> void:
-	hud.main.atlas.sel = id
+	var at: Atlas = hud.main.atlas
+	at.sel = id
+	if not at.owns(id, at.sel_tier):   # the tier picked follows the map items of the new map
+		at.sel_tier = maxi(1, at.lowest_tier(id))
 	refresh()
+
+
+func pick_tier(t: int) -> void:
+	hud.main.atlas.sel_tier = t
+	refresh()
+
+
+## enter the selected map with the selected tier's map item
+func set_out() -> bool:
+	var at: Atlas = hud.main.atlas
+	return hud.main.enter_map(at.sel, at.sel_tier if at.owns(at.sel, at.sel_tier) else 0)
+
+
+static func buy_price() -> int:
+	return roundi(Maps.value(Maps.BUY_TIER) * Data.SHOP_PRICE * Items.discount)
+
+
+## buy a tier 1 map item of the selected map from the device; returns why not, or ""
+func buy() -> String:
+	var at: Atlas = hud.main.atlas
+	var p: Player = hud.main.player
+	var price := buy_price()
+	if p.cur.ember < price:
+		hud.message("灰燼の欠片が足りない（%d 必要）" % price, Color("#ff8080"))
+		return "ember"
+	p.cur.ember -= price
+	Maps.add(at.maps, Maps.key(at.sel, Maps.BUY_TIER))
+	at.sel_tier = Maps.BUY_TIER
+	refresh()
+	return ""
 
 
 func refresh() -> void:
 	var m = hud.main
 	var at: Atlas = m.atlas
 	var p: Player = m.player
-	info.text = "Lv %d　◆ %d　✧ %d　踏破 %d/%d    " % [p.level, p.cur.ember, p.cur.compass, at.cleared.size(), Data.ATLAS_NODES.size()]
+	info.text = "Lv %d　◆ %d　✧ %d　%s 地図 %d　踏破 %d/%d　最高 T%d    " % [p.level, p.cur.ember, p.cur.compass, Maps.ICON, Maps.count(at.maps),
+		at.cleared.size(), Data.ATLAS_NODES.size(), at.best]
 	var pts := at.points_free()
 	passive_btn.text = "  遠征パッシブ [%s]%s  " % [Keybinds.text("passives"), "（%d）" % pts if pts > 0 else ""]
 	BasePanel.clear(detail)
 	var n := Data.atlas_node(at.sel)
 	if n.is_empty():
 		n = Data.ATLAS_NODES[0]
-	var unlocked := at.is_unlocked(n)
-	var mods: Array = at.node_mods(n) if unlocked else []
+	var el := Maps.element(n)
+	var tiers := Maps.tiers_of(at.maps, n.id)
+	var owned := at.owns(n.id, at.sel_tier)
+	var mods: Array = at.item_mods(n.id, at.sel_tier) if owned else []
 	var fx := Charms.apply(at.map_effects(mods), p.charm_slots)
-	_line(n.name, Data.THEME_COLORS[3 if n.get("endless", false) else n.theme], 24)
-	var status := "踏破済み" if at.is_cleared(n) else ("未踏" if unlocked else "未開放")
-	_line("エリアレベル %d　・　%s" % [at.node_level(n), status], Color("#a89878"), 14)
-	var desc := _line(n.desc, Color("#d8c8a8"), 14)
-	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	desc.custom_minimum_size = Vector2(320, 0)
-	_line("地形：%s" % Data.THEMES[at.node_theme(n)].name, Color("#c8b898"), 14)
-	_line("ボス：%s" % Data.ENEMY_TYPES[Data.BOSS_ROTATION[at.node_theme(n)].type].name, Color("#ff7a5a"), 14)
-	_line("マップ効果", Color("#f0d8a0"), 16)
-	if mods.is_empty():
-		_line("なし", Color("#776a58"), 14)
-	for k in mods:
-		_line("◆ " + Data.map_mod(k).name, Color("#ff9a7a"), 14)
-	if fx.rarity > 0.0:
-		_line("アイテムレア度 +%d%%　アイテム数量 +%d%%" % [roundi(fx.rarity * 100), roundi((fx.quantity - 1.0) * 100)], Color("#8fd18f"), 13)
+	_line(n.name, el.color, 24)
+	_line("%s属性　・　%s　・　%s" % [el.name, n.shape, "踏破済み" if at.is_cleared(n.id) else "未踏"], Color("#a89878"), 14)
+	_wrap(_line(n.desc, Color("#d8c8a8"), 14))
+	var shape := Route.new()
+	shape.def = n
+	shape.custom_minimum_size = Vector2(320, 150)
+	detail.add_child(shape)
+	_line("地形：%s　ボス：%s" % [Data.THEMES[n.elem].name, Data.ENEMY_TYPES[Data.BOSS_ROTATION[n.elem].type].name], Color("#c8b898"), 14)
+	_line("%s 所持している地図（Tier で難度が決まる）" % Maps.ICON, Maps.COLOR, 16)
+	var row := HFlowContainer.new()
+	row.add_theme_constant_override("h_separation", 4)
+	row.add_theme_constant_override("v_separation", 4)
+	row.custom_minimum_size = Vector2(320, 0)
+	detail.add_child(row)
+	for t in tiers:
+		var b := Button.new()
+		b.text = "T%d ×%d" % [t, at.maps[Maps.key(n.id, t)]]
+		b.toggle_mode = true
+		b.button_pressed = owned and t == at.sel_tier
+		b.add_theme_font_size_override("font_size", 13)
+		b.pressed.connect(pick_tier.bind(t))
+		row.add_child(b)
+	if tiers.is_empty():
+		_line("この地図を持っていない（マップの敵とボスが落とす）", Color("#776a58"), 12)
+	if owned:
+		_line("Tier %d　・　エリアレベル %d" % [at.sel_tier, Maps.level_of(at.sel_tier)], Color("#f0d8a0"), 15)
+		_line("マップ効果", Color("#f0d8a0"), 16)
+		if mods.is_empty():
+			_line("なし", Color("#776a58"), 14)
+		for k in mods:
+			_line("◆ " + Data.map_mod(k).name, Color("#ff9a7a"), 14)
+		if fx.rarity > 0.0:
+			_line("アイテムレア度 +%d%%　アイテム数量 +%d%%" % [roundi(fx.rarity * 100), roundi((fx.quantity - 1.0) * 100)], Color("#8fd18f"), 13)
 	_charms(p)
 	var go := Button.new()
-	go.text = "出撃する" if unlocked else "隣接する地点を踏破すると開放"
-	go.disabled = not unlocked
+	go.text = ("出撃する（T%d の地図を使う）" % at.sel_tier) if owned else "この地図を持っていない"
+	go.disabled = not owned
 	go.custom_minimum_size = Vector2(0, 44)
-	go.pressed.connect(func(): m.enter_map(n.id))
+	go.pressed.connect(set_out)
 	detail.add_child(go)
-	if unlocked and at.node_level(n) >= 3:
+	if owned and Maps.mod_count(at.sel_tier).y > 0:
 		var rr := Button.new()
 		rr.text = "マップ効果を再抽選（✧ 羅針の欠片 1／所持 %d）" % p.cur.compass
 		rr.add_theme_font_size_override("font_size", 13)
@@ -115,9 +173,15 @@ func refresh() -> void:
 			if p.cur.compass < 1:
 				return
 			p.cur.compass -= 1
-			at.mods[n.id] = at.roll_mods(n)
+			at.mods[Maps.key(n.id, at.sel_tier)] = at.roll_mods(at.sel_tier)
 			refresh())
 		detail.add_child(rr)
+	var bb := Button.new()
+	bb.text = "T%d の地図を買う（◆ %d）" % [Maps.BUY_TIER, buy_price()]
+	bb.add_theme_font_size_override("font_size", 13)
+	bb.disabled = p.cur.ember < buy_price()
+	bb.pressed.connect(buy)
+	detail.add_child(bb)
 
 
 ## the ember-shell slots: click a set shell to take it out, an owned one to set it; they burn on setting out
@@ -133,9 +197,7 @@ func _charms(p: Player) -> void:
 		sl.clicked.connect(unslot.bind(i))
 		row.add_child(sl)
 	for id in p.charm_slots:
-		var l := _line("%s %s" % [Charms.ICON, Charms.effect_text(id)], Charms.color_of(id), 13)
-		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		l.custom_minimum_size = Vector2(320, 0)
+		_wrap(_line("%s %s" % [Charms.ICON, Charms.effect_text(id)], Charms.color_of(id), 13))
 	var owned := HFlowContainer.new()
 	detail.add_child(owned)
 	owned.add_theme_constant_override("h_separation", 4)
@@ -183,18 +245,51 @@ func _line(text: String, color: Color, size: int) -> Label:
 	return l
 
 
-## the node graph, drawn by hand
+func _wrap(l: Label) -> void:
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.custom_minimum_size = Vector2(320, 0)
+
+
+## a map's route drawn small: corridors as lines, rooms as dots, the entrance green and the boss room red
+class Route extends Control:
+	var def: Dictionary
+
+	func _draw() -> void:
+		draw_route(self, def, Rect2(Vector2.ZERO, size))
+
+	static func draw_route(c: CanvasItem, m: Dictionary, r: Rect2, faded := false) -> void:
+		var col: Color = Maps.element(m).color
+		if faded:
+			col = col.darkened(0.55)
+		var s := minf(r.size.x, r.size.y) / (Maps.GRID + 2.0)
+		var o := r.position + (r.size - Vector2.ONE * s * Maps.GRID) / 2.0
+		for ch in Maps.chains(m):
+			for j in range(1, ch.size()):
+				c.draw_line(o + Vector2(ch[j - 1]) * s, o + Vector2(ch[j]) * s, Color(col, 0.75), maxf(1.5, s * 0.35), true)
+		var pts := Maps.points(m)
+		for i in pts.size():
+			var last := i == pts.size() - 1
+			var dot := Color("#7fe07f") if i == 0 else (Color("#ff5a3a") if last else col.lightened(0.3))
+			c.draw_circle(o + Vector2(pts[i]) * s, s * (0.9 if last else 0.55), dot.darkened(0.5) if faded else dot)
+
+
+## the fifty maps: a row per element, each map's route drawn in its cell
 class Board extends Control:
+	const COLS := 10
+	const LEFT := 64.0
 	var ui: AtlasUI
 
-	func node_pos(n: Dictionary) -> Vector2:
-		return Vector2(60 + n.x * (size.x - 120), 50 + n.y * (size.y - 110))
+	func cell(i: int) -> Rect2:
+		var w := (size.x - LEFT - 12.0) / COLS
+		var h := (size.y - 16.0) / Maps.ELEMENTS.size()
+		var m: Dictionary = Data.ATLAS_NODES[i]
+		return Rect2(LEFT + (i % COLS) * w + 3.0, 8.0 + m.elem * h + 3.0, w - 6.0, h - 6.0)
 
 	func _gui_input(e: InputEvent) -> void:
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
-			for n in Data.ATLAS_NODES:
-				if node_pos(n).distance_to(e.position) < 30.0:
-					ui.select(n.id)
+			for i in Data.ATLAS_NODES.size():
+				if cell(i).has_point(e.position):
+					ui.select(Data.ATLAS_NODES[i].id)
 					accept_event()
 					return
 
@@ -202,51 +297,28 @@ class Board extends Control:
 		var at: Atlas = ui.hud.main.atlas
 		var t := Time.get_ticks_msec() / 1000.0
 		var font := Data.ui_font
-		for n in Data.ATLAS_NODES:
-			var col: Color = Data.THEME_COLORS[3 if n.get("endless", false) else n.theme]
-			for i in 6:   # stacked translucent discs make a soft glow
-				draw_circle(node_pos(n), 130.0 - i * 20.0, Color(col, 0.01))
-		# links
-		for n in Data.ATLAS_NODES:
-			for id in n.links:
-				var a := node_pos(n)
-				var b := node_pos(Data.atlas_node(id))
-				var open := at.is_cleared(n)
-				var mid := (a + b) / 2.0 - Vector2(0, 20)
-				var pts := PackedVector2Array()
-				for i in 17:
-					var k := i / 16.0
-					pts.append(a.lerp(mid, k).lerp(mid.lerp(b, k), k))
-				if open:
-					draw_polyline(pts, Color(1.0, 0.78, 0.43, 0.7), 3.0, true)
-				else:
-					for i in range(0, 16, 2):
-						draw_line(pts[i], pts[i + 1], Color(0.47, 0.39, 0.31, 0.35), 2.0, true)
-		# nodes
-		for n in Data.ATLAS_NODES:
-			var q := node_pos(n)
-			var unlocked := at.is_unlocked(n)
-			var cleared := at.is_cleared(n)
-			var col: Color = Data.THEME_COLORS[3 if n.get("endless", false) else n.theme]
-			if unlocked:
-				for i in 4:
-					draw_circle(q, 44.0 - i * 9.0, Color(col, 0.08 + i * 0.05))
-			if at.sel == n.id:
-				draw_arc(q, 27.0 + sin(t * 4.0) * 2.0, 0, TAU, 48, Color(1.0, 0.86, 0.55, 0.6 + sin(t * 4.0) * 0.3), 2.0, true)
-			var edge := col if unlocked else Color("#3a3024")
-			if n.get("endless", false):
-				var star := PackedVector2Array()
-				for i in 8:
-					var a := i / 8.0 * TAU + t * 0.3
-					star.append(q + Vector2(cos(a), sin(a)) * (15.0 if i % 2 else 22.0))
-				draw_colored_polygon(star, Color("#1a120c") if unlocked else Color("#0c0a08"))
-				star.append(star[0])
-				draw_polyline(star, edge, 3.0, true)
-			else:
-				draw_circle(q, 18.0, Color("#1a120c") if unlocked else Color("#0c0a08"))
-				draw_arc(q, 18.0, 0, TAU, 32, edge, 3.0, true)
-			var mark := "✓" if cleared else (str(at.node_level(n)) if unlocked else "—")
-			draw_string(font, q + Vector2(-30, 6), mark, HORIZONTAL_ALIGNMENT_CENTER, 60, 15, col if unlocked else Color("#4a4032"))
-			draw_string_outline(font, q + Vector2(-90, 42), n.name, HORIZONTAL_ALIGNMENT_CENTER, 180, 14, 3, Color.BLACK)
-			draw_string(font, q + Vector2(-90, 42), n.name, HORIZONTAL_ALIGNMENT_CENTER, 180, 14, Color("#f0dcb4") if unlocked else Color("#5a4e40"))
-			draw_string(font, q + Vector2(-90, 58), "Lv %d" % at.node_level(n), HORIZONTAL_ALIGNMENT_CENTER, 180, 11, Color("#a89878") if unlocked else Color("#4a4032"))
+		var h := (size.y - 16.0) / Maps.ELEMENTS.size()
+		for k in Maps.ELEMENTS.size():
+			var el: Dictionary = Maps.ELEMENTS[k]
+			draw_rect(Rect2(4, 8.0 + k * h + 1.0, size.x - 8.0, h - 2.0), Color(el.color, 0.05))
+			draw_string(font, Vector2(4, 8.0 + k * h + h / 2.0 + 6.0), el.name, HORIZONTAL_ALIGNMENT_CENTER, LEFT - 8.0, 16, el.color)
+		for i in Data.ATLAS_NODES.size():
+			var m: Dictionary = Data.ATLAS_NODES[i]
+			var r := cell(i)
+			var col: Color = Maps.element(m).color
+			var tiers := Maps.tiers_of(at.maps, m.id)
+			var have := not tiers.is_empty()
+			draw_rect(r, Color("#1a120c") if have else Color("#0e0b08"))
+			draw_rect(r, Color(col, 0.6 if have else 0.18), false, 1.5)
+			if at.sel == m.id:
+				draw_rect(r.grow(2.0), Color(1.0, 0.86, 0.55, 0.6 + sin(t * 4.0) * 0.3), false, 2.0)
+			Route.draw_route(self, m, Rect2(r.position + Vector2(4, 4), Vector2(r.size.x - 8, r.size.y - 40)), not have and not at.is_cleared(m.id))
+			draw_string_outline(font, Vector2(r.position.x, r.end.y - 22), m.name, HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 12, 3, Color.BLACK)
+			draw_string(font, Vector2(r.position.x, r.end.y - 22), m.name, HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 12, Color("#f0dcb4") if have else Color("#7a6c58"))
+			var n := 0
+			for x in tiers:
+				n += int(at.maps[Maps.key(m.id, x)])
+			var sub: String = ("%s ×%d（T%d〜）" % [Maps.ICON, n, tiers[0]]) if have else m.shape
+			draw_string(font, Vector2(r.position.x, r.end.y - 7), sub, HORIZONTAL_ALIGNMENT_CENTER, r.size.x, 11, Maps.COLOR if have else Color("#5a4e40"))
+			if at.is_cleared(m.id):
+				draw_string(font, r.position + Vector2(r.size.x - 18, 16), "✓", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color("#ffd36a"))

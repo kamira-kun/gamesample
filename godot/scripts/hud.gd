@@ -346,7 +346,7 @@ func refresh() -> void:
 		orb.reserve_text = "リザーブ %d" % ceili(held) if held > 0.0 else ""
 		orb.text = "%d / %d" % [o[2], roundi(p.cap(o[1]))]
 	xp_bar.value = float(p.xp) / Data.xp_need(p.level)
-	var where: String = main.area.name if main.in_hideout() else "%s エリアLv %d" % [main.area.name, main.floor_level]
+	var where: String = main.area.name if main.in_hideout() else "%s T%d エリアLv %d" % [main.area.name, main.run_tier, main.floor_level]
 	var lg: String = main.league()
 	var tag := "" if Profiles.current().is_empty() else "[%s] " % Profiles.league_name(lg)
 	info.text = "%s%s　Lv %d　◆ %d　%s %d" % [tag, where, p.level, p.cur.ember, Farm.CURRENCY.icon, Farm.state(lg).cinder]
@@ -528,6 +528,8 @@ class Overlay extends Control:
 				c = {"icon": "▦", "name": "ルーンタブレット：%s（%dマス）" % [Tablets.name_of(dr.tablet), Tablets.cell_count(dr.tablet)], "color": Tablets.COLOR}
 			elif dr.k == "charm":
 				c = {"icon": Charms.ICON, "name": Charms.name_of(dr.charm), "color": Charms.color_of(dr.charm)}
+			elif dr.k == "map":
+				c = {"icon": Maps.ICON, "name": Maps.name_of(dr.map), "color": Maps.color_of(dr.map)}
 			elif dr.k == "jewel":
 				var ring := Jewels.is_ring(dr.jewel)
 				c = {"icon": "❂" if ring else "◆", "name": "%s：%s" % ["リングジュエル" if ring else "ジュエル", dr.jewel.name],

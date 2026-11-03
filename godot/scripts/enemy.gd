@@ -56,6 +56,8 @@ const RIGS := {
 	"boss": {"path": "res://assets/kaykit/adventurers/Characters/gltf/Barbarian.glb", "scale": 1.9, "keep": ["2H_Axe", "Barbarian_Round_Shield"], "run": "Walking_C", "attack": "2H_Melee_Attack_Chop", "atk_speed": 1.0},
 	"colossus": {"path": "res://assets/kaykit/skeletons/Characters/gltf/Skeleton_Warrior.glb", "scale": 2.4, "weapon": "res://assets/kaykit/skeletons/Assets/gltf/Skeleton_Axe.gltf", "run": "Walking_D_Skeletons", "attack": "1H_Melee_Attack_Jump_Chop", "atk_speed": 1.0, "glow": Color("#ff7a30")},
 	"witch": {"path": "res://assets/kaykit/adventurers/Characters/gltf/Mage.glb", "scale": 1.5, "keep": ["2H_Staff"], "run": "Running_B", "attack": "Spellcast_Shoot", "atk_speed": 1.2, "glow": Color("#8fdcff")},
+	"stormlord": {"path": "res://assets/kaykit/adventurers/Characters/gltf/Mage.glb", "scale": 1.6, "keep": ["2H_Staff"], "run": "Running_B", "attack": "Spellcast_Shoot", "atk_speed": 1.2, "glow": Color("#c8a0ff")},
+	"rotking": {"path": "res://assets/kaykit/skeletons/Characters/gltf/Skeleton_Warrior.glb", "scale": 2.4, "weapon": "res://assets/kaykit/skeletons/Assets/gltf/Skeleton_Axe.gltf", "run": "Walking_D_Skeletons", "attack": "1H_Melee_Attack_Jump_Chop", "atk_speed": 1.0, "glow": Color("#90e060")},
 }
 
 
