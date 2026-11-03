@@ -3,7 +3,20 @@ extends SceneTree
 ## checks that the data reference in docs/db matches the game data (regenerate with tools/gen_docs.gd).
 
 
+var _icons_drawn := -1
+
+
 func _process(_delta: float) -> bool:
+	if _icons_drawn < 0:   # #71: draw every compass icon on a canvas first; the checks run on the next frame
+		_icons_drawn = 0
+		var cv := Control.new()
+		cv.size = Vector2(64, 64)
+		cv.draw.connect(func():
+			for id in load("res://scripts/charms.gd").all_ids():
+				load("res://scripts/charms.gd").draw_icon(cv, Vector2(32, 32), 32.0, id)
+				_icons_drawn += 1)
+		root.add_child(cv)
+		return false
 	var code: int = load("res://tools/check_uniques.gd").new().run()
 	var docs = load("res://scripts/data_docs.gd")   # loaded here: it names autoloads
 	var files: Dictionary = docs.files()
@@ -37,7 +50,9 @@ func _process(_delta: float) -> bool:
 	print("AWAKENED problems=%s" % [awake])
 	var glv := _check_gem_levels()
 	print("GEM_LEVELS problems=%s" % [glv])
-	quit(code if stale.is_empty() and hits.is_empty() and awake.is_empty() and glv.is_empty() else 1)
+	var icons := _check_compass_icons()
+	print("COMPASS_ICONS drawn=%d problems=%s" % [_icons_drawn, icons])
+	quit(code if stale.is_empty() and hits.is_empty() and awake.is_empty() and glv.is_empty() and icons.is_empty() else 1)
 	return true
 
 
@@ -142,4 +157,30 @@ func _check_gem_levels() -> Array:
 	if low or not p.can_use_gem(a_id) or p.gem_req(false, a_id) != need or need <= data.gem_req(false, "power", 5):
 		bad.append("awake_req")
 	p.free()
+	return bad
+
+
+## #71: every compass drew its icon, and each one reads apart: the families by colour, the tiers by dial ticks and bezel studs
+func _check_compass_icons() -> Array:
+	var ch = load("res://scripts/charms.gd")
+	var bad := []
+	if _icons_drawn != ch.all_ids().size():
+		bad.append("drawn")
+	var seen := {}
+	for f in ch.FAMILIES:
+		var prev := {}
+		for t in f.tiers.size():
+			var sp: Dictionary = ch.icon_spec(ch.id_of(f.k, t))
+			if sp.fam != f.shell:
+				bad.append("colour:" + f.k)
+			if not prev.is_empty() and (sp.ticks <= prev.ticks or sp.studs <= prev.studs):
+				bad.append("tier:%s_%d" % [f.k, t + 1])
+			if sp.ticks % 4 != 0:
+				bad.append("cardinals:%s_%d" % [f.k, t + 1])
+			prev = sp
+		if seen.has(f.shell.to_html()):
+			bad.append("same_colour:" + f.k)
+		seen[f.shell.to_html()] = true
+	if ch.ICON != "⊕":
+		bad.append("glyph")
 	return bad

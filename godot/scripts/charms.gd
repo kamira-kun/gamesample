@@ -1,5 +1,5 @@
 class_name Charms
-## Compasses (コンパス, ember shells): the hardened shells of ember beetles, kindled into charms. Set into the expedition atlas
+## Compasses (コンパス, ember shells): brass pocket compasses whose needles are kindled with ember. Set into the expedition atlas
 ## before setting out (up to SLOTS of them, one per family), each adds its family's effect to that one map run and
 ## burns away as the map is entered. Maps drop them; they stack, kept per character (Player.charms) and in the
 ## league stash (Profiles.stash_charms).
@@ -7,7 +7,7 @@ class_name Charms
 
 const SLOTS := 4
 const COLOR := Color("#ffb070")
-const ICON := "❖"
+const ICON := "⊕"
 const TIER_NAMES := ["燻る", "灯る", "燃え盛る"]
 const TIER_COLORS := [Color("#d8a070"), Color("#ffb860"), Color("#ff7a3a")]
 
@@ -223,30 +223,59 @@ static func normalize_slots(raw, owned: Dictionary) -> Array:
 	return out
 
 
-## the shell drawn as a small beetle: a domed shell split down the back, with a head and a glowing seam
-static func draw_icon(ci: CanvasItem, c: Vector2, s: float, id: String) -> void:
+## how a compass's icon tells it apart: the family's colour lights the dial, the crown gem and the needle; the tier adds
+## dial ticks (4 / 8 / 16) and studs on the bezel (0 / 4 / 8)
+const TIER_TICKS := [4, 8, 16]
+const TIER_STUDS := [0, 4, 8]
+const BRASS := Color("#c49a4c")
+
+
+static func icon_spec(id: String) -> Dictionary:
 	var p := parse(id)
-	var shell: Color = p.def.shell if not p.is_empty() else COLOR
-	var glow := color_of(id)
-	ci.draw_circle(c + Vector2(0, -s * 0.62), s * 0.22, shell.darkened(0.55))   # head
-	for side in [-1, 1]:   # legs
-		for k in 3:
-			var a := c + Vector2(side * s * 0.3, -s * 0.2 + k * s * 0.28)
-			ci.draw_line(a, a + Vector2(side * s * 0.32, (k - 1) * s * 0.12), shell.darkened(0.6), maxf(1.0, s * 0.07))
-	var body := PackedVector2Array()
-	for i in 24:
-		var a := i / 24.0 * TAU
-		body.append(c + Vector2(cos(a) * s * 0.42, sin(a) * s * 0.55 + s * 0.08))
-	ci.draw_colored_polygon(body, shell.darkened(0.15))
-	body.append(body[0])
-	ci.draw_polyline(body, glow, maxf(1.0, s * 0.06), true)
-	ci.draw_line(c + Vector2(0, -s * 0.45), c + Vector2(0, s * 0.6), glow.lightened(0.3), maxf(1.0, s * 0.07))
-	for t in (p.tier + 1 if not p.is_empty() else 1):   # one ember spot per tier
-		ci.draw_circle(c + Vector2(-s * 0.2, -s * 0.1 + t * s * 0.25), s * 0.06, glow.lightened(0.4))
-		ci.draw_circle(c + Vector2(s * 0.2, -s * 0.1 + t * s * 0.25), s * 0.06, glow.lightened(0.4))
+	var t: int = p.tier if not p.is_empty() else 0
+	var fam: Color = p.def.shell if not p.is_empty() else COLOR
+	return {"fam": fam, "glow": color_of(id), "ticks": TIER_TICKS[t], "studs": TIER_STUDS[t]}
 
 
-## one square of a shell grid: the beetle on a tile with the stack's count; hovering shows the tooltip
+## the compass drawn as a brass pocket compass: a ring on top set with the family's gem, a bezel (studded by tier),
+## a dark dial tinted by the family with cardinal ticks and a north mark, and a needle whose north half glows
+static func draw_icon(ci: CanvasItem, c: Vector2, s: float, id: String) -> void:
+	var sp := icon_spec(id)
+	var fam: Color = sp.fam
+	var w := maxf(1.0, s * 0.05)
+	var r := s * 0.44
+	c += Vector2(0, s * 0.08)
+	var top := c + Vector2(0, -r)
+	ci.draw_arc(top + Vector2(0, -s * 0.13), s * 0.09, 0, TAU, 16, BRASS.darkened(0.2), w * 1.4, true)   # the bow
+	ci.draw_rect(Rect2(top + Vector2(-s * 0.07, -s * 0.07), Vector2(s * 0.14, s * 0.09)), BRASS.darkened(0.1))   # the crown
+	ci.draw_circle(c, r, BRASS.darkened(0.45))   # the case
+	ci.draw_circle(c, r * 0.94, BRASS)
+	ci.draw_arc(c, r * 0.88, PI * 1.05, PI * 1.6, 12, BRASS.lightened(0.45), w, true)   # light on the bezel
+	ci.draw_circle(c, r * 0.76, BRASS.darkened(0.55))
+	ci.draw_circle(c, r * 0.72, fam.darkened(0.68).lerp(Color("#1a140c"), 0.35))   # the dial
+	for k in sp.studs:
+		var a: float = TAU * (k + 0.5) / sp.studs - PI / 2
+		ci.draw_circle(c + Vector2(cos(a), sin(a)) * r * 0.85, maxf(0.8, s * 0.035), fam.lightened(0.35))
+	for k in sp.ticks:
+		var a: float = TAU * k / sp.ticks - PI / 2
+		var major: bool = k % (sp.ticks / 4) == 0
+		var dir := Vector2(cos(a), sin(a))
+		ci.draw_line(c + dir * r * (0.5 if major else 0.6), c + dir * r * 0.68, BRASS.lightened(0.2) if major else BRASS.darkened(0.15), w if major else maxf(1.0, w * 0.6))
+	ci.draw_colored_polygon(PackedVector2Array([c + Vector2(0, -r * 0.7), c + Vector2(-r * 0.09, -r * 0.54), c + Vector2(r * 0.09, -r * 0.54)]), sp.glow)   # north
+	# the needle, set a little east of north: a lit north half, a dark steel tail
+	var d := Vector2.from_angle(-PI / 2 + 0.5)
+	var n := d.orthogonal() * r * 0.11
+	var tip := c + d * r * 0.6
+	ci.draw_colored_polygon(PackedVector2Array([tip, c + n, c - n]), fam.lightened(0.25))
+	ci.draw_colored_polygon(PackedVector2Array([c - d * r * 0.5, c - n, c + n]), Color("#8a8f98").darkened(0.3))
+	ci.draw_circle(tip, s * 0.07, Color(sp.glow, 0.35))
+	ci.draw_circle(tip, s * 0.035, sp.glow.lightened(0.5))
+	ci.draw_circle(c, s * 0.055, BRASS.lightened(0.2))   # the pivot
+	ci.draw_circle(top + Vector2(0, -s * 0.13), s * 0.05, fam.lightened(0.15))   # the crown gem in the bow
+	ci.draw_arc(c, r * 0.6, PI * 1.15, PI * 1.45, 8, Color(1, 1, 1, 0.22), w, true)   # glint on the glass
+
+
+## one square of a compass grid: the compass on a tile with the stack's count; hovering shows the tooltip
 class Slot extends Control:
 	signal clicked
 	signal right_clicked

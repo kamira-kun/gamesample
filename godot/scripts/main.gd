@@ -302,6 +302,12 @@ func _ready() -> void:
 					# the tooltip follows the real pointer, which may be anywhere: hold it beside the item for the shot
 					var at: Vector2 = hud.inventory.find_children("*", "ItemSlot", true, false).filter(func(c): return is_same(c.item, it))[0].get_global_rect().end
 					RenderingServer.frame_pre_draw.connect(func(): hud.tip.position = at + Vector2(8, -40)))
+			elif kind == "charm_drops":   # a row of compasses on the floor beside the player, one per family (highest tier)
+				for i in Charms.FAMILIES.size():
+					var at := player.pos + Vector2(i - 3, 0) * 0.9 + Vector2(0, 2.2)
+					_drop_charm(at, Charms.id_of(Charms.FAMILIES[i].k, 2))
+					var d: Dictionary = drops.pop_back()   # left on the floor for the shot, out of reach of pickup and the pet
+					d.node.position = to3(at, 0.3)
 			elif kind.begins_with("charms"):   # the atlas with three ember shells set and more owned, one's tooltip up (`charms_alt`: with Alt held)
 				for id in Charms.all_ids():
 					Charms.add(player.charms, id, 1 + randi() % 3)
@@ -2609,10 +2615,8 @@ func _smoke_charms() -> void:
 	apply_save(junk)
 	var cleaned := p.charms == {"seal_2": 4} and p.charm_slots == ["seal_2"]
 	var tip := Charms.lines("tyrant_3", 2)
-	print("SMOKE charm save same=%s cleaned=%s charms=%s slots=%s tip=%s" % [same, cleaned, p.charms, p.charm_slots, tip[2][3].split("
-").size()])
-	_expect("charm_save", {"same": same, "cleaned": cleaned, "tip_tiers": tip[2][3].split("
-").size() == 4,
+	print("SMOKE charm save same=%s cleaned=%s charms=%s slots=%s tip=%s" % [same, cleaned, p.charms, p.charm_slots, tip[2][3].split("\n").size()])
+	_expect("charm_save", {"same": same, "cleaned": cleaned, "tip_tiers": tip[2][3].split("\n").size() == 4,
 		"docs": "燃え盛る燼冠のコンパス" in DataDocs.files().get("charms.md", ""), "glyph": Data.ui_font.has_char(Charms.ICON.unicode_at(0))})
 	apply_save(JSON.parse_string(JSON.stringify(sd)))
 	p.filter.rarity = keep_filter
@@ -6481,13 +6485,24 @@ func gain_tablet(t: Dictionary) -> void:
 
 
 # =================== ember shells ===================
-## an ember shell lying on the floor as a small glowing dome until picked up
+## a compass lying on the floor until picked up: a brass case tipped toward the camera (it wobbles as drops spin),
+## its dial tinted by the family, a glowing needle and the family's gem on the bow
 func _drop_charm(at: Vector2, id: String) -> void:
 	var pos := _scatter(at)
-	var dome := SphereMesh.new()
-	dome.radius = 0.22
-	dome.height = 0.26
-	var node := Fx.mesh(level_root, dome, Fx.mat(Charms.color_of(id), 3.0), to3(pos, 0.2))
+	var spec := Charms.icon_spec(id)
+	var case := CylinderMesh.new()
+	case.top_radius = 0.24
+	case.bottom_radius = 0.24
+	case.height = 0.07
+	var node := Fx.mesh(level_root, case, Fx.mat(Charms.BRASS, 0.8), to3(pos, 0.2))
+	node.rotation.x = 0.45
+	var dial := CylinderMesh.new()
+	dial.top_radius = 0.19
+	dial.bottom_radius = 0.19
+	dial.height = 0.02
+	Fx.mesh(node, dial, Fx.mat(spec.fam.darkened(0.7), 0.4), Vector3(0, 0.04, 0))
+	Fx.mesh(node, Fx.box(Vector3(0.05, 0.03, 0.3)), Fx.mat(spec.glow, 4.0), Vector3(0, 0.06, 0)).rotation.y = 0.5
+	Fx.mesh(node, Fx.sphere(0.05), Fx.mat(spec.fam, 3.0), Vector3(0, 0, -0.29))
 	drops.append({"k": "charm", "n": 1, "charm": id, "pos": pos, "node": node})
 
 
