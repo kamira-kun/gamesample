@@ -1,6 +1,7 @@
 class_name ExchangeUI
 extends BasePanel
-## The hideout exchange (docs/economy-design.md). Three pages: currencies (section 7: prices in chaos with
+## The hideout exchange (docs/economy-design.md). Four pages: the listing search (#65: nothing is listed until a
+## search, then listings that fit it are made, see Exchange), currencies (section 7: prices in chaos with
 ## a 14-day sparkline, market and limit orders with a quote before trading, the open orders and the notice
 ## board), gear (phase 2: other adventurers' offers, listing a unique or rare from the bag, the dealer, the
 ## pickup box) and buy requests (phase 3: hand over gear that fits for a reward).
@@ -26,7 +27,7 @@ var board_box := VBoxContainer.new()
 var k := ""
 var side := "buy"
 var mode := "market"
-const PAGES := [["currency", "通貨"], ["gear", "装備"], ["requests", "買取依頼"]]
+const PAGES := [["search", "出品検索"], ["currency", "通貨"], ["gear", "装備"], ["requests", "買取依頼"]]
 var page := "currency"
 var page_row := HBoxContainer.new()
 var cur_page := HBoxContainer.new()
@@ -48,6 +49,28 @@ var held_grid := GridContainer.new()
 var pick := -1                 # bag index picked for listing
 # requests page
 var req_box := VBoxContainer.new()
+# search page
+var search_page := HBoxContainer.new()
+var cat_opt := OptionButton.new()
+var slot_opt := OptionButton.new()
+var rarity_opt := OptionButton.new()
+var base_opt := OptionButton.new()
+var unique_edit := LineEdit.new()
+var unique_hits := VBoxContainer.new()
+var mod_opts: Array[OptionButton] = []
+var mod_mins: Array[SpinBox] = []
+var ilvl_spin := SpinBox.new()
+var price_lo := SpinBox.new()
+var price_hi := SpinBox.new()
+var slot_row: HBoxContainer    # made by _field in _build_search
+var unique_row := VBoxContainer.new()
+var mod_box := VBoxContainer.new()
+var result_label := Label.new()
+var result_grid := GridContainer.new()
+var results: Array = []        # the listings the last search made
+var search_error := ""
+var searched := false
+var refresh_n := 0             # bumped by 出品を入れ替える: a new seed for the same search
 
 
 func _title() -> String:
@@ -140,6 +163,7 @@ func _build() -> void:
 	right.add_child(SkillUI._scroll(order_box, Vector2(360, 150)))
 	_build_gear()
 	_build_requests()
+	_build_search()
 
 
 func _build_gear() -> void:
@@ -214,6 +238,378 @@ func _build_requests() -> void:
 	req_page.add_child(req_box)
 
 
+func _build_search() -> void:
+	search_page.add_theme_constant_override("separation", 18)
+	body.add_child(search_page)
+	var left := VBoxContainer.new()
+	left.add_theme_constant_override("separation", 5)
+	left.custom_minimum_size = Vector2(340, 0)
+	search_page.add_child(left)
+	left.add_child(sub("検索条件（条件が多いほど、珍しいオプションほど高くなる）", 13))
+	for c in Exchange.CATEGORIES:
+		cat_opt.add_item(c[1])
+		cat_opt.set_item_metadata(cat_opt.item_count - 1, c[0])
+	cat_opt.item_selected.connect(func(_i): _sync_filters())
+	left.add_child(_field("種類", cat_opt))
+	slot_opt.add_item("指定なし")
+	slot_opt.set_item_metadata(0, "")
+	for sl in Data.SLOTS:
+		slot_opt.add_item(Data.SLOT_INFO[sl].name)
+		slot_opt.set_item_metadata(slot_opt.item_count - 1, sl)
+	slot_opt.item_selected.connect(func(_i): _sync_filters())
+	slot_row = _field("部位", slot_opt)
+	left.add_child(slot_row)
+	rarity_opt.add_item("指定なし")
+	rarity_opt.set_item_metadata(0, -1)
+	for r in Data.RARITY.size():
+		rarity_opt.add_item(Data.RARITY[r].name)
+		rarity_opt.set_item_metadata(r + 1, r)
+	left.add_child(_field("レア度", rarity_opt))
+	base_opt.fit_to_longest_item = false
+	left.add_child(_field("ベース", base_opt))
+	unique_row.add_theme_constant_override("separation", 2)
+	unique_edit.placeholder_text = "名前の一部で候補が出る"
+	unique_edit.text_changed.connect(func(_t): _show_unique_hits())
+	unique_row.add_child(_field("ユニーク名", unique_edit))
+	unique_hits.add_theme_constant_override("separation", 0)
+	unique_row.add_child(unique_hits)
+	left.add_child(unique_row)
+	mod_box.add_theme_constant_override("separation", 3)
+	left.add_child(mod_box)
+	for i in Exchange.MAX_MODS:
+		var row := HBoxContainer.new()
+		var o := OptionButton.new()
+		o.custom_minimum_size = Vector2(240, 0)
+		o.fit_to_longest_item = false
+		o.clip_text = true
+		var mn := SpinBox.new()
+		mn.max_value = 999
+		mn.prefix = "≥"
+		mn.custom_minimum_size = Vector2(90, 0)
+		mn.tooltip_text = "この値以上で付いているものを探す（0 で指定なし）"
+		row.add_child(o)
+		row.add_child(mn)
+		mod_box.add_child(row)
+		mod_opts.append(o)
+		mod_mins.append(mn)
+	ilvl_spin.max_value = 200
+	ilvl_spin.tooltip_text = "この値以上のアイテムレベル（0 で隠れ家の水準）"
+	left.add_child(_field("iLv 以上", ilvl_spin))
+	var prow := HBoxContainer.new()
+	prow.add_theme_constant_override("separation", 4)
+	var pl := sub("価格 ✺", 13)
+	pl.custom_minimum_size = Vector2(96, 0)
+	prow.add_child(pl)
+	for sp in [price_lo, price_hi]:
+		sp.max_value = 99999
+		sp.custom_minimum_size = Vector2(100, 0)
+	price_hi.tooltip_text = "0 で上限なし"
+	prow.add_child(price_lo)
+	prow.add_child(sub("〜", 13))
+	prow.add_child(price_hi)
+	left.add_child(prow)
+	var btns := HBoxContainer.new()
+	btns.add_theme_constant_override("separation", 6)
+	left.add_child(btns)
+	for b in [["検索", search_now], ["出品を入れ替える", refresh_listings], ["条件をクリア", clear_query]]:
+		var bt := Button.new()
+		bt.text = b[0]
+		bt.custom_minimum_size = Vector2(0, 32)
+		bt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		bt.pressed.connect(b[1])
+		btns.add_child(bt)
+	var right := VBoxContainer.new()
+	right.add_theme_constant_override("separation", 6)
+	right.custom_minimum_size = Vector2(480, 420)
+	search_page.add_child(right)
+	result_label.add_theme_font_size_override("font_size", 14)
+	result_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	result_label.custom_minimum_size = Vector2(480, 0)
+	right.add_child(result_label)
+	result_grid.add_theme_constant_override("h_separation", 6)
+	result_grid.add_theme_constant_override("v_separation", 6)
+	right.add_child(result_grid)
+	_sync_filters()
+
+
+func _field(label: String, c: Control) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 6)
+	var l := sub(label, 13)
+	l.custom_minimum_size = Vector2(96, 0)
+	row.add_child(l)
+	c.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(c)
+	return row
+
+
+func _cat() -> String:
+	return cat_opt.get_item_metadata(maxi(0, cat_opt.selected))
+
+
+func _slot() -> String:
+	return slot_opt.get_item_metadata(maxi(0, slot_opt.selected)) if _cat() == "gear" else ""
+
+
+## the base and line choices follow the category (and a gear slot); what was picked stays while it still fits
+func _sync_filters() -> void:
+	var cat := _cat()
+	slot_row.visible = cat == "gear"
+	unique_row.visible = cat == "gear"
+	var keep_base := base_opt.get_item_text(base_opt.selected) if base_opt.selected > 0 else ""
+	base_opt.clear()
+	base_opt.add_item("指定なし")
+	for n in Exchange.base_names(cat, _slot()):
+		base_opt.add_item(n)
+		if n == keep_base:
+			base_opt.select(base_opt.item_count - 1)
+	var keys := Exchange.mod_keys(cat, _slot())
+	mod_box.visible = not keys.is_empty()
+	for o in mod_opts:
+		var keep: String = o.get_item_metadata(o.selected) if o.selected > 0 else ""
+		o.clear()
+		o.add_item("オプション指定なし")
+		o.set_item_metadata(0, "")
+		for k in keys:
+			o.add_item(Exchange.mod_name(k))
+			o.set_item_metadata(o.item_count - 1, k)
+			if k == keep:
+				o.select(o.item_count - 1)
+
+
+func _show_unique_hits() -> void:
+	clear(unique_hits)
+	var t := unique_edit.text.strip_edges()
+	if t == "" or not Data.legend(t).is_empty():
+		return
+	for n in Exchange.unique_matches(t, 6):
+		var tier: Dictionary = Data.UNIQUE_TIERS[Data.unique_tier(n)]
+		var b := Button.new()
+		b.text = "%s（%s・%s）" % [n, tier.name, Data.SLOT_INFO[Data.legend(n).slot].name]
+		b.flat = true
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.add_theme_font_size_override("font_size", 12)
+		b.add_theme_color_override("font_color", tier.color)
+		b.pressed.connect(_pick_unique.bind(n))
+		unique_hits.add_child(b)
+
+
+func _pick_unique(n: String) -> void:
+	unique_edit.text = n
+	rarity_opt.select(4)
+	_show_unique_hits.call_deferred()   # the hit list holds the button being pressed
+
+
+## the query the filters make
+func read_query() -> Dictionary:
+	var q := Exchange.empty_query()
+	q.cat = _cat()
+	q.slot = _slot()
+	q.rarity = rarity_opt.get_item_metadata(maxi(0, rarity_opt.selected))
+	q.base = base_opt.get_item_text(base_opt.selected) if base_opt.selected > 0 else ""
+	q.unique = unique_edit.text.strip_edges() if q.cat == "gear" else ""
+	for i in mod_opts.size():
+		var o := mod_opts[i]
+		if o.selected > 0 and mod_box.visible:
+			q.mods.append({"k": o.get_item_metadata(o.selected), "min": int(mod_mins[i].value)})
+	q.ilvl = int(ilvl_spin.value)
+	q.price_min = int(price_lo.value)
+	q.price_max = int(price_hi.value)
+	return q
+
+
+## put a query into the filters
+func set_query(q: Dictionary) -> void:
+	var c := Exchange.empty_query()
+	c.merge(q, true)
+	for i in cat_opt.item_count:
+		if cat_opt.get_item_metadata(i) == c.cat:
+			cat_opt.select(i)
+	for i in slot_opt.item_count:
+		if slot_opt.get_item_metadata(i) == c.slot:
+			slot_opt.select(i)
+	rarity_opt.select(int(c.rarity) + 1)
+	for o in mod_opts:
+		o.select(0)
+	_sync_filters()
+	base_opt.select(0)
+	for i in base_opt.item_count:
+		if i > 0 and base_opt.get_item_text(i) == c.base:
+			base_opt.select(i)
+	unique_edit.text = c.unique
+	for i in mod_opts.size():
+		mod_mins[i].value = 0
+		if i < c.mods.size():
+			for j in mod_opts[i].item_count:
+				if mod_opts[i].get_item_metadata(j) == c.mods[i].k:
+					mod_opts[i].select(j)
+			mod_mins[i].value = int(c.mods[i].get("min", 0))
+	ilvl_spin.value = c.ilvl
+	price_lo.value = c.price_min
+	price_hi.value = c.price_max
+	clear(unique_hits)
+
+
+func clear_query() -> void:
+	set_query({})
+	results = []
+	search_error = ""
+	searched = false
+	_show_results()
+
+
+func search_now() -> void:
+	var res := Exchange.search(read_query(), league(), hud.main.atlas.hideout_level(), refresh_n)
+	results = res.items
+	search_error = res.error
+	searched = true
+	clear(unique_hits)
+	_show_results()
+
+
+## fresh listings for the same search (a new seed); the old ones are gone
+func refresh_listings() -> void:
+	refresh_n += 1
+	if searched:
+		search_now()
+
+
+## the result grid: rebuilt only after a search or a purchase, never per frame
+func _show_results() -> void:
+	clear(result_grid)
+	if not searched:
+		result_label.text = "条件を決めて「検索」を押すと、合う出品が最大 %d 件並ぶ" % Exchange.RESULTS
+		result_label.add_theme_color_override("font_color", DIM)
+		return
+	if search_error != "":
+		result_label.text = search_error
+		result_label.add_theme_color_override("font_color", DOWN)
+		return
+	result_label.text = "%d 件の出品（クリックで購入。価格は ✺ 混沌、ほかに手数料 ◆ 灰燼）" % results.size()
+	result_label.add_theme_color_override("font_color", Color("#e8d8b0"))
+	result_grid.columns = 6 if results.any(func(l): return l.kind == "gear") else 2
+	var w := wallet()
+	for i in results.size():
+		var l: Dictionary = results[i]
+		var ok: bool = not l.sold and w.get(Market.BASE, 0) >= l.price and w.get("ember", 0) >= l.fee
+		var price_text := "売約済み" if l.sold else "✺ %d　◆ %d" % [l.price, l.fee]
+		var price_line := ["価格 ✺ %d　手数料 ◆ %d" % [l.price, l.fee], Color("#f0e0c0"), 14]
+		if l.kind == "gear":
+			var box := VBoxContainer.new()
+			box.add_theme_constant_override("separation", 1)
+			var sl := ItemSlot.new()
+			sl.custom_minimum_size = Vector2(64, 64)
+			sl.hud = hud
+			sl.item = l.item
+			sl.compare = true
+			sl.extra = [price_line]
+			if l.sold:
+				sl.modulate.a = 0.35
+			sl.clicked.connect(buy_result.bind(i))
+			box.add_child(sl)
+			var pl := sub(price_text, 12, Color("#f0e0c0") if ok else DOWN)
+			pl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			box.add_child(pl)
+			result_grid.add_child(box)
+		else:
+			var b := Button.new()
+			var label := _listing_label(l)
+			b.text = "%s　%s" % [label[0], price_text]
+			b.add_theme_color_override("font_color", label[1] if ok else DOWN)
+			b.add_theme_font_size_override("font_size", 13)
+			b.custom_minimum_size = Vector2(236, 30)
+			b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+			b.clip_text = true
+			b.disabled = l.sold
+			hover(b, _listing_tip(l) + [price_line])
+			b.pressed.connect(buy_result.bind(i))
+			result_grid.add_child(b)
+
+
+## a non-gear listing's button text and color
+func _listing_label(l: Dictionary) -> Array:
+	match l.kind:
+		"tablet":
+			return ["▦ %s %d行" % [Tablets.name_of(l.item), l.item.mods.size()], Tablets.COLOR]
+		"jewel", "ring":
+			return ["%s %s" % ["◎" if l.kind == "ring" else "◆", l.item.name], Data.RARITY[int(l.item.rarity)].color]
+		"charm":
+			return ["%s %s ×%d" % [Charms.ICON, Charms.name_of(l.id), l.n], Charms.color_of(l.id)]
+		"gem":
+			var gi := Data.gem_info(l.skill, l.id)
+			return ["%s %s Lv%d" % ["◈" if l.skill else "◇", gi.name, gi.lvl], gi.color]
+		"currency":
+			var c := Data.currency(l.id)
+			return ["%s %s ×%d" % [c.icon, c.name, l.n], c.color]
+	return ["", Color.WHITE]
+
+
+func _listing_tip(l: Dictionary) -> Array:
+	match l.kind:
+		"tablet":
+			return Tablets.lines(l.item)
+		"jewel", "ring":
+			return Jewels.lines(l.item)
+		"charm":
+			return Charms.lines(l.id, l.n)
+		"gem":
+			return hud.skill_ui.skill_tip(l.id) if l.skill else SkillUI.gem_tip(Data.support(l.id), hud.main.player.level)
+		"currency":
+			var c := Data.currency(l.id)
+			return [[c.name, c.color, 16], [c.desc, Color("#b8a888"), 13]]
+	return []
+
+
+## buy result `i`: room is checked first, then the chaos and fee are paid and the listing goes where it belongs
+func buy_result(i: int) -> void:
+	if i < 0 or i >= results.size():
+		return
+	var l: Dictionary = results[i]
+	var m = hud.main
+	var p: Player = m.player
+	var err := ""
+	match l.kind:
+		"gear":
+			if p.bag.size() >= Player.BAG_SIZE:
+				err = "インベントリが一杯です"
+		"tablet":
+			if p.tablets.size() >= Tablets.MAX_OWNED:
+				err = "石板が一杯です（%d）" % Tablets.MAX_OWNED
+		"jewel", "ring":
+			if p.jewels.size() >= Jewels.MAX_OWNED:
+				err = "ジュエルが一杯です（%d）" % Jewels.MAX_OWNED
+		"gem":
+			if l.id in (p.skills if l.skill else p.gems):
+				err = "そのジェムはもう持っている"
+	if err == "":
+		err = Exchange.pay(l, wallet())
+	if err != "":
+		hud.message(err, Color("#ff8080"))
+		return
+	match l.kind:
+		"gear":
+			p.bag.append(l.item)
+			hud.message("%s を ✺ %d で買った" % [l.item.name, l.price], Color("#c070ff"))
+		"tablet":
+			m.gain_tablet(l.item)
+		"jewel", "ring":
+			m.gain_jewel(l.item)
+		"charm":
+			m.gain_charm(l.id, l.n)
+		"gem":
+			if l.skill:
+				m.learn_skill(l.id)
+			else:
+				m.unlock_gem(l.id)
+		"currency":
+			p.cur[l.id] = p.cur.get(l.id, 0) + l.n
+			hud.message("%s ×%d を ✺ %d で買った" % [Data.currency(l.id).name, l.n, l.price], Color("#c070ff"))
+	hud.hide_tip()
+	m.save_game()
+	hud.refresh_inventory()
+	refresh.call_deferred()   # the result grid holds the slot whose click is still being handled
+
+
 func _toggle(text: String, on_press: Callable) -> Button:
 	var b := Button.new()
 	b.text = text
@@ -267,6 +663,7 @@ func refresh() -> void:
 	var m := Market.state(lg)
 	for i in PAGES.size():
 		page_row.get_child(i).button_pressed = page == PAGES[i][0]
+	search_page.visible = page == "search"
 	cur_page.visible = page == "currency"
 	gear_page.visible = page == "gear"
 	req_page.visible = page == "requests"
@@ -279,6 +676,9 @@ func refresh() -> void:
 		return
 	if page == "requests":
 		_refresh_requests()
+		return
+	if page == "search":
+		_show_results()
 		return
 	clear(price_grid)
 	for h in ["通貨", "現在価格", "前日比", "直近 14 市場日"]:

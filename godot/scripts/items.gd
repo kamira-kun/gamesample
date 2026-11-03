@@ -15,19 +15,20 @@ static func roll_rarity(boost: float) -> int:
 	return 0
 
 
-static func generate(ilvl: int, boost := 0.0, force_rarity := -1, force_slot := "", force_unique := "") -> Dictionary:
+static func generate(ilvl: int, boost := 0.0, force_rarity := -1, force_slot := "", force_unique := "", force_base := "") -> Dictionary:
 	var rarity := force_rarity if force_rarity >= 0 else roll_rarity(boost)
 	var slot: String = force_slot if force_slot != "" else Data.SLOTS.pick_random()
 	var legend := {}
 	var base: Dictionary
 	if rarity == 3:
-		var pool := Data.LEGENDARY.filter(func(l): return (force_slot == "" or l.slot == force_slot) and (force_unique == "" or l.name == force_unique))
+		var pool := Data.LEGENDARY.filter(func(l): return (force_slot == "" or l.slot == force_slot) and (force_unique == "" or l.name == force_unique) 			and (force_base == "" or base_name(l.slot, l.base) == force_base))
 		legend = pick_legend(pool)
 		slot = legend.slot
 		var bases: Array = Data.BASES[slot]
 		base = bases[mini(legend.base, bases.size() - 1)]
 	else:
-		base = Data.BASES[slot].pick_random()
+		var named: Array = Data.BASES[slot].filter(func(b): return b.name == force_base)
+		base = named[0] if not named.is_empty() else Data.BASES[slot].pick_random()
 	_uid += 1
 	var it := {"uid": "%d_%d" % [Time.get_ticks_msec(), _uid], "slot": slot, "base": base.name, "rarity": rarity, "ilvl": ilvl,
 		"mods": {}, "implicit": base.get("implicit", {}).duplicate()}
@@ -53,6 +54,12 @@ static func generate(ilvl: int, boost := 0.0, force_rarity := -1, force_slot := 
 	else:
 		name_item(it)
 	return it
+
+
+## the name of base `i` of the slot (a unique's `base` index, clamped like generate does)
+static func base_name(slot: String, i: int) -> String:
+	var bases: Array = Data.BASES[slot]
+	return bases[mini(i, bases.size() - 1)].name
 
 
 ## one unique from the pool, the rarer tiers less often (Data.UNIQUE_TIERS weights)
@@ -91,11 +98,22 @@ static func fixed_at(it: Dictionary, k: String, r: Array, t: float) -> int:
 	return roundi(v) if roundi(v) != 0 else signi(r[0])
 
 
+## `n` new affixes the slot allows, none it has already, the rarer ones (Data.AFFIXES `w`) less often
 static func add_affixes(it: Dictionary, n: int) -> void:
 	var pool := Data.AFFIXES.filter(func(a): return it.slot in a.slots and not it.mods.has(a.k))
-	pool.shuffle()
 	for i in mini(n, pool.size()):
-		it.mods[pool[i].k] = roll_value(it, pool[i])
+		var total := 0.0
+		for a in pool:
+			total += a.w
+		var roll := randf() * total
+		var pick: Dictionary = pool.back()
+		for a in pool:
+			roll -= a.w
+			if roll <= 0.0:
+				pick = a
+				break
+		pool.erase(pick)
+		it.mods[pick.k] = roll_value(it, pick)
 
 
 static func name_item(it: Dictionary) -> void:
