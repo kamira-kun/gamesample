@@ -159,6 +159,10 @@ func _ready() -> void:
 				hud.exchange_ui.refresh()
 			if kind in ["merchant", "device", "stash", "exchange"]:
 				open_interact(kind)
+			if kind.begins_with("merchant_"):   # the merchant on one stock tab (`merchant_gear`, `merchant_charms`, ...), shards to spend
+				player.cur.ember = 40000
+				open_interact("merchant")
+				hud.shop_ui.set_tab(kind.trim_prefix("merchant_"))
 			if kind == "exchange":
 				hud.exchange_ui.select("divine")
 			elif kind == "skills":
@@ -1908,6 +1912,119 @@ func _smoke_seal() -> void:
 ## entering the map and their effects apply there — more and more elite monsters that are tougher, guaranteed
 ## monoliths, an ember-crowned boss that drops more items, tablets and currency; enemies drop them; the stash
 ## holds them in stacks; they survive a save round trip (and a bad save loses only the bad entries); the docs list them
+## #59: the merchant's big stock (every slot and rarity, tablets, jewels, ember shells), its higher prices,
+## buying each kind of ware, buy-then-sell never paying, and the tabbed panel opening, scrolling and closing cleanly
+func _smoke_shop() -> void:
+	var p := player
+	var keep := [p.cur.ember, p.bag.duplicate(), p.tablets.duplicate(), p.jewels.duplicate(), p.charms.duplicate(), shop]
+	var errs0 := smoke_log.count()
+	shop = Items.gen_shop(maxi(1, floor_level))
+	var gear: int = shop.items.size()
+	var slots := Data.SLOTS.all(func(sl): return shop.items.any(func(it): return it.slot == sl))
+	var rarities := range(4).filter(func(r): return shop.items.any(func(it): return int(it.rarity) == r)).size()
+	var rings: int = shop.jewels.filter(func(j): return Jewels.is_ring(j)).size()
+	var charm_tiers := {}
+	for id in shop.charms:
+		charm_tiers[Charms.parse(id).tier] = true
+	print("SMOKE shop_stock gear=%d slots=%s rarities=%d tablets=%d jewels=%d rings=%d charms=%d charm_tiers=%d" % [gear, slots, rarities,
+		shop.tablets.size(), shop.jewels.size(), rings, Charms.count(shop.charms), charm_tiers.size()])
+	_expect("shop_stock", {"gear": gear >= 40, "slots": slots, "rarities": rarities >= 3, "tablets": shop.tablets.size() == Data.SHOP_TABLETS,
+		"jewels": shop.jewels.size() == Data.SHOP_JEWELS + Data.SHOP_RINGS, "rings": rings == Data.SHOP_RINGS,
+		"charms": Charms.count(shop.charms) == Data.SHOP_CHARMS})
+	# prices: every piece above the pre-#59 price (sell × 5), dearer with rarity, lines and tier, never under what selling pays back
+	var normal := Items.generate(10, 0.0, 0, "helm")
+	var rare := normal.duplicate(true)
+	rare.rarity = 2
+	var more := rare.duplicate(true)
+	more.mods["smoke_line"] = 1
+	var t0 := Tablets.generate(10, "", 0)
+	var t2 := t0.duplicate(true)
+	Tablets.add_mods(t2, 2)
+	var above: bool = shop.items.all(func(it): return Items.buy_price(it) > roundi(Items.sell_price(it) * 5 * Items.discount))
+	var no_profit: bool = shop.items.all(func(it): return Items.buy_price(it) > Items.sell_price(it)) \
+		and shop.tablets.all(func(t): return Items.tablet_price(t) > Tablets.shard_value(t)) \
+		and shop.jewels.all(func(j): return Items.jewel_price(j) > Jewels.shard_value(j))
+	var d0 := Items.discount
+	Items.discount = 0.5   # haggled far past what the atlas allows: still never under the sell-back
+	var floor_ok: bool = shop.items.all(func(it): return Items.buy_price(it) >= Items.sell_price(it) * 2) \
+		and shop.tablets.all(func(t): return Items.tablet_price(t) >= Tablets.shard_value(t) * 2)
+	Items.discount = d0
+	print("SMOKE shop_prices above_old=%s normal=%d rare=%d rare+line=%d tablet0=%d tablet2=%d charm1=%d charm3=%d gem1=%d no_profit=%s floor=%s" % [above,
+		Items.buy_price(normal), Items.buy_price(rare), Items.buy_price(more), Items.tablet_price(t0), Items.tablet_price(t2),
+		Items.charm_price("horde_1"), Items.charm_price("horde_3"), Items.gem_price(1), no_profit, floor_ok])
+	_expect("shop_prices", {"above_old": above and Data.SHOP_PRICE > 1.0, "rarity": Items.buy_price(rare) > Items.buy_price(normal),
+		"lines": Items.buy_price(more) > Items.buy_price(rare), "tablet_lines": Items.tablet_price(t2) > Items.tablet_price(t0),
+		"tier": Items.charm_price("horde_3") > Items.charm_price("horde_2") and Items.charm_price("horde_2") > Items.charm_price("horde_1"),
+		"charm_old": Items.charm_price("horde_1") > Charms.value("horde_1"), "gem_old": Items.gem_price(1) > 230, "no_profit": no_profit, "floor": floor_ok})
+	# the panel: every tab builds its wares, scrolls and switches without errors
+	p.cur.ember = 10000000
+	p.bag.clear()
+	var orphans0 := int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT))
+	open_interact("merchant")
+	await get_tree().process_frame
+	var ui := hud.shop_ui
+	var built := {}
+	for t in ShopUI.TABS:
+		ui.set_tab(t[0])
+		await get_tree().process_frame
+		built[t[0]] = {"gear": ui.stock_grid, "gems": ui.gem_grid, "currency": ui.cur_grid}.get(t[0], ui.ware_grid).get_child_count()
+		ui.scroll.scroll_vertical = 100000
+		await get_tree().process_frame
+	var charm_kinds: int = shop.charms.size()
+	ui.slot_filter = "ring"
+	ui.set_tab("gear")
+	var filtered := ui.stock_grid.get_child_count()
+	ui.slot_filter = ""
+	ui.set_tab("gear")
+	print("SMOKE shop_tabs built=%s filtered_rings=%d" % [built, filtered])
+	_expect("shop_tabs", {"gear": built.gear == gear, "tablets": built.tablets == Data.SHOP_TABLETS, "jewels": built.jewels == Data.SHOP_JEWELS + Data.SHOP_RINGS,
+		"charms": built.charms == charm_kinds, "gems": built.gems > 0, "currency": built.currency > 0, "filter": filtered == Data.SHOP_GEAR_PER_SLOT})
+	# buying each kind takes its price and hands it over
+	var bought := {}
+	var e: int = p.cur.ember
+	var it: Dictionary = shop.items[0]
+	var it_cost := Items.buy_price(it)
+	ui._buy(it)
+	bought.gear = p.bag.size() == 1 and e - p.cur.ember == it_cost and not it in shop.items
+	ui._sell(p.bag.size() - 1)   # and straight back: always a loss
+	var net: int = p.cur.ember - e
+	e = p.cur.ember
+	ui.set_tab("tablets")
+	var tb: Dictionary = shop.tablets[0]
+	var n_tab := p.tablets.size()
+	(ui.ware_grid.get_child(0) as Button).pressed.emit()   # through the panel's own button, as a click would
+	bought.tablet = p.tablets.size() == n_tab + 1 and e - p.cur.ember == Items.tablet_price(tb) and shop.tablets.size() == Data.SHOP_TABLETS - 1
+	await get_tree().process_frame
+	e = p.cur.ember
+	var rj: Dictionary = shop.jewels.filter(func(j): return Jewels.is_ring(j))[0]
+	var n_jw := p.jewels.size()
+	ui._buy_jewel(rj)
+	bought.ring = p.jewels.size() == n_jw + 1 and e - p.cur.ember == Items.jewel_price(rj) and Jewels.is_ring(p.jewels[-1])
+	e = p.cur.ember
+	var cid: String = shop.charms.keys()[0]
+	var left: int = shop.charms[cid]
+	var had: int = p.charms.get(cid, 0)
+	ui.set_tab("charms")
+	ui._buy_charm(cid)
+	bought.charm = int(p.charms.get(cid, 0)) == had + 1 and e - p.cur.ember == Items.charm_price(cid) and int(shop.charms.get(cid, 0)) == left - 1
+	print("SMOKE shop_buy_wares bought=%s buy_sell_net=%d (paid %d, sold %d)" % [bought, net, it_cost, Items.sell_price(it)])
+	_expect("shop_buy_wares", {"gear": bought.gear, "tablet": bought.tablet, "ring": bought.ring, "charm": bought.charm,
+		"sold": p.bag.is_empty(), "no_profit": net < 0 and net == Items.sell_price(it) - it_cost})
+	hud.close_panels()
+	await get_tree().process_frame
+	await get_tree().process_frame
+	var orphans := int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT)) - orphans0
+	var errs := smoke_log.count() - errs0
+	print("SMOKE shop_clean errors=%d orphans=%d" % [errs, orphans])
+	_expect("shop_clean", {"errors": errs == 0, "orphans": orphans <= 0})
+	p.cur.ember = keep[0]
+	p.bag = keep[1]
+	p.tablets = keep[2]
+	p.jewels = keep[3]
+	p.charms = keep[4]
+	shop = keep[5]
+
+
 func _smoke_charms() -> void:
 	var p := player
 	p.invuln = 1e9
@@ -2465,7 +2582,7 @@ func _smoke_test() -> void:
 	_expect("hideout", {"in": in_hideout(), "interacts": interacts.size() == 6, "stock": shop.items.size() > 0})
 	await get_tree().create_timer(0.5).timeout
 	await _smoke_dummy()
-	p.cur.ember = 2000
+	p.cur.ember = 50000
 	open_interact("merchant")
 	await get_tree().create_timer(0.3).timeout
 	var pots := p.potions
@@ -2473,7 +2590,7 @@ func _smoke_test() -> void:
 	hud.shop_ui._buy_potion()
 	hud.shop_ui._buy_currency("chaos", Items.currency_price(Data.currency("chaos"), league()))
 	print("SMOKE bought bag=%d stock=%d potions+%d chaos=%d ember=%d" % [p.bag.size(), shop.items.size(), p.potions - pots, p.cur.chaos, p.cur.ember])
-	_expect("shop_buy", {"bag": p.bag.size() == 1, "potion": p.potions - pots == 1, "chaos": p.cur.chaos == 1, "paid": p.cur.ember < 2000})
+	_expect("shop_buy", {"bag": p.bag.size() == 1, "potion": p.potions - pots == 1, "chaos": p.cur.chaos == 1, "paid": p.cur.ember < 50000})
 	hud.shop_ui._buy_gem("leech")
 	print("SMOKE shop gem gems=%s" % [p.gems])
 	_expect("shop_gem", {"bought": "leech" in p.gems})
@@ -2481,6 +2598,7 @@ func _smoke_test() -> void:
 	print("SMOKE shop sold bag=%d" % p.bag.size())
 	_expect("shop_sell", {"sold": p.bag.is_empty()})
 	hud.close_panels()
+	await _smoke_shop()
 	await _smoke_exchange()
 	_smoke_seasons()
 	_smoke_classes()
@@ -6313,6 +6431,10 @@ func apply_save(data: Dictionary) -> void:
 	var sd: Dictionary = data.get("shop", {})
 	if sd.has("items"):
 		shop = {"level": int(sd.level), "items": sd.items.map(func(it): return Items.normalize(it))}
+		if sd.has("tablets"):
+			shop.merge({"tablets": Tablets.normalize(sd.tablets), "jewels": Jewels.normalize(sd.get("jewels", [])), "charms": Charms.normalize(sd.get("charms", {}))}, true)
+		else:   # a save from before #59: the merchant brings in its new wares
+			shop.merge(Items.gen_wares(shop.level), true)
 	# auras that were on come back on; recalc drops any that left the bar or no longer fit
 	p.auras = Array(data.get("auras", [])).filter(func(id): return Data.SKILLS.has(id) and Data.SKILLS[id].has("aura") and id in p.slots)
 	p.status_changed.emit()

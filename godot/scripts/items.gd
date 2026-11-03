@@ -190,8 +190,11 @@ const EMBER_PER_CHAOS := 250
 static var discount := 1.0     # from the "merchant's favor" atlas passive
 
 
+## what the merchant asks for a piece of gear: the sell price five times over, times the shop's price knob and
+## a little more for every line; never under twice the sell price however far it is haggled down
 static func buy_price(it: Dictionary) -> int:
-	return roundi(sell_price(it) * 5 * discount)
+	var lines_mult := 1.0 + 0.12 * affix_count(it)
+	return maxi(sell_price(it) * 2, roundi(sell_price(it) * 5 * Data.SHOP_PRICE * lines_mult * discount))
 
 
 static func potion_price(level: int) -> int:
@@ -199,7 +202,7 @@ static func potion_price(level: int) -> int:
 
 
 static func reroll_price(level: int) -> int:
-	return 25 + level * 15
+	return 60 + level * 30
 
 
 ## the merchant's fixed currency price, the ceiling over the exchange: 250 ember a chaos at the league's rates
@@ -209,16 +212,60 @@ static func currency_price(c: Dictionary, league: String) -> int:
 
 ## a skill gem or support gem from the merchant: dearer the more level it needs
 static func gem_price(lvl: int) -> int:
-	return roundi((200 + 30 * lvl) * discount)
+	return roundi((300 + 45 * lvl) * discount)
 
 
-## the merchant's stock: eight magic-or-better items a level above the hideout
+## a rune tablet: dearer with its size, level and carved lines; never under twice what breaking it pays
+static func tablet_price(t: Dictionary) -> int:
+	var v := Tablets.shard_value(t)
+	return maxi(v * 2, roundi(v * 4 * Data.SHOP_PRICE * (1.0 + 0.25 * t.mods.size()) * discount))
+
+
+## a 燈晶 or 環晶: dearer with its rarity, level and lines (a 環晶's notables); never under twice what breaking it pays
+static func jewel_price(j: Dictionary) -> int:
+	var v := Jewels.shard_value(j)
+	var n: int = j.notables.size() if Jewels.is_ring(j) else j.mods.size()
+	return maxi(v * 2, roundi(v * 4 * Data.SHOP_PRICE * (1.0 + 0.15 * n) * discount))
+
+
+## an ember shell: its base value (higher with the tier) times the shop's price knob
+static func charm_price(id: String) -> int:
+	return roundi(Charms.value(id) * Data.SHOP_PRICE * discount)
+
+
+## the merchant's stock, a little above the hideout level: SHOP_GEAR_PER_SLOT pieces of every slot in every rarity,
+## plus rune tablets, 燈晶 and 環晶, and ember shells {id: count} in a mix of tiers
 static func gen_shop(level: int) -> Dictionary:
 	var stock := []
-	for i in 8:
-		var r := randf()
-		stock.append(generate(level + 1, 1.0, 3 if r < 0.05 else (2 if r < 0.35 else 1)))
-	return {"level": level, "items": stock}
+	var w: Array = Data.SHOP_GEAR_RARITY
+	var total: float = w.reduce(func(a, b): return a + b, 0.0)
+	for slot in Data.SLOTS:
+		for i in Data.SHOP_GEAR_PER_SLOT:
+			var roll := randf() * total
+			var r := 0
+			while r < 3 and roll > w[r]:
+				roll -= w[r]
+				r += 1
+			stock.append(generate(level + randi_range(0, 2), 1.0, r, slot))
+	var shop := {"level": level, "items": stock}
+	shop.merge(gen_wares(level), true)
+	return shop
+
+
+## the merchant's tablets, jewels and ember shells
+static func gen_wares(level: int) -> Dictionary:
+	var tablets := []
+	for i in Data.SHOP_TABLETS:
+		tablets.append(Tablets.generate(level + randi_range(0, 2), "", randi_range(0, 2)))
+	var jewels := []
+	for i in Data.SHOP_JEWELS:
+		jewels.append(Jewels.generate(level + randi_range(0, 2), 1 + int(randf() < 0.4)))
+	for i in Data.SHOP_RINGS:
+		jewels.append(Jewels.generate_ring(level + randi_range(0, 2)))
+	var charms := {}
+	for i in Data.SHOP_CHARMS:
+		Charms.add(charms, Charms.roll(level + 10))
+	return {"tablets": tablets, "jewels": jewels, "charms": charms}
 
 
 ## tooltip lines: [text, color, size]

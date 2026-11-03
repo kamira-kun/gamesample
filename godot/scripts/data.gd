@@ -677,6 +677,15 @@ const RARITY := [
 	{"name": "レジェンド", "color": Color("#ff7b1c"), "aff": [3, 4], "w": 1.6},
 ]
 
+## the hideout merchant (#59): one knob over what its gear and wares cost, and how much it carries
+const SHOP_PRICE := 2.5           # × every gear, tablet, jewel and ember shell price (1.0 = the prices before #59)
+const SHOP_GEAR_PER_SLOT := 6     # gear pieces of each slot (× 7 slots)
+const SHOP_GEAR_RARITY := [12.0, 46.0, 34.0, 8.0]   # weights of normal / magic / rare / unique in the stock
+const SHOP_TABLETS := 8
+const SHOP_JEWELS := 5            # 燈晶
+const SHOP_RINGS := 5             # 環晶
+const SHOP_CHARMS := 12           # ember shells (燼殻), counted by piece
+
 const SLOTS := ["weapon", "helm", "armor", "gloves", "boots", "ring", "amulet"]
 const SLOT_INFO := {
 	"weapon": {"name": "武器", "glyph": "剣"}, "helm": {"name": "兜", "glyph": "兜"}, "armor": {"name": "鎧", "glyph": "鎧"},
