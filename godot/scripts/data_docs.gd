@@ -89,9 +89,10 @@ static func _rares() -> Dictionary:
 		for lv in RARE_LVLS:
 			row.append(_range_text(_grow(a.min, lv, a.sc), _grow(a.max, lv, a.sc)))
 		row.append("・".join(PackedStringArray(Data.SLOTS.filter(func(s): return s in a.slots).map(func(s): return Data.SLOT_INFO[s].name))))
+		row.append(str(a.w))
 		ar.append(row)
-	secs.append({"title": "オプション（接辞）", "note": "マジック・レアのオプションは、部位に付くものから重複なしで選ばれます。値は (最小〜最大) × (1 + iLv × 伸び率) で、ユニークに付くランダムオプションはさらに ×1.2。",
-		"head": ["オプション", "マジックの語"] + RARE_LVLS.map(func(v): return "iLv%d" % v) + ["付く部位"], "rows": ar})
+	secs.append({"title": "オプション（接辞）", "note": "マジック・レアのオプションは、部位に付くものから重複なしで、出やすさの重みに比例して選ばれます（出にくいオプションほど取引所の検索で高くなります）。値は (最小〜最大) × (1 + iLv × 伸び率) で、ユニークに付くランダムオプションはさらに ×1.2。",
+		"head": ["オプション", "マジックの語"] + RARE_LVLS.map(func(v): return "iLv%d" % v) + ["付く部位", "出やすさ"], "rows": ar})
 	var mr := []
 	for slot in Data.SLOTS:
 		var row := [Data.SLOT_INFO[slot].name]

@@ -157,6 +157,14 @@ func _ready() -> void:
 				if kind == "exchange_gear":
 					hud.exchange_ui.pick_bag(player.bag.size() - 3)
 				hud.exchange_ui.refresh()
+			if kind == "exchange_search":   # the listing search with a few lines asked for, and what it found
+				player.cur.ember = 20000
+				player.cur.chaos = 400
+				open_interact("exchange")
+				hud.exchange_ui.page = "search"
+				hud.exchange_ui.set_query({"cat": "gear", "slot": "amulet", "rarity": 2, "mods": [{"k": "life", "min": 20}, {"k": "crit", "min": 2}]})
+				hud.exchange_ui.search_now()
+				hud.exchange_ui.refresh()
 			if kind in ["merchant", "device", "stash", "exchange"]:
 				open_interact(kind)
 			if kind.begins_with("merchant_"):   # the merchant on one stock tab (`merchant_gear`, `merchant_charms`, ...), shards to spend
@@ -1407,6 +1415,171 @@ func _smoke_exchange() -> void:
 	_expect("exchange_notes", {"taken": Market.state(lg).pending.is_empty()})
 
 
+## the exchange's listing search (#65): empty until a search; every filter kind met; the price grows with the
+## constraints and with a rarer line; an impossible search says why; buying pays and delivers; reselling loses
+func _smoke_exchange_search() -> void:
+	var p := player
+	var lg := league()
+	var lvl: int = atlas.hideout_level()
+	p.cur.chaos = 20000
+	p.cur.ember = 200000
+	open_interact("exchange")
+	await get_tree().create_timer(0.2).timeout
+	var ex := hud.exchange_ui
+	ex.page = "search"
+	ex.refresh()
+	print("SMOKE exsearch default results=%d grid=%d" % [ex.results.size(), ex.result_grid.get_child_count()])
+	_expect("exsearch_empty", {"results": ex.results.is_empty(), "grid": ex.result_grid.get_child_count() == 0, "page": ex.search_page.visible})
+	# every filter kind returns listings that meet it
+	var fixed_uq: Dictionary = Data.LEGENDARY.filter(func(l): return l.has("mods") and l.mods.values().all(func(r): return r[0] > 0))[0]
+	var uk: String = fixed_uq.mods.keys()[0]
+	var uq_need: int = Items.fixed_at({"ilvl": lvl, "name": fixed_uq.name}, uk, fixed_uq.mods[uk], 0.5)
+	var r_rare := Exchange.search({"cat": "gear", "rarity": 2}, lg, lvl)
+	var r_base := Exchange.search({"cat": "gear", "base": "戦斧"}, lg, lvl)
+	var r_uq := Exchange.search({"cat": "gear", "unique": fixed_uq.name, "mods": [{"k": uk, "min": uq_need}]}, lg, lvl)
+	var want := {"cat": "gear", "slot": "ring", "mods": [{"k": "life", "min": 20}, {"k": "crit", "min": 2}]}
+	var r_mod := Exchange.search(want, lg, lvl)
+	var r_sp := Exchange.search({"cat": "gear", "slot": "helm", "mods": [{"k": Exchange.SP + "s_life", "min": 1}]}, lg, lvl)
+	var r_price := Exchange.search({"cat": "gear", "rarity": 2, "price_min": 2, "price_max": 20}, lg, lvl)
+	var r_lvl := Exchange.search({"cat": "gear", "ilvl": lvl + 20}, lg, lvl)
+	var r_tab := Exchange.search({"cat": "tablet", "base": "大石碑", "mods": [{"k": "life", "min": 40}]}, lg, lvl)
+	var r_jw := Exchange.search({"cat": "jewel", "rarity": 2, "mods": [{"k": "crit_multi", "min": 8}]}, lg, lvl)
+	var r_ring := Exchange.search({"cat": "ring", "base": "大環晶"}, lg, lvl)
+	var r_charm := Exchange.search({"cat": "charm", "base": Charms.name_of("horde_2")}, lg, lvl)
+	var r_gem := Exchange.search({"cat": "gem"}, lg, lvl)
+	var r_cur := Exchange.search({"cat": "currency", "base": Data.currency("divine").name}, lg, lvl)
+	var all := [r_rare, r_base, r_uq, r_mod, r_sp, r_price, r_lvl, r_tab, r_jw, r_ring, r_charm, r_gem, r_cur]
+	print("SMOKE exsearch counts=%s errors=%s" % [all.map(func(r): return r.items.size()), all.map(func(r): return r.error).filter(func(e): return e != "")])
+	_expect("exsearch_filters", {
+		"found": all.all(func(r): return r.items.size() > 0 and r.error == ""),
+		"rarity": r_rare.items.all(func(l): return int(l.item.rarity) == 2),
+		"base": r_base.items.all(func(l): return l.item.base == "戦斧"),
+		"unique": r_uq.items.all(func(l): return l.item.name == fixed_uq.name and int(l.item.rarity) == 3 and l.item.mods.get(uk, 0) >= uq_need),
+		"mods": r_mod.items.all(func(l): return l.item.slot == "ring" and l.item.mods.get("life", 0) >= 20 and l.item.mods.get("crit", 0) >= 2 \
+			and l.item.mods.size() <= Data.RARITY[int(l.item.rarity)].aff[1]),
+		"special": r_sp.items.all(func(l): return int(l.item.rarity) == 2 and l.item.get("special", {}).get("k", "") == "s_life"),
+		"price": r_price.items.all(func(l): return l.price >= 2 and l.price <= 20),
+		"ilvl": r_lvl.items.all(func(l): return l.item.ilvl >= lvl + 20),
+		"tablet": r_tab.items.all(func(l): return l.item.shape == "slab6" and l.item.mods.get("life", 0) >= 40),
+		"jewel": r_jw.items.all(func(l): return int(l.item.rarity) == 2 and l.item.mods.get("crit_multi", 0) >= 8),
+		"ring": r_ring.items.all(func(l): return Jewels.is_ring(l.item) and l.item.base == "l"),
+		"charm": r_charm.items.all(func(l): return l.id == "horde_2"),
+		"gem": r_gem.items.size() == Exchange.RESULTS,
+		"currency": r_cur.items.all(func(l): return l.id == "divine" and l.n > 0),
+		"limit": all.all(func(r): return r.items.size() <= Exchange.RESULTS),
+	})
+	# the same search gives the same listings; asking for fresh ones changes them
+	var again := Exchange.search(want, lg, lvl)
+	var fresh := Exchange.search(want, lg, lvl, 1)
+	var sig := func(r): return r.items.map(func(l): return [l.item.name, l.item.mods, l.price])
+	print("SMOKE exsearch seeded same=%s fresh_differs=%s" % [sig.call(again) == sig.call(r_mod), sig.call(fresh) != sig.call(r_mod)])
+	_expect("exsearch_seeded", {"same": sig.call(again) == sig.call(r_mod), "fresh": sig.call(fresh) != sig.call(r_mod)})
+	# more constraints cost more; a higher minimum costs more; a rarer line costs more than a common one
+	var mean := func(q: Dictionary) -> float:
+		var r := Exchange.search(q, lg, lvl)
+		return r.items.reduce(func(s, l): return s + l.price, 0.0) / maxf(1.0, r.items.size())
+	var steps := [[], [{"k": "life", "min": 1}], [{"k": "life", "min": 1}, {"k": "mana", "min": 1}],
+		[{"k": "life", "min": 1}, {"k": "mana", "min": 1}, {"k": "crit", "min": 1}]]
+	var means := steps.map(func(ms): return mean.call({"cat": "gear", "slot": "amulet", "rarity": 2, "mods": ms}))
+	var mults := steps.map(func(ms): return Exchange.constraint_mult({"slot": "amulet", "rarity": 2, "mods": ms}, []))
+	var hi_life: int = Items.value_at({"ilvl": lvl, "rarity": 2, "name": ""}, Data.affix("life"), 0.9)
+	var low_min: float = mean.call({"cat": "gear", "slot": "amulet", "rarity": 2, "mods": [{"k": "life", "min": 1}]})
+	var high_min: float = mean.call({"cat": "gear", "slot": "amulet", "rarity": 2, "mods": [{"k": "life", "min": hi_life}]})
+	var common: float = mean.call({"cat": "gear", "slot": "amulet", "rarity": 2, "mods": [{"k": "mana", "min": 1}]})
+	var rare_mod: float = mean.call({"cat": "gear", "slot": "amulet", "rarity": 2, "mods": [{"k": "energy", "min": 1}]})
+	var top_uq: Array = Exchange.search({"cat": "gear", "unique": _tier_unique(3)}, lg, lvl).items
+	var low_uq: Array = Exchange.search({"cat": "gear", "unique": _tier_unique(0)}, lg, lvl).items
+	print("SMOKE exsearch prices means=%s mults=%s min %.1f->%.1f mana=%.1f energy=%.1f" % [means.map(func(v): return snappedf(v, 0.1)),
+		mults.map(func(v): return snappedf(v, 0.01)), low_min, high_min, common, rare_mod])
+	_expect("exsearch_price", {
+		"more_mods": range(1, means.size()).all(func(i): return means[i] > means[i - 1]),
+		"more_mult": range(1, mults.size()).all(func(i): return mults[i] > mults[i - 1]),
+		"higher_min": high_min > low_min,
+		"rare_mod": rare_mod > common and Exchange.mod_rarity("energy") > Exchange.mod_rarity("mana"),
+		"unique_tier": not top_uq.is_empty() and not low_uq.is_empty() and top_uq[0].price > low_uq[0].price,
+	})
+	# searches nothing can meet say why instead of listing nothing or something wrong
+	var bad := [{"cat": "gear", "slot": "boots", "mods": [{"k": "crit_multi", "min": 1}]},
+		{"cat": "gear", "mods": [{"k": "move_spd", "min": 1}, {"k": "crit_multi", "min": 1}]},
+		{"cat": "gear", "slot": "ring", "mods": [{"k": "life", "min": 99999}]},
+		{"cat": "gear", "rarity": 1, "mods": [{"k": "life", "min": 1}, {"k": "mana", "min": 1}, {"k": "crit", "min": 1}]},
+		{"cat": "gear", "rarity": 0, "mods": [{"k": "life", "min": 1}]},
+		{"cat": "gear", "unique": fixed_uq.name, "slot": "boots" if fixed_uq.slot != "boots" else "ring"},
+		{"cat": "gear", "unique": "存在しないユニーク"},
+		{"cat": "jewel", "rarity": 3},
+		{"cat": "currency", "mods": [{"k": "life", "min": 1}]},
+		{"cat": "gear", "rarity": 2, "price_max": 1, "price_min": 1, "ilvl": 80}]
+	var bad_r := bad.map(func(q): return Exchange.search(q, lg, lvl))
+	print("SMOKE exsearch impossible=%s" % [bad_r.map(func(r): return r.error)])
+	_expect("exsearch_impossible", {"errors": bad_r.all(func(r): return r.error != "" and r.items.is_empty())})
+	ex.set_query(bad[2])   # the screen offers only the lines the slot rolls, so ask for one too high
+	ex.search_now()
+	_expect("exsearch_impossible_ui", {"message": ex.result_label.text == bad_r[2].error, "grid": ex.result_grid.get_child_count() == 0})
+	# buying through the screen: chaos and fee paid, the item in the bag, the listing sold
+	ex.set_query(want)
+	ex.search_now()
+	var shown := ex.result_grid.get_child_count()
+	var l0: Dictionary = ex.results[0]
+	var chaos0: int = p.cur.chaos
+	var ember0: int = p.cur.ember
+	var bag0 := p.bag.size()
+	ex.buy_result(0)
+	await get_tree().process_frame
+	var got: bool = p.bag.size() == bag0 + 1 and p.bag.back() == l0.item
+	print("SMOKE exsearch buy shown=%d paid=%d fee=%d got=%s" % [shown, chaos0 - p.cur.chaos, ember0 - p.cur.ember, got])
+	_expect("exsearch_buy", {"shown": shown == ex.results.size(), "paid": chaos0 - p.cur.chaos == l0.price, "fee": ember0 - p.cur.ember == l0.fee,
+		"got": got, "sold": l0.sold})
+	ex.buy_result(0)
+	ex.search_now()   # the same search again keeps it sold
+	_expect("exsearch_sold", {"once": p.bag.size() == bag0 + 1, "still_sold": ex.results[0].sold})
+	# the other kinds land where they belong
+	var tabs0: int = p.tablets.size()
+	var jw0: int = p.jewels.size()
+	var div0: int = p.cur.divine
+	var horde0: int = p.charms.get("horde_2", 0)
+	var gem_l: Dictionary = r_gem.items.filter(func(l): return not l.id in (p.skills if l.skill else p.gems))[0]
+	ex.results = [r_tab.items[0], r_jw.items[0], r_cur.items[0], r_charm.items[0], gem_l]
+	for i in ex.results.size():
+		ex.buy_result(i)
+	await get_tree().process_frame
+	_expect("exsearch_buy_kinds", {"tablet": p.tablets.size() == tabs0 + 1, "jewel": p.jewels.size() == jw0 + 1,
+		"currency": p.cur.divine == div0 + r_cur.items[0].n, "charm": p.charms.get("horde_2", 0) == horde0 + r_charm.items[0].n,
+		"gem": gem_l.id in (p.skills if gem_l.skill else p.gems)})
+	# buying and selling back never pays: the dealer and the merchant for gear, breaking down, the market's buy side
+	var losses := []
+	for r in all:
+		for l in r.items:
+			var back := 0.0
+			match l.kind:
+				"gear":
+					back = maxf(Trade.dealer_price(lg, l.item), Items.sell_price(l.item) / float(Items.EMBER_PER_CHAOS))
+				"tablet":
+					back = Tablets.shard_value(l.item) / float(Items.EMBER_PER_CHAOS)
+				"jewel", "ring":
+					back = Jewels.shard_value(l.item) / float(Items.EMBER_PER_CHAOS)
+				"currency":
+					back = Market.quote(lg, l.id, "sell", l.n).chaos if Market.PARAMS.has(l.id) else 0.0
+			losses.append(back / l.price)
+	var it_bought: Dictionary = p.bag.back()
+	var chaos1: int = p.cur.chaos
+	var dealt := Trade.dealer_sell(lg, p.bag, p.bag.size() - 1, p.cur) if Trade.tradeable(it_bought) else "normal"
+	var gain: int = p.cur.chaos - chaos1
+	if dealt != "":
+		p.bag.erase(it_bought)
+	print("SMOKE exsearch resale worst=%.2f dealer gain=%d paid=%d" % [losses.max(), gain, l0.price])
+	_expect("exsearch_resale", {"no_profit": losses.max() < 0.6, "dealer": gain < l0.price})
+	ex.page = "currency"
+	hud.close_panels()
+
+
+## a unique of tier `t` (Data.UNIQUE_TIERS), the first by list order
+func _tier_unique(t: int) -> String:
+	for l in Data.LEGENDARY:
+		if Data.unique_tier(l.name) == t:
+			return l.name
+	return ""
+
+
 ## `--view=altar` a dormant altar beside the player, `altar_vow` its vow panel, `altar_wave` kindled with a vow
 ## and fighting, `altar_reward` every wave cleared and the reward on the ground, `forge` the hideout forge with crystals
 func _view_altar(kind: String) -> void:
@@ -2600,6 +2773,7 @@ func _smoke_test() -> void:
 	hud.close_panels()
 	await _smoke_shop()
 	await _smoke_exchange()
+	await _smoke_exchange_search()
 	_smoke_seasons()
 	_smoke_classes()
 	_smoke_gems()

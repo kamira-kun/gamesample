@@ -710,30 +710,31 @@ const BASES := {
 }
 
 const ELEM_SLOTS := ["weapon", "helm", "ring", "amulet"]
+## `w` is how often the affix is picked among the ones its slot allows (rarer lines sell for more on the exchange)
 const AFFIXES := [
-	{"k": "inc_dmg", "fmt": "ダメージ +%d%%", "word": "猛き", "min": 6, "max": 14, "sc": 0.07, "slots": ["weapon", "ring", "amulet", "gloves"]},
-	{"k": "flat_dmg", "fmt": "武器ダメージ +%d", "word": "鋭い", "min": 1, "max": 4, "sc": 0.2, "slots": ["weapon", "gloves", "ring"]},
-	{"k": "life", "fmt": "最大ライフ +%d", "word": "頑強な", "min": 10, "max": 25, "sc": 0.12, "slots": ["helm", "armor", "gloves", "boots", "ring", "amulet"]},
-	{"k": "mana", "fmt": "最大マナ +%d", "word": "賢明な", "min": 8, "max": 18, "sc": 0.08, "slots": ["helm", "armor", "ring", "amulet", "weapon"]},
-	{"k": "armor", "fmt": "アーマー +%d", "word": "堅牢な", "min": 5, "max": 14, "sc": 0.15, "slots": ["helm", "armor", "gloves", "boots"]},
-	{"k": "crit", "fmt": "クリティカル率 +%d%%", "word": "狙い澄ました", "min": 1, "max": 4, "sc": 0.02, "slots": ["weapon", "gloves", "ring", "amulet", "helm"]},
-	{"k": "crit_multi", "fmt": "クリティカルダメージ +%d%%", "word": "残忍な", "min": 10, "max": 25, "sc": 0.04, "slots": ["weapon", "amulet", "gloves"]},
-	{"k": "atk_spd", "fmt": "攻撃速度 +%d%%", "word": "迅速な", "min": 4, "max": 10, "sc": 0.02, "slots": ["weapon", "gloves", "ring"]},
-	{"k": "cast_spd", "fmt": "詠唱速度 +%d%%", "word": "流麗な", "min": 4, "max": 10, "sc": 0.02, "slots": ["weapon", "helm", "ring", "amulet"]},
-	{"k": "move_spd", "fmt": "移動速度 +%d%%", "word": "疾風の", "min": 4, "max": 10, "sc": 0.015, "slots": ["boots"]},
-	{"k": "fire_dmg", "fmt": "火炎ダメージ +%d%%", "word": "燃え盛る", "min": 8, "max": 20, "sc": 0.07, "slots": ELEM_SLOTS},
-	{"k": "cold_dmg", "fmt": "冷気ダメージ +%d%%", "word": "凍てつく", "min": 8, "max": 20, "sc": 0.07, "slots": ELEM_SLOTS},
-	{"k": "light_dmg", "fmt": "雷ダメージ +%d%%", "word": "轟く", "min": 8, "max": 20, "sc": 0.07, "slots": ELEM_SLOTS},
-	{"k": "spell_dmg", "fmt": "スキルダメージ +%d%%", "word": "神秘の", "min": 8, "max": 18, "sc": 0.07, "slots": ["weapon", "helm", "amulet", "armor"]},
-	{"k": "life_regen", "fmt": "ライフ回復 +%d/秒", "word": "再生の", "min": 1, "max": 3, "sc": 0.1, "slots": ["armor", "helm", "amulet", "boots"]},
-	{"k": "mana_regen", "fmt": "マナ回復 +%d/秒", "word": "瞑想の", "min": 1, "max": 3, "sc": 0.05, "slots": ["helm", "ring", "amulet", "armor"]},
-	{"k": "life_on_kill", "fmt": "撃破時ライフ +%d", "word": "貪欲な", "min": 2, "max": 5, "sc": 0.12, "slots": ["weapon", "gloves", "ring"]},
-	{"k": "cdr", "fmt": "移動スキルのクールダウン短縮 +%d%%", "word": "時を刻む", "min": 3, "max": 7, "sc": 0.0, "slots": ["helm", "amulet"]},
-	{"k": "energy", "fmt": "エネルギー上限 +%d", "word": "共鳴する", "min": 1, "max": 2, "sc": 0.05, "slots": ["helm", "amulet", "ring"]},
+	{"k": "inc_dmg", "fmt": "ダメージ +%d%%", "word": "猛き", "min": 6, "max": 14, "sc": 0.07, "w": 100, "slots": ["weapon", "ring", "amulet", "gloves"]},
+	{"k": "flat_dmg", "fmt": "武器ダメージ +%d", "word": "鋭い", "min": 1, "max": 4, "sc": 0.2, "w": 90, "slots": ["weapon", "gloves", "ring"]},
+	{"k": "life", "fmt": "最大ライフ +%d", "word": "頑強な", "min": 10, "max": 25, "sc": 0.12, "w": 110, "slots": ["helm", "armor", "gloves", "boots", "ring", "amulet"]},
+	{"k": "mana", "fmt": "最大マナ +%d", "word": "賢明な", "min": 8, "max": 18, "sc": 0.08, "w": 110, "slots": ["helm", "armor", "ring", "amulet", "weapon"]},
+	{"k": "armor", "fmt": "アーマー +%d", "word": "堅牢な", "min": 5, "max": 14, "sc": 0.15, "w": 110, "slots": ["helm", "armor", "gloves", "boots"]},
+	{"k": "crit", "fmt": "クリティカル率 +%d%%", "word": "狙い澄ました", "min": 1, "max": 4, "sc": 0.02, "w": 70, "slots": ["weapon", "gloves", "ring", "amulet", "helm"]},
+	{"k": "crit_multi", "fmt": "クリティカルダメージ +%d%%", "word": "残忍な", "min": 10, "max": 25, "sc": 0.04, "w": 55, "slots": ["weapon", "amulet", "gloves"]},
+	{"k": "atk_spd", "fmt": "攻撃速度 +%d%%", "word": "迅速な", "min": 4, "max": 10, "sc": 0.02, "w": 60, "slots": ["weapon", "gloves", "ring"]},
+	{"k": "cast_spd", "fmt": "詠唱速度 +%d%%", "word": "流麗な", "min": 4, "max": 10, "sc": 0.02, "w": 60, "slots": ["weapon", "helm", "ring", "amulet"]},
+	{"k": "move_spd", "fmt": "移動速度 +%d%%", "word": "疾風の", "min": 4, "max": 10, "sc": 0.015, "w": 45, "slots": ["boots"]},
+	{"k": "fire_dmg", "fmt": "火炎ダメージ +%d%%", "word": "燃え盛る", "min": 8, "max": 20, "sc": 0.07, "w": 90, "slots": ELEM_SLOTS},
+	{"k": "cold_dmg", "fmt": "冷気ダメージ +%d%%", "word": "凍てつく", "min": 8, "max": 20, "sc": 0.07, "w": 90, "slots": ELEM_SLOTS},
+	{"k": "light_dmg", "fmt": "雷ダメージ +%d%%", "word": "轟く", "min": 8, "max": 20, "sc": 0.07, "w": 90, "slots": ELEM_SLOTS},
+	{"k": "spell_dmg", "fmt": "スキルダメージ +%d%%", "word": "神秘の", "min": 8, "max": 18, "sc": 0.07, "w": 80, "slots": ["weapon", "helm", "amulet", "armor"]},
+	{"k": "life_regen", "fmt": "ライフ回復 +%d/秒", "word": "再生の", "min": 1, "max": 3, "sc": 0.1, "w": 100, "slots": ["armor", "helm", "amulet", "boots"]},
+	{"k": "mana_regen", "fmt": "マナ回復 +%d/秒", "word": "瞑想の", "min": 1, "max": 3, "sc": 0.05, "w": 100, "slots": ["helm", "ring", "amulet", "armor"]},
+	{"k": "life_on_kill", "fmt": "撃破時ライフ +%d", "word": "貪欲な", "min": 2, "max": 5, "sc": 0.12, "w": 90, "slots": ["weapon", "gloves", "ring"]},
+	{"k": "cdr", "fmt": "移動スキルのクールダウン短縮 +%d%%", "word": "時を刻む", "min": 3, "max": 7, "sc": 0.0, "w": 35, "slots": ["helm", "amulet"]},
+	{"k": "energy", "fmt": "エネルギー上限 +%d", "word": "共鳴する", "min": 1, "max": 2, "sc": 0.05, "w": 25, "slots": ["helm", "amulet", "ring"]},
 	# never rolled as affixes (no slots); only uniques carry these
-	{"k": "atk_dmg", "fmt": "攻撃ダメージ +%d%%", "word": "武闘の", "min": 8, "max": 16, "sc": 0.07, "slots": []},
-	{"k": "ally_dmg", "fmt": "ミニオン・トーテムのダメージ +%d%%", "word": "従える", "min": 10, "max": 20, "sc": 0.07, "slots": []},
-	{"k": "ally_life", "fmt": "ミニオン・トーテムのライフ +%d%%", "word": "護る", "min": 10, "max": 20, "sc": 0.05, "slots": []},
+	{"k": "atk_dmg", "fmt": "攻撃ダメージ +%d%%", "word": "武闘の", "min": 8, "max": 16, "sc": 0.07, "w": 0, "slots": []},
+	{"k": "ally_dmg", "fmt": "ミニオン・トーテムのダメージ +%d%%", "word": "従える", "min": 10, "max": 20, "sc": 0.07, "w": 0, "slots": []},
+	{"k": "ally_life", "fmt": "ミニオン・トーテムのライフ +%d%%", "word": "護る", "min": 10, "max": 20, "sc": 0.05, "w": 0, "slots": []},
 ]
 
 # the 1000 uniques live in uniques.gd; legendary rarity drops one of them
