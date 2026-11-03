@@ -69,6 +69,8 @@ static func draw_gem(ci: CanvasItem, g: Dictionary, rect: Rect2, socket := true)
 		ci.draw_arc(c, 15.0, 0.0, TAU, 32, Color("#6a5638"), 1.4, true)
 	for i in 4:
 		ci.draw_circle(c, 14.0 - i * 2.0, Color(col, 0.06 + i * 0.03), true, -1.0, true)
+	if g.get("awake", false):   # awakened gems wear a gold halo
+		ci.draw_arc(c, 14.6 if socket else 15.4, 0.0, TAU, 32, Data.AWAKE_COLOR, 1.6, true)
 	var n := _gem_sides(g)
 	var sx := 0.7 if n == 4 else 1.0
 	var r := 12.5 if socket else 14.5

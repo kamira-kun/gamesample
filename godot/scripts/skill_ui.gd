@@ -171,8 +171,13 @@ static func gem_tip(g: Dictionary, level := 999) -> Array:
 		target += "（%sを除く）" % Data.tag_text(g.not)
 	if g.has("need"):
 		target += "\n%sスキルのみ" %"・".join(PackedStringArray(g.need.map(func(k): return Data.NEED_NAMES[k])))
-	return [[g.name, g.color, 17], ["サポートジェム　エネルギー消費 %d" % g.energy, Color("#9a9080"), 12], [g.desc, Color("#dddddd"), 13], [target, Color("#8fb4ff"), 12],
-		_req_line(g.lvl, level)]
+	var lines := [[g.name, g.color, 17], ["%s　エネルギー消費 %d" % [Data.AWAKE_KIND if g.get("awake", false) else "サポートジェム", g.energy], Color("#9a9080"), 12],
+		[g.desc, Color("#dddddd"), 13], [target, Color("#8fb4ff"), 12], _req_line(g.lvl, level)]
+	if g.get("awake", false):
+		var base := Data.support(g.base)
+		lines.append(["「%s」の覚醒体。同じスキルに元のジェムとは一緒にリンクできない" % base.name, Data.AWAKE_COLOR, 12])
+		lines.append(["Lv %d 以上のエリアのエリートとボスのドロップか、取引所でのみ手に入る" % Data.AWAKE_DROP_ILVL, Color("#ffd36a"), 12])
+	return lines
 
 
 func refresh() -> void:
@@ -270,15 +275,17 @@ func refresh() -> void:
 	var sel_links: Array = p.links[sel]
 	gem_hint.text = "エネルギー %d / %d（残り %d）　「%s」にリンク %d / %d\nジェムごとにエネルギーを消費。上限はレベルと装備で増える" % [
 		p.energy_used(), p.energy_max(), e_left, Data.SKILLS[sel_id].name, sel_links.size(), Data.LINK_MAX]
-	# gems owned come first
-	var gems: Array = Data.SUPPORTS.filter(func(g): return g.id in p.gems) + Data.SUPPORTS.filter(func(g): return not g.id in p.gems)
+	# gems owned come first (awakened gems are only listed once owned)
+	var gems: Array = Data.all_supports().filter(func(g): return g.id in p.gems) + Data.SUPPORTS.filter(func(g): return not g.id in p.gems)
 	for g in gems:
 		var owned: bool = g.id in p.gems
-		var fits: bool = Data.support_fits(g, sel_id) and p.level >= g.lvl
+		var twin := _twin_linked(g.id, sel_links)
+		var fits: bool = Data.support_fits(g, sel_id) and p.level >= g.lvl and twin == ""
 		if fit_only.button_pressed and not Data.support_fits(g, sel_id) and not g.id in sel_links:
 			continue
 		var linked: bool = g.id in sel_links
-		var tag := ("未入手（Lv %d）" % g.lvl) if not owned else ("リンク中" if linked else ("Lv %d から" % g.lvl if p.level < g.lvl else ("" if fits else "対象外")))
+		var tag := ("未入手（Lv %d）" % g.lvl) if not owned else ("リンク中" if linked else ("Lv %d から" % g.lvl if p.level < g.lvl
+			else ("" if fits else ("重複" if twin != "" else "対象外"))))
 		tag = "✦%d　%s" % [g.energy, tag]
 		var font: Color = g.color if owned and fits else g.color.darkened(0.6)
 		var b := card("%s　%s" % [g.name, tag], Color("#1c2a1c") if linked else Color("#120e0a"), g.color if linked else Color("#3a3024"), font, 2 if linked else 1)
@@ -322,7 +329,10 @@ func _toggle_gem(gid: String) -> void:
 	if gid in links:
 		links.erase(gid)
 	elif p.level < g.lvl:
-		hud.message("%sは Lv %d からリンクできる" % [g.name, g.lvl], Color("#ff8080"))
+		hud.message("%sは Lv %d からリンクできる（いまは Lv %d）" % [g.name, g.lvl, p.level], Color("#ff8080"))
+		return
+	elif _twin_linked(gid, links) != "":
+		hud.message("%sは「%s」と同じスキルにリンクできない" % [g.name, Data.support(_twin_linked(gid, links)).name], Color("#ff8080"))
 		return
 	elif not Data.support_fits(g, sel_id):
 		hud.message("%sは「%s」に使えない" % [g.name, Data.SKILLS[sel_id].name], Color("#ff8080"))
@@ -336,6 +346,14 @@ func _toggle_gem(gid: String) -> void:
 	else:
 		links.append(gid)
 	_changed()
+
+
+## the gem in `links` that is `gid`'s base or awakened twin, or ""
+static func _twin_linked(gid: String, links: Array) -> String:
+	for o in links:
+		if o != gid and Data.base_gem(o) == Data.base_gem(gid):
+			return o
+	return ""
 
 
 func _changed() -> void:

@@ -517,7 +517,7 @@ class Overlay extends Control:
 			if dr.k == "gem":   # skill gems ◈ in the skill's color, support gems ◇ in gem green
 				var sg: bool = dr.get("skill", false)
 				var gi := Data.gem_info(sg, dr.gem)
-				c = {"icon": "◈" if sg else "◇", "name": "%s：%s" % [gi.kind, gi.name], "color": gi.color if sg else Data.GEM_COLOR}
+				c = {"icon": "◈" if sg else "◇", "name": "%s：%s" % [gi.kind, gi.name], "color": gi.color if sg else (Data.AWAKE_COLOR if Data.is_awakened(dr.gem) else Data.GEM_COLOR)}
 			elif dr.k == "tablet":
 				c = {"icon": "▦", "name": "ルーンタブレット：%s（%dマス）" % [Tablets.name_of(dr.tablet), Tablets.cell_count(dr.tablet)], "color": Tablets.COLOR}
 			elif dr.k == "charm":

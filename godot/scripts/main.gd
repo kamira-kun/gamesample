@@ -178,6 +178,13 @@ func _ready() -> void:
 				player.gems.append_array(["multi", "totem"])
 				player.links[1] = ["totem", "multi"]
 				hud.skill_ui.open_slot(1)
+			elif kind == "awakened":   # #63: a Lv 14 character with a few awakened gems, one linked, one still above its level
+				player.level = 14
+				player.gems.append_array(["multi", "aoe", Data.AWAKE_ID + "multi", Data.AWAKE_ID + "power", Data.AWAKE_ID + "echo"])
+				player.links[1] = [Data.AWAKE_ID + "multi", "aoe"]
+				player.recalc(true)
+				hud.skill_ui.open_slot(1)
+				get_tree().create_timer(2.0).timeout.connect(func(): hud.show_tip(SkillUI.gem_tip(Data.support(Data.AWAKE_ID + "echo"), player.level)))
 			elif kind in ["talents", "status", "filter", "passives", "ascend", "ascend_pick"]:
 				atlas.cleared = ["ash", "bone"]
 				if kind == "talents":   # a level 24 character partway to the class's notable, a few points left
@@ -502,6 +509,105 @@ func _smoke_gems() -> void:
 	p.gems = keep[3]
 	p.skills = keep[4]
 	p.cur.ember = keep[5]
+	p.recalc(true)
+
+
+## awakened support gems (#63): stronger than their base, gated by level and by their twin, never sold by the
+## merchant or the forge, dropped only by elites and bosses deep enough, listed by the exchange, kept by saves
+func _smoke_awakened() -> void:
+	var p := player
+	var keep := [p.level, p.slots.duplicate(), p.links.duplicate(true), p.gems.duplicate(), p.skills.duplicate(), p.cls]
+	var aw: Array = Data.awakened()
+	# stronger: on a skill the base fits, every stat is at least as good (mana at most as high) and one is better
+	var weaker := []
+	for g in Data.SUPPORTS:
+		var a := Data.support(Data.AWAKE_ID + g.id)
+		var sk: String = Data.SKILL_ORDER.filter(func(id): return Data.support_fits(g, id))[0]
+		var sb := Data.build_sup(sk, [g.id])
+		var sa := Data.build_sup(sk, [a.id])
+		var better := false
+		var worse := false
+		for k in sb:
+			if not (sb[k] is float or sb[k] is int):
+				continue
+			var d: float = (sb[k] - sa[k]) if k == "mana" else (sa[k] - sb[k])
+			better = better or d > 0.0001
+			worse = worse or d < -0.0001
+		if not better or worse or a.lvl <= g.lvl or a.lvl < Data.AWAKE_LVL_MIN or a.desc == g.desc or a.energy != g.energy 				or Data.support_fits(a, sk) != true:
+			weaker.append(g.id)
+	print("SMOKE awakened n=%d weaker=%s lvls=%d..%d" % [aw.size(), weaker, aw.map(func(a): return a.lvl).min(), aw.map(func(a): return a.lvl).max()])
+	_expect("awake_stronger", {"one_each": aw.size() == Data.SUPPORTS.size() and Data.AWAKE_DESC.size() == Data.SUPPORTS.size(),
+		"stronger": weaker.is_empty(), "names": aw.all(func(a): return a.name.begins_with(Data.AWAKE_NAME))})
+	# never in the merchant's or the forge's pools, whatever is owned and however high the level
+	var shop_pool := Data.missing_gems([], [], 999)
+	p.level = 40
+	open_interact("merchant")
+	hud.shop_ui.set_tab("gems")
+	var shop_btns: Array = hud.shop_ui.gem_grid.get_children().filter(func(b): return b is Button and Data.AWAKE_NAME in b.text)
+	hud.close_panels()
+	_expect("awake_not_sold", {"pool": not shop_pool.any(func(g): return Data.is_awakened(g.id)), "buttons": shop_btns.is_empty(),
+		"supports": not Data.SUPPORTS.any(func(g): return Data.is_awakened(g.id))})
+	# the level requirement blocks linking until it is met; then the base can't join it on the same skill
+	p.set_class("sigil", true)
+	var a_id := Data.AWAKE_ID + "power"
+	var a_lvl: int = Data.support(a_id).lvl
+	p.level = a_lvl - 1
+	p.recalc()
+	unlock_gem(a_id)
+	unlock_gem("power")
+	hud.skill_ui.open_slot(0)
+	p.links[0] = []
+	hud.skill_ui._toggle_gem(a_id)
+	var low_refused: bool = p.links[0].is_empty() and not p.can_use_gem(a_id)
+	p.level = a_lvl
+	p.recalc()
+	hud.skill_ui._toggle_gem(a_id)
+	var linked: bool = p.links[0] == [a_id]
+	hud.skill_ui._toggle_gem("power")
+	var twin_refused: bool = p.links[0] == [a_id]
+	var both := Data.build_sup(p.slots[0], ["power", a_id])
+	var tip: Array = SkillUI.gem_tip(Data.support(a_id), a_lvl - 1)
+	print("SMOKE awakened link lvl=%d low_refused=%s linked=%s twin_refused=%s both_ids=%s" % [a_lvl, low_refused, linked, twin_refused, both.ids])
+	_expect("awake_level", {"low_refused": low_refused, "linked": linked, "twin_refused": twin_refused, "no_stack": both.ids == ["power"],
+		"tip_red": tip.any(func(l): return l[0] == "必要レベル %d" % a_lvl and l[1] == Color("#ff8080"))})
+	hud.close_panels()
+	# drops: none from normal enemies or shallow areas; elites and bosses deep enough can, and picking one up owns it
+	var chances := [awake_chance(Data.AWAKE_DROP_ILVL - 1, true, true), awake_chance(Data.AWAKE_DROP_ILVL, false, false),
+		awake_chance(Data.AWAKE_DROP_ILVL, false, true), awake_chance(Data.AWAKE_DROP_ILVL, true, false)]
+	var got := 0
+	for i in 10:
+		_drop_awakened(p.pos)
+		var dr: Dictionary = drops[-1]
+		var had: bool = dr.gem in p.gems
+		_take(dr)
+		drops.erase(dr)
+		if Data.is_awakened(dr.gem) and not had and dr.gem in p.gems:
+			got += 1
+	print("SMOKE awakened drop chances=%s new=%d" % [chances, got])
+	_expect("awake_drop", {"shallow": chances[0] == 0.0, "normal": chances[1] == 0.0, "elite": chances[2] > 0.0, "boss": chances[3] > chances[2],
+		"owned": got == 10})
+	# the exchange lists them: by name, and mixed into an open gem search; priced over the base gem
+	var lg := league()
+	var r_name := Exchange.search({"cat": "gem", "base": Data.support(Data.AWAKE_ID + "echo").name}, lg, 10)
+	var open_aw := 0
+	for r in 6:
+		open_aw += Exchange.search({"cat": "gem"}, lg, 10, r).items.filter(func(l): return Data.is_awakened(l.id)).size()
+	var l_base := {"kind": "gem", "id": "echo", "skill": false, "n": 1}
+	var l_aw := {"kind": "gem", "id": Data.AWAKE_ID + "echo", "skill": false, "n": 1}
+	print("SMOKE awakened exchange by_name=%s open=%d worth=%.2f/%.2f" % [r_name.items.map(func(l): return l.id), open_aw, Exchange.worth(l_aw), Exchange.worth(l_base)])
+	_expect("awake_exchange", {"by_name": r_name.items.size() == 1 and r_name.items[0].id == Data.AWAKE_ID + "echo", "open": open_aw == Exchange.AWAKE_OPEN * 6,
+		"dearer": Exchange.worth(l_aw) > Exchange.worth(l_base) * 2.0, "named": Data.support(Data.AWAKE_ID + "echo").name in Exchange.base_names("gem")})
+	# saves keep awakened gems owned and linked; a junk awakened id is dropped
+	var sd: Dictionary = JSON.parse_string(JSON.stringify(save_data()))
+	sd.gems.append(Data.AWAKE_ID + "nope")
+	apply_save(sd)
+	_expect("awake_save", {"owned": a_id in p.gems, "linked": p.links[0] == [a_id], "junk": not (Data.AWAKE_ID + "nope") in p.gems})
+	p.set_class(keep[5])
+	p.level = keep[0]
+	p.slots = keep[1]
+	p.links = keep[2]
+	p.gems = keep[3]
+	p.skills = keep[4]
 	p.recalc(true)
 
 
@@ -2828,6 +2934,7 @@ func _smoke_test() -> void:
 	_smoke_seasons()
 	_smoke_classes()
 	_smoke_gems()
+	_smoke_awakened()
 	_smoke_skill_ui()
 	_smoke_docs()
 	_smoke_unique_tiers()
@@ -4043,7 +4150,7 @@ func gain_xp(v: int) -> void:
 				hud.message("スキル「%s」が使えるようになった（%sで付け替え）" % [Data.SKILLS[id].name, Keybinds.text("skills")], Data.SKILLS[id].color)
 		for gid in p.gems:
 			if Data.support(gid).lvl == p.level:
-				hud.message("サポートジェム「%s」をリンクできるようになった" % Data.support(gid).name, Data.support(gid).color)
+				hud.message("%s「%s」をリンクできるようになった" % [Data.gem_info(false, gid).kind, Data.support(gid).name], Data.support(gid).color)
 		hud.skill_ui.refresh()
 		hud.tree_ui.refresh()
 		hud.asc_ui.refresh()
@@ -6237,6 +6344,8 @@ func _drop_loot(e: Enemy) -> void:
 		_drop_currency(_weighted(Data.CURRENCIES.filter(func(c): return c.w > 0.0)).k, 1, e.pos)
 	if randf() < (0.8 if e.boss else (0.3 if not e.elite.is_empty() else 0.02)):
 		_drop_gem(e.pos, ilvl)
+	if randf() < awake_chance(ilvl, e.boss, not e.elite.is_empty()):
+		_drop_awakened(e.pos)
 	if randf() < (0.6 if e.boss else (0.12 if not e.elite.is_empty() else 0.006)) * mod_fx.get("jewel", 1.0):
 		_drop_jewel(e.pos, ilvl, randf() < (0.4 if e.boss else 0.15))
 	if randf() < Charms.drop_chance(e.boss, not e.elite.is_empty()):
@@ -6261,6 +6370,25 @@ func _drop_gem(at: Vector2, ilvl: int) -> void:
 	drops.append({"k": "gem", "n": 1, "gem": pick.id, "skill": pick.skill, "pos": pos, "node": node})
 
 
+## the chance an enemy drops an awakened gem (#63): elites and bosses only, in areas of Data.AWAKE_DROP_ILVL and up
+static func awake_chance(ilvl: int, boss: bool, elite: bool) -> float:
+	if ilvl < Data.AWAKE_DROP_ILVL:
+		return 0.0
+	return Data.AWAKE_DROP.boss if boss else (Data.AWAKE_DROP.elite if elite else 0.0)
+
+
+## an awakened support gem the player doesn't own yet (any one once all are owned: picking it up pays ember)
+func _drop_awakened(at: Vector2) -> void:
+	var pool: Array = Data.awakened().filter(func(g): return not g.id in player.gems)
+	if pool.is_empty():
+		pool = Data.awakened()
+	var pick: Dictionary = pool.pick_random()
+	var pos := _scatter(at)
+	var node := Fx.mesh(level_root, Fx.box(Vector3.ONE * 0.34), Fx.mat(Data.AWAKE_COLOR, 6.0), to3(pos, 0.4))
+	node.rotation = Vector3(0.7, 0.0, 0.7)
+	drops.append({"k": "gem", "n": 1, "gem": pick.id, "skill": false, "pos": pos, "node": node})
+
+
 func unlock_gem(id: String) -> void:
 	var p := player
 	if id in p.gems:
@@ -6269,7 +6397,7 @@ func unlock_gem(id: String) -> void:
 	p.gems.append(id)
 	var g := Data.support(id)
 	var when := "%sでリンク" % Keybinds.text("skills") if p.level >= g.lvl else "Lv %d からリンクできる" % g.lvl
-	hud.message("サポートジェム「%s」を入手！（%s）" % [g.name, when], g.color)
+	hud.message("%s「%s」を入手！（%s）" % [Data.gem_info(false, id).kind, g.name, when], g.color)
 	hud.skill_ui.refresh()
 
 
