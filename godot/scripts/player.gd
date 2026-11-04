@@ -38,7 +38,8 @@ const BASE_POTIONS := 5
 var equip := {}              # slot -> item
 var bag: Array = []
 var cur := {}                # currency key -> count
-var effects := {}            # legendary effects granted by gear
+var effects := {}            # legendary effects granted by gear, and by unique jewels and tablets in use
+var active_combos: Array = []   # Data.COMBOS whose needs all hold; worked out in recalc, never saved
 # skills: the skill in each skill bar slot, the support gems linked to each slot, and the gems owned
 # (`skills`: the skill gems owned; a skill or gem goes on the bar only once `level` reaches its `lvl`)
 var slots: Array = Data.DEFAULT_SLOTS.duplicate()
@@ -111,10 +112,12 @@ static func default_filter() -> Dictionary:
 	return {"rarity": ["pick", "pick", "pick", "pick"], "slots": sl}
 
 
-## "pick" | "sell" | "hide" for an item under the loot filter
+## "pick" | "sell" | "hide" for an item under the loot filter; a 神話 unique is always picked up
 func item_action(it: Dictionary) -> String:
 	if it.rarity < 3 and not filter.slots.get(it.slot, true):
 		return "hide"
+	if it.rarity == 3 and Data.unique_tier(it.name) == Data.MYTH_TIER:
+		return "pick"
 	return filter.rarity[it.rarity]
 
 
@@ -164,6 +167,8 @@ func recalc(full := false) -> void:
 	var tb := Tablets.stats(tablets)
 	for k in tb:
 		Data.add_stat(st, k, tb[k])
+	for k in Jewels.effects(jewels, tree) + Tablets.effects(tablets):
+		effects[k] = true
 	var a := Data.ascendancy(asc)
 	if not a.is_empty():
 		for n in a.minors:
@@ -175,6 +180,14 @@ func recalc(full := false) -> void:
 				var c := Data.asc_core(a, k)
 				for sk in c.get("stats", {}):
 					Data.add_stat(st, sk, c.stats[sk])
+	var was: Array = active_combos.map(func(c): return c.id)
+	var names := unique_names()
+	active_combos = Data.COMBOS.filter(func(c): return Data.combo_met(c, cls, asc_cores, names))
+	for c in active_combos:
+		for k in c.stats:
+			Data.add_stat(st, k, c.stats[k])
+	if active_combos.map(func(c): return c.id) != was:
+		status_changed.emit()
 	st.dmg_min += st.flat_dmg
 	st.dmg_max += st.flat_dmg
 	st.max_life = (st.max_life + st.life) * (1.0 + st.life_pct / 100.0) * Data.more(st, "more_life")
@@ -206,6 +219,7 @@ func recalc(full := false) -> void:
 	st.move_speed = 8.5 * (1.0 + st.move_spd / 100.0)
 	st.attack_rate = st.aps * (1.0 + st.atk_spd / 100.0)
 	st.dr = minf(0.75, st.armor / (st.armor + 60.0 + L * 10.0))
+	st.dr_pct = minf(Data.DR_PCT_CAP, st.dr_pct)
 	st.cdr = mini(40, st.cdr)
 	s = st
 	life = s.max_life if full else s.max_life * old_l
@@ -214,6 +228,12 @@ func recalc(full := false) -> void:
 	life = minf(life, cap("life"))
 	mana = minf(mana, cap("mana"))
 	refresh_gear()
+
+
+## the names of the uniques in use: equipped, in a taken socket or on the tablet board
+func unique_names() -> Array:
+	var out: Array = equip.values().filter(func(it): return int(it.rarity) == 3).map(func(it): return it.name)
+	return out + Jewels.unique_names(jewels, tree) + Tablets.unique_names(tablets)
 
 
 ## show the equipped weapon in hand and the shield with one-handers

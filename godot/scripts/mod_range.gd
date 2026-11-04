@@ -33,6 +33,8 @@ static func special(it: Dictionary) -> Dictionary:
 
 ## line `k` of a ジュエル
 static func jewel(j: Dictionary, k: String) -> Dictionary:
+	if int(j.get("rarity", 0)) == 3:
+		return _pair(int(j.mods[k]), int(j.mods[k]), "固有")
 	var a := Jewels.affix(k)
 	if a.is_empty():
 		return {}
@@ -41,11 +43,15 @@ static func jewel(j: Dictionary, k: String) -> Dictionary:
 
 ## a リングジュエル's strength line
 static func ring_power(j: Dictionary) -> Dictionary:
+	if int(j.get("rarity", 0)) == 3:
+		return _pair(int(j.power), int(j.power), "固有")
 	return _pair(Jewels.power_at(j, 0.0), Jewels.power_at(j, 20.0), "")
 
 
 ## line `k` of a rune tablet
 static func tablet(t: Dictionary, k: String) -> Dictionary:
+	if Tablets.is_unique(t):
+		return _pair(int(t.mods[k]), int(t.mods[k]), "固有")
 	if Tablets.mod_def(k).is_empty() or Tablets.shape(str(t.get("shape", ""))).is_empty():
 		return {}
 	return _pair(Tablets.value_at(t, k, 0.8), Tablets.value_at(t, k, 1.2), "")

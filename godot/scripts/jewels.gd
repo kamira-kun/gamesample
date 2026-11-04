@@ -7,10 +7,13 @@ class_name Jewels
 ##   (PassiveTree.set_rings). Its size line sets how many small nodes the ring has (the large one also holds a small
 ##   ジュエルの台座), its theme line what they give, and its notables (rolled like affixes) the notables on the ring;
 ##   its strength line scales the small nodes.
+## - ユニーク (#77, rarity 3, UNIQUES): either kind, with fixed lines from the table that nothing can craft and an `effect`
+##   that works while socketed. They only drop or come from the exchange, and are remade from the table on loading.
 ## Both are plain Dictionaries: {uid, kind, base, rarity, ilvl, name, socket, ...}; socket is the node id it sits in, or "".
 ## A socketed jewel can't be crafted: take it out first (a ring's nodes then go back as points).
 
-const MAX_OWNED := 40         # jewels kept per character; more break down into ember as they are picked up
+const MAX_OWNED := 40         # jewels kept per character; more break down into ember as they are picked up (never a unique)
+const UNIQUE_CHANCE := 0.02   # of the jewels and ring jewels that drop
 const COLOR := Color("#ff9ad8")
 const RING_COLOR := Color("#b08cff")
 
@@ -94,6 +97,25 @@ const THEMES := [
 		{"id": "rn_sigil", "name": "燼紋の継承", "stats": {"spell_dmg": 12, "fire_dmg": 6, "cold_dmg": 6, "light_dmg": 6}}]},
 ]
 
+# the unique ジュエル and リングジュエル: `tier` is their standing among buyers (Data.UNIQUE_TIERS), `mods` their fixed lines
+# (given while socketed, a ring's on top of its nodes). A ring's `notables` may come from any theme
+const UNIQUES := [
+	{"name": "燼紋の瞳", "kind": "jewel", "base": "cinder", "tier": 3, "mods": {"spell_dmg": 24, "cast_spd": 8, "more_spell": 8},
+		"flavor": "覗き込むと、覗き返してくる。"},
+	{"name": "断罪の欠片", "kind": "jewel", "base": "shade", "tier": 3, "effect": "executioner", "desc": "ライフ35%以下の敵へのダメージ +80%",
+		"mods": {"crit_multi": 30, "atk_dmg": 18}, "flavor": "判決はとうに下っている。"},
+	{"name": "不滅の灰", "kind": "jewel", "base": "ash", "tier": 3, "effect": "kill_heal", "desc": "敵を倒すと最大ライフの3%を回復する",
+		"mods": {"life": 40, "life_regen": 4}, "flavor": "燃え尽きてなお、温かい。"},
+	{"name": "虚月の雫", "kind": "jewel", "base": "shade", "tier": 3, "effect": "soul_drain", "desc": "混沌ダメージの5%をライフとして吸収する",
+		"mods": {"chaos_dmg": 24, "more_chaos": 10}, "flavor": "月のない夜にだけ、一滴落ちる。"},
+	{"name": "鋼血の環", "kind": "ring", "base": "l", "tier": 3, "theme": "ward", "power": 40, "notables": ["rn_rampart", "rn_anvil", "rn_bastion"],
+		"mods": {"life_pct": 6}, "flavor": "流れる血さえ、鉄の味がする。"},
+	{"name": "百鬼の灯環", "kind": "ring", "base": "m", "tier": 3, "theme": "spirit", "power": 40, "notables": ["rn_host", "rn_choir"],
+		"effect": "soul_feed", "desc": "敵を倒すたび、すべてのミニオンとトーテムのライフを10%回復する", "mods": {"ally_life": 15}, "flavor": "灯の数だけ、誰かが歩いている。"},
+	{"name": "三相の円環", "kind": "ring", "base": "l", "tier": 3, "theme": "arcane", "power": 30, "notables": ["rn_pyre", "rn_rime", "rn_thunder"],
+		"effect": "elem_unity", "desc": "火炎・冷気・雷ダメージのボーナスが、そのうち最も高い値に揃う", "mods": {"spell_dmg": 12}, "flavor": "三つの相は、ひとつの円を描く。"},
+]
+
 static var _uid := 0
 
 
@@ -137,8 +159,20 @@ static func is_ring(j: Dictionary) -> bool:
 	return j.get("kind", "") == "ring"
 
 
+static func is_unique(j: Dictionary) -> bool:
+	return int(j.get("rarity", 0)) == 3
+
+
+## a unique of the table by name ({} if there is none)
+static func unique_def(name: String) -> Dictionary:
+	for u in UNIQUES:
+		if u.name == name:
+			return u
+	return {}
+
+
 # =================== making ===================
-## a new ジュエル of item level `ilvl` (rarity rolled like gear unless forced, never a unique)
+## a new ジュエル of item level `ilvl` (rarity rolled like gear unless forced, never a unique: see generate_unique)
 static func generate(ilvl: int, force_rarity := -1, base_id := "") -> Dictionary:
 	_uid += 1
 	var r := force_rarity if force_rarity >= 0 else mini(2, Items.roll_rarity(0.5))
@@ -161,6 +195,26 @@ static func generate_ring(ilvl: int, force_rarity := -1, size_id := "", theme_id
 	add_notables(j, notables_range(j)[1] if r == 2 else notables_range(j)[0])
 	name_jewel(j)
 	return j
+
+
+## a new unique ジュエル or リングジュエル from the table, field order as generate and generate_ring make them
+static func generate_unique(name: String, ilvl: int) -> Dictionary:
+	var u := unique_def(name)
+	_uid += 1
+	var j := {"uid": "%s%d_%d" % ["r" if u.kind == "ring" else "j", Time.get_ticks_msec(), _uid], "kind": u.kind, "base": u.base, "rarity": 3, "ilvl": ilvl,
+		"name": u.name, "socket": ""}
+	if u.kind == "ring":
+		j.merge({"theme": u.theme, "power": u.power, "notables": u.notables.duplicate()})
+	j.mods = u.mods.duplicate()
+	return j
+
+
+## what a monster drops: now and then a unique of the kind, else a rolled one
+static func drop(ilvl: int, ring: bool, chance := UNIQUE_CHANCE) -> Dictionary:
+	if randf() < chance:
+		var kind := "ring" if ring else "jewel"
+		return generate_unique(UNIQUES.filter(func(u): return u.kind == kind).pick_random().name, ilvl)
+	return generate_ring(ilvl) if ring else generate(ilvl)
 
 
 static func roll_value(j: Dictionary, a: Dictionary) -> int:
@@ -227,6 +281,8 @@ static func name_jewel(j: Dictionary) -> void:
 static func craft(k: String, j: Dictionary) -> String:
 	if j.socket != "":
 		return "台座から外してから使う"
+	if is_unique(j):
+		return "ユニークのジュエルには使えません"
 	var r := int(j.rarity)
 	var ring := is_ring(j)
 	match k:
@@ -325,16 +381,31 @@ static func ring_key(j: Dictionary) -> String:
 	return "%s/%s/%d/%s" % [j.base, j.theme, int(j.power), ",".join(PackedStringArray(j.notables))]
 
 
-## the stats of the ジュエル sitting in taken sockets (a ring jewel's stats come through its ring's nodes instead)
+## the stats of the ジュエル sitting in taken sockets (a ring jewel's stats come through its ring's nodes instead,
+## but for a unique one's own lines)
 static func stats(list: Array, tree: Array) -> Dictionary:
 	var st := {}
 	for j in list:
-		if is_ring(j) or j.socket == "" or not j.socket in tree:
+		if j.socket == "" or not j.socket in tree:
 			continue
-		for src in [base(j.base).implicit, j.mods]:
+		for src in [j.get("mods", {})] if is_ring(j) else [base(j.base).implicit, j.mods]:
 			for k in src:
 				Data.add_stat(st, k, src[k])
 	return st
+
+
+## the uniques sitting in taken sockets
+static func _in_use(list: Array, tree: Array) -> Array:
+	return list.filter(func(j): return is_unique(j) and j.socket != "" and j.socket in tree)
+
+
+static func unique_names(list: Array, tree: Array) -> Array:
+	return _in_use(list, tree).map(func(j): return j.name)
+
+
+## the effect keys the socketed uniques grant (Player.effects)
+static func effects(list: Array, tree: Array) -> Array:
+	return unique_names(list, tree).map(func(n): return unique_def(n).get("effect", "")).filter(func(k): return k != "")
 
 
 ## the socketed ring jewels as PassiveTree.set_rings takes them
@@ -363,6 +434,10 @@ static func shard_value(j: Dictionary) -> int:
 static func lines(j: Dictionary) -> Array:
 	var rc: Color = Data.RARITY[int(j.rarity)].color
 	var out := [[j.name, rc, 17]]
+	var u := unique_def(j.name) if is_unique(j) else {}
+	if not u.is_empty():
+		var t: Dictionary = Data.UNIQUE_TIERS[u.tier]
+		out.append(["希少度：%s" % t.name, t.color, 13])
 	if is_ring(j):
 		var sd := size_def(j.base)
 		var th := theme(j.theme)
@@ -376,7 +451,10 @@ static func lines(j: Dictionary) -> Array:
 		for id in j.notables:
 			var nd := ring_notable(id)
 			out.append(["◆ %s：%s" % [nd.name, "、".join(PackedStringArray(PassiveTree.lines(nd.stats)))], Color("#8fb4ff"), 14])
-		if j.notables.size() < notables_range(j)[1]:
+		for k in PassiveTree.FMT.keys().filter(func(q): return j.get("mods", {}).has(q)):
+			for l in PassiveTree.lines({k: j.mods[k]}):
+				out.append(ModRange.line(l, Color("#8fb4ff"), 14, ModRange.jewel(j, k)))
+		if j.notables.size() < notables_range(j)[1] and not is_unique(j):
 			out.append(["注目ノードをあと %d つ足せる（鍛錬の砥石）" % (notables_range(j)[1] - j.notables.size()), Color("#7a7266"), 12])
 		out.append(["リングジュエルの大台座に入れると、その先に環が伸びる", Color("#a89878"), 12])
 	else:
@@ -388,6 +466,11 @@ static func lines(j: Dictionary) -> Array:
 			for l in PassiveTree.lines({k: j.mods[k]}):
 				out.append(ModRange.line(l, Color("#8fb4ff"), 14, ModRange.jewel(j, k)))
 		out.append(["ジュエルの台座に入れ、その台座を取得している間だけ効く", Color("#a89878"), 12])
+	if u.has("desc"):
+		out.append([u.desc, Color("#ff9a4a"), 14])
+	if not u.is_empty():
+		out.append_array(Data.combo_lines(j.name))
+		out.append([u.flavor, Color("#a08a6a"), 12])
 	out.append(["台座に入っている" if j.socket != "" else "台座に入っていない", Color("#b8a888"), 12])
 	return out
 
@@ -411,6 +494,15 @@ static func normalize(raw) -> Array:
 		var ring := str(r.get("kind", "")) == "ring"
 		var bid := str(r.get("base", ""))
 		if (ring and size_def(bid).is_empty()) or (not ring and base(bid).is_empty()):
+			continue
+		# a unique comes back from the table; one the table no longer has stays as a rare
+		var u := unique_def(str(r.get("name", ""))) if int(r.get("rarity", 0)) == 3 else {}
+		if not u.is_empty() and u.kind == ("ring" if ring else "jewel"):
+			var uj := generate_unique(u.name, maxi(1, int(r.get("ilvl", 1))))
+			uj.socket = str(r.get("socket", ""))
+			if str(r.get("uid", "")) != "" and not out.any(func(o): return o.uid == str(r.uid)):
+				uj.uid = str(r.uid)
+			out.append(uj)
 			continue
 		var j := {"uid": str(r.get("uid", "")), "kind": "ring" if ring else "jewel", "base": bid, "rarity": clampi(int(r.get("rarity", 0)), 0, 2),
 			"ilvl": maxi(1, int(r.get("ilvl", 1))), "name": renamed(str(r.get("name", ""))), "socket": str(r.get("socket", ""))}
@@ -438,4 +530,15 @@ static func normalize(raw) -> Array:
 		if j.name == "":
 			name_jewel(j)
 		out.append(j)
-	return out.slice(0, MAX_OWNED)
+	return keep_owned(out, MAX_OWNED, is_unique)
+
+
+## `list` cut down to `most`, the last ones going first but never one `unique` says is unique
+static func keep_owned(list: Array, most: int, unique: Callable) -> Array:
+	var out := list.duplicate()
+	for i in range(out.size() - 1, -1, -1):
+		if out.size() <= most:
+			break
+		if not unique.call(out[i]):
+			out.remove_at(i)
+	return out

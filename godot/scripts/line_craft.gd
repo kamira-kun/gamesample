@@ -50,6 +50,8 @@ static func is_tablet(x: Dictionary) -> bool:
 static func can(x: Dictionary, line: String, act: String) -> String:
 	if not is_tablet(x) and int(x.rarity) not in [1, 2]:
 		return "マジック・レアアイテムにのみ使えます"
+	if is_tablet(x) and Tablets.is_unique(x):
+		return "ユニークのルーンタブレットは加工できません"
 	if not x.mods.has(line):
 		return "その行はありません"
 	if act == "swap" and _pool(x).is_empty():
