@@ -15,14 +15,14 @@ static func roll_rarity(boost: float) -> int:
 	return 0
 
 
-static func generate(ilvl: int, boost := 0.0, force_rarity := -1, force_slot := "", force_unique := "", force_base := "") -> Dictionary:
+## a unique of the 神話 tier only comes when asked for by name or with `myth` (a monster's drop)
+static func generate(ilvl: int, boost := 0.0, force_rarity := -1, force_slot := "", force_unique := "", force_base := "", myth := false) -> Dictionary:
 	var rarity := force_rarity if force_rarity >= 0 else roll_rarity(boost)
 	var slot: String = force_slot if force_slot != "" else Data.SLOTS.pick_random()
 	var legend := {}
 	var base: Dictionary
 	if rarity == 3:
-		var pool := Data.LEGENDARY.filter(func(l): return (force_slot == "" or l.slot == force_slot) and (force_unique == "" or l.name == force_unique) 			and (force_base == "" or base_name(l.slot, l.base) == force_base))
-		legend = pick_legend(pool)
+		legend = pick_legend(legend_pool(force_slot, force_unique, force_base, myth))
 		slot = legend.slot
 		var bases: Array = Data.BASES[slot]
 		base = bases[mini(legend.base, bases.size() - 1)]
@@ -54,6 +54,12 @@ static func generate(ilvl: int, boost := 0.0, force_rarity := -1, force_slot := 
 	else:
 		name_item(it)
 	return it
+
+
+## the uniques a drop can be, narrowed by what was asked for
+static func legend_pool(slot := "", unique := "", base := "", myth := false) -> Array:
+	return Data.LEGENDARY.filter(func(l): return (slot == "" or l.slot == slot) and (unique == "" or l.name == unique) \
+		and (base == "" or base_name(l.slot, l.base) == base) and (myth or unique != "" or Data.unique_tier(l.name) < Data.MYTH_TIER))
 
 
 ## the name of base `i` of the slot (a unique's `base` index, clamped like generate does)
@@ -315,6 +321,8 @@ static func lines(it: Dictionary) -> Array:
 		out.append(ModRange.line("✠ %s：%s" % [m.name, m.fmt % it.special.v], Data.currency("brand").color, 14, ModRange.special(it)))
 	if it.has("desc"):
 		out.append([it.desc, Color("#ff9a4a"), 14])
+	if int(it.rarity) == 3:
+		out.append_array(Data.combo_lines(it.name))
 	if it.has("flavor"):
 		out.append([it.flavor, Color("#a08a6a"), 12])
 	return out

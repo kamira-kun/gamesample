@@ -690,10 +690,13 @@ const BOSS_ROTATION := [
 ]
 
 # ascendancy: pick one of the three lineages of the character's base class (CLASSES), spend the points levels
-# give on its minor nodes; points spent there unlock its core tiers, and in each unlocked tier one of two core
-# talents is chosen (and can be swapped freely). A core's `stats` are added like a minor node's; its id is
-# also an effect key the game checks in player.effects
+# give on its minor nodes; points spent there unlock its core tiers, and in each unlocked tier one core talent
+# is chosen (and can be swapped freely). A core's `stats` are added like a minor node's; its id is also an effect
+# key the game checks in player.effects. A core with `unique` is a ユニーク・アセンダンシー (#77): modest alone, the
+# big payoff is its entry in COMBOS
 const ASC_CORE_REQ := [2, 5, 8]
+const UNIQUE_ASC_NAME := "ユニーク・アセンダンシー"
+const UNIQUE_ASC_COLOR := Color("#ffc94a")
 const ASCENDANCIES := [
 	{"k": "pyre", "name": "焔王", "icon": "♨", "color": Color("#ff8a3a"), "desc": "炎の呪文で戦場を焼き尽くす王。火炎スペルと詠唱速度に特化。",
 		"minors": [
@@ -708,7 +711,8 @@ const ASCENDANCIES := [
 			[{"id": "kill_burst", "name": "紅蓮の余波", "desc": "火炎ダメージで倒した敵が爆発し、周囲に火炎ダメージを与える"},
 				{"id": "spell_frenzy", "name": "熾火の高揚", "desc": "スペルで敵を倒すたび4秒間 詠唱速度 +5%（最大8重）"}],
 			[{"id": "inferno", "name": "劫火", "desc": "火炎スキルの範囲 +30%、燃える地面の持続 2倍"},
-				{"id": "chant_power", "name": "烈火の詠唱", "desc": "詠唱速度のボーナスと同じだけスペルダメージが増加する"}],
+				{"id": "chant_power", "name": "烈火の詠唱", "desc": "詠唱速度のボーナスと同じだけスペルダメージが増加する"},
+				{"id": "sun_crown", "name": "灼陽の冠", "unique": true, "desc": "火炎ダメージ +20%、詠唱速度 +6%。王焔の錫杖を手にすると真価を発揮する", "stats": {"fire_dmg": 20, "cast_spd": 6}}],
 		]},
 	{"k": "blade", "name": "剣聖", "icon": "⚔", "color": Color("#e8c870"), "desc": "鍛え抜いた剣技で敵を斬り伏せる達人。攻撃スキルと耐久に特化。",
 		"minors": [
@@ -723,7 +727,8 @@ const ASCENDANCIES := [
 			[{"id": "fervor", "name": "戦意高揚", "desc": "攻撃が命中するたび3秒間 攻撃速度 +2%（最大15重）"},
 				{"id": "iron_stance", "name": "不動の構え", "desc": "受けるダメージ -15%"}],
 			[{"id": "deathline", "name": "死線", "desc": "ライフ50%以下の間、ダメージ +40%・攻撃速度 +20%"},
-				{"id": "executioner", "name": "処刑人", "desc": "ライフ35%以下の敵へのダメージ +80%"}],
+				{"id": "executioner", "name": "処刑人", "desc": "ライフ35%以下の敵へのダメージ +80%"},
+				{"id": "sword_saint", "name": "剣聖の極意", "unique": true, "desc": "攻撃ダメージ +18%、攻撃速度 +6%。無銘の極光を手にすると真価を発揮する", "stats": {"atk_dmg": 18, "atk_spd": 6}}],
 		]},
 	{"k": "storm", "name": "霜雷の巫女", "icon": "☈", "color": Color("#9fd8ff"), "desc": "氷と雷を操り、敵を縛り砕く巫女。冷気・雷とクリティカルに特化。",
 		"minors": [
@@ -738,7 +743,8 @@ const ASCENDANCIES := [
 			[{"id": "crit_arc", "name": "雷鳴の連鎖", "desc": "クリティカル時、近くの別の敵に雷が走り、そのヒットの50%の雷ダメージを与える"},
 				{"id": "crit_mana", "name": "静電の奔流", "desc": "クリティカル時にマナを4回復する"}],
 			[{"id": "storm_eye", "name": "嵐の目", "desc": "サンダーストームの持続 2倍、落雷の間隔 -30%"},
-				{"id": "shatter", "name": "絶対零度", "desc": "凍結した敵を倒すと砕け散り、周囲の敵に冷気ダメージを与えて凍結させる"}],
+				{"id": "shatter", "name": "絶対零度", "desc": "凍結した敵を倒すと砕け散り、周囲の敵に冷気ダメージを与えて凍結させる"},
+				{"id": "white_thunder", "name": "白雷の巫覡", "unique": true, "desc": "冷気・雷ダメージ +12%、クリティカル率 +2%。凍雷の額冠を戴くと真価を発揮する", "stats": {"cold_dmg": 12, "light_dmg": 12, "crit": 2}}],
 		]},
 	{"k": "necro", "name": "冥導師", "icon": "☠", "color": Color("#c8b0f0"), "desc": "死者とトーテムを従えて戦う導師。ミニオンとトーテムに特化。",
 		"minors": [
@@ -753,7 +759,8 @@ const ASCENDANCIES := [
 			[{"id": "death_pact", "name": "死の契約", "desc": "ミニオンが倒れると爆発し、周囲の敵に物理ダメージを与える"},
 				{"id": "soul_feed", "name": "魂の供物", "desc": "敵を倒すたび、すべてのミニオンとトーテムのライフを10%回復する"}],
 			[{"id": "lich_lord", "name": "冥王の権能", "desc": "ミニオン・トーテムのダメージ +50%、攻撃・詠唱の頻度 +25%"},
-				{"id": "bone_march", "name": "死者の行進", "desc": "骸骨召喚で呼ぶ骸骨 +1体、そのマナコスト -30%"}],
+				{"id": "bone_march", "name": "死者の行進", "desc": "骸骨召喚で呼ぶ骸骨 +1体、そのマナコスト -30%"},
+				{"id": "grave_throne", "name": "冥界の玉座", "unique": true, "desc": "ミニオン・トーテムのダメージ +20%、ライフ +15%。骸王の首飾りを掛けると真価を発揮する", "stats": {"ally_dmg": 20, "ally_life": 15}}],
 		]},
 	{"k": "bulwark", "name": "鉄燼の城塞", "icon": "⛨", "color": Color("#b8c4d0"), "desc": "灰をかぶった鉄壁の守り手。アーマー・ライフ回復と被ダメージ軽減に特化。",
 		"minors": [
@@ -768,7 +775,8 @@ const ASCENDANCIES := [
 			[{"id": "nova_on_hit", "name": "霜の反撃", "desc": "被弾時20%の確率でフロストノヴァが発動する"},
 				{"id": "hearth_pulse", "name": "炉の鼓動", "desc": "ライフ回復 +6/秒", "stats": {"life_regen": 6}}],
 			[{"id": "unbroken", "name": "不壊の誓い", "desc": "受けるダメージ -12%、最大ライフ +40", "stats": {"dr_pct": 12, "life": 40}},
-				{"id": "kill_heal", "name": "燼喰らい", "desc": "敵を倒すと最大ライフの3%を回復する"}],
+				{"id": "kill_heal", "name": "燼喰らい", "desc": "敵を倒すと最大ライフの3%を回復する"},
+				{"id": "iron_citadel", "name": "不落の燼鉄", "unique": true, "desc": "アーマー +60、受けるダメージ -4%。城塞の鉄心をまとうと真価を発揮する", "stats": {"armor": 60, "dr_pct": 4}}],
 		]},
 	{"k": "bloodfire", "name": "血焔の闘士", "icon": "✢", "color": Color("#e0503a"), "desc": "血と炎を刃に宿して戦う闘士。火炎をまとう攻撃と撃破時の回復に特化。",
 		"minors": [
@@ -783,7 +791,8 @@ const ASCENDANCIES := [
 			[{"id": "rage_kill", "name": "闘争の熱", "desc": "攻撃で敵を倒すたび4秒間 攻撃速度 +4%（最大5重）"},
 				{"id": "blood_hunger", "name": "血の渇き", "desc": "撃破時ライフ +8、最大ライフ +20", "stats": {"life_on_kill": 8, "life": 20}}],
 			[{"id": "pyre_fist", "name": "灼熱の拳", "desc": "火炎ダメージ +15%（乗算）、攻撃ダメージ +15%", "stats": {"more_fire": 15, "atk_dmg": 15}},
-				{"id": "ash_frenzy", "name": "燼の狂奔", "desc": "ダメージ +18%（乗算）、最大ライフ -25", "stats": {"more_dmg": 18, "life": -25}}],
+				{"id": "ash_frenzy", "name": "燼の狂奔", "desc": "ダメージ +18%（乗算）、最大ライフ -25", "stats": {"more_dmg": 18, "life": -25}},
+				{"id": "blood_pyre", "name": "血焔の昂り", "unique": true, "desc": "火炎ダメージ +12%、攻撃ダメージ +12%、撃破時ライフ +4。血焔の篭手をはめると真価を発揮する", "stats": {"fire_dmg": 12, "atk_dmg": 12, "life_on_kill": 4}}],
 		]},
 	{"k": "astral", "name": "星砂の賢者", "icon": "✦", "color": Color("#f0e0a0"), "desc": "星の砂を読み、あらゆる呪文を極める賢者。スペル全般・マナ・リンクの余力に特化。",
 		"minors": [
@@ -798,7 +807,8 @@ const ASCENDANCIES := [
 			[{"id": "chain_plus", "name": "連鎖の星図", "desc": "チェインライトニングの連鎖数 +4"},
 				{"id": "meteor_shower", "name": "流星群", "desc": "メテオが追加で2つ降り注ぐ"}],
 			[{"id": "fireball_multi", "name": "三連星", "desc": "ファイアボールが3方向に放たれる"},
-				{"id": "star_eater", "name": "星喰み", "desc": "スペルダメージ +25%（乗算）、最大ライフ -30", "stats": {"more_spell": 25, "life": -30}}],
+				{"id": "star_eater", "name": "星喰み", "desc": "スペルダメージ +25%（乗算）、最大ライフ -30", "stats": {"more_spell": 25, "life": -30}},
+				{"id": "star_sand", "name": "星砂の天啓", "unique": true, "desc": "スペルダメージ +15%、最大マナ +40、エネルギー上限 +1。星詠みの法衣をまとうと真価を発揮する", "stats": {"spell_dmg": 15, "mana": 40, "energy": 1}}],
 		]},
 	{"k": "shade", "name": "影走りの狩人", "icon": "☾", "color": Color("#8fa0c8"), "desc": "影から影へ渡り、刃を投げ放つ狩人。攻撃・移動とクリティカルに特化。",
 		"minors": [
@@ -813,7 +823,8 @@ const ASCENDANCIES := [
 			[{"id": "swift_blade", "name": "疾影", "desc": "移動速度のボーナスと同じだけ攻撃速度が増加する"},
 				{"id": "vital_point", "name": "急所穿ち", "desc": "クリティカル率 +5%、クリティカルダメージ +25%", "stats": {"crit": 5, "crit_multi": 25}}],
 			[{"id": "shade_mark", "name": "影の刻印", "desc": "クリティカルを受けた敵は4秒間 受けるダメージ +15%"},
-				{"id": "afterimage", "name": "残影", "desc": "攻撃速度 +15%、移動速度 +8%", "stats": {"atk_spd": 15, "move_spd": 8}}],
+				{"id": "afterimage", "name": "残影", "desc": "攻撃速度 +15%、移動速度 +8%", "stats": {"atk_spd": 15, "move_spd": 8}},
+				{"id": "moon_shadow", "name": "月影の一閃", "unique": true, "desc": "クリティカル率 +4%、攻撃速度 +6%、移動速度 +4%。影渡りの靴を履くと真価を発揮する", "stats": {"crit": 4, "atk_spd": 6, "move_spd": 4}}],
 		]},
 	{"k": "hex", "name": "蝕月の呪詠者", "icon": "☽", "color": Color("#a070c0"), "desc": "蝕む月の言葉で敵を呪い、命を吸い上げる詠み手。呪い・混沌と吸収に特化。",
 		"minors": [
@@ -828,9 +839,81 @@ const ASCENDANCIES := [
 			[{"id": "hex_deep", "name": "深き呪縛", "desc": "呪われた・蝕まれた敵へのダメージ +30%"},
 				{"id": "moon_feast", "name": "月蝕の饗宴", "desc": "撃破時ライフ +6、マナ回復 +3/秒", "stats": {"life_on_kill": 6, "mana_regen": 3}}],
 			[{"id": "void_tide", "name": "虚無の潮", "desc": "混沌ダメージ +25%（乗算）、最大マナ +30", "stats": {"more_chaos": 25, "mana": 30}},
-				{"id": "eclipse", "name": "皆既", "desc": "スペルダメージ +30%、受けるダメージ -8%", "stats": {"spell_dmg": 30, "dr_pct": 8}}],
+				{"id": "eclipse", "name": "皆既", "desc": "スペルダメージ +30%、受けるダメージ -8%", "stats": {"spell_dmg": 30, "dr_pct": 8}},
+				{"id": "black_moon", "name": "黒月の詠唱", "unique": true, "desc": "混沌ダメージ +20%、スペルダメージ +10%。蝕月の環をはめると真価を発揮する", "stats": {"chaos_dmg": 20, "spell_dmg": 10}}],
 		]},
 ]
+
+
+# combinations (#77): when every need holds, `stats` are added on top of everything else in Player.recalc.
+# `needs`: `cores` picked in the ascendancy, `uniques` by name (equipped gear, jewels in taken sockets, tablets on the
+# board), `cls` the base class. The stat keys are the ones PassiveTree.FMT can show
+const COMBOS := [
+	{"id": "cb_pyre", "name": "灼陽の戴冠", "desc": "王の焔が戴冠し、炎の呪文が太陽の熱を帯びる", "needs": {"cores": ["sun_crown"], "uniques": ["王焔の錫杖"]},
+		"stats": {"more_fire": 25, "more_spell": 12}},
+	{"id": "cb_blade", "name": "一刀無双", "desc": "銘のない剣が剣聖の手で完成する", "needs": {"cores": ["sword_saint"], "uniques": ["無銘の極光"]},
+		"stats": {"more_atk": 25, "crit": 4, "life_pct": 8}},
+	{"id": "cb_storm", "name": "凍て雷の嵐", "desc": "氷と雷がひとつの嵐になる", "needs": {"cores": ["white_thunder"], "uniques": ["凍雷の額冠"]},
+		"stats": {"more_cold": 20, "more_light": 20, "crit_multi": 30}},
+	{"id": "cb_necro", "name": "不死の軍勢", "desc": "玉座の主に、骸の軍勢がひれ伏す", "needs": {"cores": ["grave_throne"], "uniques": ["骸王の首飾り"]},
+		"stats": {"more_ally": 30, "ally_life": 40}},
+	{"id": "cb_bulwark", "name": "難攻不落", "desc": "鉄心を得た城塞は、もう崩れない", "needs": {"cores": ["iron_citadel"], "uniques": ["城塞の鉄心"]},
+		"stats": {"more_life": 22, "dr_pct": 10}},
+	{"id": "cb_bloodfire", "name": "血焔の狂宴", "desc": "血が燃えるほど、拳は重くなる", "needs": {"cores": ["blood_pyre"], "uniques": ["血焔の篭手"]},
+		"stats": {"more_fire": 20, "more_atk": 15, "life_on_kill": 15}},
+	{"id": "cb_astral", "name": "星辰の叡智", "desc": "法衣の星図が天啓と重なり、呪文が星の重みを持つ", "needs": {"cores": ["star_sand"], "uniques": ["星詠みの法衣"]},
+		"stats": {"more_spell": 25, "mana_pct": 30}},
+	{"id": "cb_shade", "name": "千影の刃", "desc": "踏み込みの影が、千の刃になる", "needs": {"cores": ["moon_shadow"], "uniques": ["影渡りの靴"]},
+		"stats": {"more_atk": 20, "crit": 5, "crit_multi": 40}},
+	{"id": "cb_hex", "name": "蝕月の終焉", "desc": "黒い月が満ち、命の灯を呑み込む", "needs": {"cores": ["black_moon"], "uniques": ["蝕月の環"]},
+		"stats": {"more_chaos": 30, "more_spell": 10, "dr_pct": 6}},
+	{"id": "cb_ashblade", "name": "鋼血の不壊", "desc": "鋼の血は、礎の上で固まる", "needs": {"cls": "ashblade", "uniques": ["鋼血の環", "不屈の礎"]},
+		"stats": {"more_life": 18, "dr_pct": 8}},
+	{"id": "cb_sigil", "name": "三界の瞳", "desc": "燼紋の瞳が、三界の柱を見通す", "needs": {"cls": "sigil", "uniques": ["燼紋の瞳", "三界の柱"]},
+		"stats": {"more_spell": 20, "cast_spd": 10}},
+	{"id": "cb_lantern", "name": "百鬼夜行", "desc": "灯火の門が開き、百鬼が列をなす", "needs": {"cls": "lantern", "uniques": ["百鬼の灯環", "灯火の門"]},
+		"stats": {"more_ally": 22, "more_atk": 12}},
+]
+
+
+## every need of combination `c` holds for a character of base class `cls`, with core talents `cores` and uniques `names`
+static func combo_met(c: Dictionary, cls: String, cores: Array, names: Array) -> bool:
+	var n: Dictionary = c.needs
+	return (not n.has("cls") or n.cls == cls) and n.get("cores", []).all(func(k): return k in cores) \
+		and n.get("uniques", []).all(func(k): return k in names)
+
+
+## the combinations that need `what`, a unique's name or a core talent's id
+static func combos_of(what: String) -> Array:
+	return COMBOS.filter(func(c): return what in c.needs.get("uniques", []) or what in c.needs.get("cores", []))
+
+
+## what a combination needs, in words, leaving out `except` (the thing being looked at)
+static func combo_needs_text(c: Dictionary, except := "") -> String:
+	var out := []
+	for k in c.needs.get("cores", []):
+		if k != except:
+			out.append("%s「%s」" % [UNIQUE_ASC_NAME, any_core(k).name])
+	for k in c.needs.get("uniques", []):
+		if k != except:
+			out.append("「%s」" % k)
+	if c.needs.has("cls"):
+		out.append("%s限定" % base_class(c.needs.cls).name)
+	return "＋".join(PackedStringArray(out))
+
+
+## what a combination gives, in words
+static func combo_effect_text(c: Dictionary) -> String:
+	return "、".join(PackedStringArray(PassiveTree.lines(c.stats)))
+
+
+## tooltip lines for the combinations that need `what`: [text, color, size]
+static func combo_lines(what: String) -> Array:
+	var out := []
+	for c in combos_of(what):
+		out.append(["組み合わせ：%s（%s）" % [c.name, combo_needs_text(c, what)], UNIQUE_ASC_COLOR, 13])
+		out.append([combo_effect_text(c), UNIQUE_ASC_COLOR.darkened(0.15), 13])
+	return out
 
 
 static func ascendancy(k: String) -> Dictionary:
@@ -847,6 +930,15 @@ static func asc_core(a: Dictionary, id: String) -> Dictionary:
 			if c.id == id:
 				return c
 	return {}
+
+## a core talent of any ascendancy by id ({} if there is none)
+static func any_core(id: String) -> Dictionary:
+	for a in ASCENDANCIES:
+		var c := asc_core(a, id)
+		if not c.is_empty():
+			return c
+	return {}
+
 
 # base classes: chosen when a character is made; each sets a starting lean of the stats, the starting
 # weapon, skill bar and gems, the heroine's colors, and which three ascendancies the character can take
@@ -997,9 +1089,17 @@ const AFFIXES := [
 	{"k": "atk_dmg", "fmt": "攻撃ダメージ +%d%%", "word": "武闘の", "min": 8, "max": 16, "sc": 0.07, "w": 0, "slots": []},
 	{"k": "ally_dmg", "fmt": "ミニオン・トーテムのダメージ +%d%%", "word": "従える", "min": 10, "max": 20, "sc": 0.07, "w": 0, "slots": []},
 	{"k": "ally_life", "fmt": "ミニオン・トーテムのライフ +%d%%", "word": "護る", "min": 10, "max": 20, "sc": 0.05, "w": 0, "slots": []},
+	# #77: lines of the hand-made uniques, jewels and tablets; only chaos_dmg grows with item level
+	{"k": "chaos_dmg", "fmt": "混沌ダメージ +%d%%", "word": "蝕む", "min": 8, "max": 20, "sc": 0.07, "w": 0, "slots": []},
+	{"k": "life_pct", "fmt": "最大ライフ +%d%%", "word": "脈打つ", "min": 5, "max": 10, "sc": 0.0, "w": 0, "slots": []},
+	{"k": "dr_pct", "fmt": "受けるダメージ -%d%%", "word": "不壊の", "min": 5, "max": 15, "sc": 0.0, "w": 0, "slots": []},
+	{"k": "more_dmg", "fmt": "ダメージ +%d%%（乗算）", "word": "終焉の", "min": 20, "max": 60, "sc": 0.0, "w": 0, "slots": []},
+	{"k": "more_spell", "fmt": "スペルダメージ +%d%%（乗算）", "word": "星墜としの", "min": 20, "max": 60, "sc": 0.0, "w": 0, "slots": []},
+	{"k": "more_chaos", "fmt": "混沌ダメージ +%d%%（乗算）", "word": "虚無の", "min": 10, "max": 30, "sc": 0.0, "w": 0, "slots": []},
+	{"k": "more_life", "fmt": "最大ライフ +%d%%（乗算）", "word": "不滅の", "min": 20, "max": 60, "sc": 0.0, "w": 0, "slots": []},
 ]
 
-# the 1000 uniques live in uniques.gd; legendary rarity drops one of them
+# the uniques live in uniques.gd; legendary rarity drops one of them
 const LEGENDARY := Uniques.LIST
 static var _legend_by_name := {}
 
@@ -1010,20 +1110,28 @@ static func legend(name: String) -> Dictionary:
 			_legend_by_name[l.name] = l
 	return _legend_by_name.get(name, {})
 
-## how rare each unique is, fixed by its name: `share` of the 1000 fall in the tier, `w` is each one's drop weight,
-## `pow` scales its positive stat lines (and a unique weapon's damage), `base` is what buyers pay for it (c)
+## how rare each unique is, fixed by its name: `share` of the generated uniques fall in the tier, `w` is each one's drop
+## weight, `pow` scales its positive stat lines (and a unique weapon's damage), `base` is what buyers pay for it (c).
+## A unique's own `tier` overrides the name. 神話 (#77) has share 0: only uniques that name it are in it, so adding
+## the row leaves every other unique where it was
 const UNIQUE_TIERS := [
 	{"name": "並", "share": 0.60, "w": 100.0, "pow": 0.85, "base": [0.3, 1.0], "color": Color("#b8a890")},
 	{"name": "稀少", "share": 0.28, "w": 30.0, "pow": 1.0, "base": [1.5, 4.0], "color": Color("#7ec8ff")},
 	{"name": "秘宝", "share": 0.10, "w": 8.0, "pow": 1.2, "base": [6.0, 15.0], "color": Color("#d48cff")},
 	{"name": "至宝", "share": 0.02, "w": 3.0, "pow": 1.4, "base": [25.0, 60.0], "color": Color("#ffe06a")},
+	{"name": "神話", "share": 0.0, "w": 0.3, "pow": 1.8, "base": [150.0, 400.0], "color": Color("#ff5a7a")},
 ]
+const MYTH_TIER := 4     # drops from monsters only: never the merchant, the cinder altar or another adventurer's offer
+const DR_PCT_CAP := 50.0 # "受けるダメージ -N%" lines add up to this much at most, so stacking them never reaches immunity
 static var _tier_by_name := {}
 
 
 ## the unique's tier index into UNIQUE_TIERS (0 for anything that isn't a unique)
 static func unique_tier(name: String) -> int:
 	if not _tier_by_name.has(name):
+		if legend(name).has("tier"):
+			_tier_by_name[name] = int(legend(name).tier)
+			return _tier_by_name[name]
 		var r := RandomNumberGenerator.new()
 		r.seed = ("unique/" + name).hash()
 		var roll := r.randf()
