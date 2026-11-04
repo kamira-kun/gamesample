@@ -63,7 +63,7 @@ static func _uniques(slot: String) -> Dictionary:
 			"rows": rows})
 	var n := Data.LEGENDARY.filter(func(l): return l.slot == slot).size()
 	return {"file": "uniques-%s.md" % slot, "title": "ユニーク：%s（%d種）" % [Data.SLOT_INFO[slot].name, n],
-		"intro": "レジェンド（ユニーク）は全%d種。レジェンドのドロップはこの一覧から希少度の比重に応じて1つ選ばれます（%s）。希少度が高いほど能力値（プラスの行）と武器ダメージが大きく、相場も高くなります。能力値は範囲内でランダムに決まり、アイテムレベル（iLv＝落ちたエリアのレベル）が高いほど大きくなります（マイナスは代償）。神秘の核で振り直せます。" % [Data.LEGENDARY.size(), _tier_text()],
+		"intro": "レジェンド（ユニーク）は全%d種。レジェンドのドロップはこの一覧から希少度の比重に応じて1つ選ばれます（%s）。希少度が高いほど能力値（プラスの行）と武器ダメージが大きく、相場も高くなります。%sは敵のドロップと取引所でのみ手に入り、商人・燼火の炉・ほかの冒険者の出品には並ばず、ルートフィルタの設定にかかわらず必ず拾います。能力値は範囲内でランダムに決まり、アイテムレベル（iLv＝落ちたエリアのレベル）が高いほど大きくなります（マイナスは代償）。神秘の核で振り直せます。" % [Data.LEGENDARY.size(), _tier_text(), Data.UNIQUE_TIERS[Data.MYTH_TIER].name],
 		"sections": secs}
 
 
@@ -146,6 +146,12 @@ static func _tablets() -> Dictionary:
 	cr.append(["（砕く）", "盤に置いていないルーンタブレットを灰燼の欠片に変える"])
 	secs.append({"title": "ルーンタブレットのクラフト", "note": "タブレット盤で選んだルーンタブレットに使います。", "head": ["カレンシー", "効果"], "rows": cr})
 	secs.append(_line_craft("タブレット盤で選んだルーンタブレットの行ごとに使えます。"))
+	var ur := []
+	for u in Tablets.UNIQUES:
+		var lines: Array = u.mods.keys().map(func(k): return _fill(Data.affix(k).fmt, str(u.mods[k])))
+		ur.append([u.name, Tablets.shape(u.shape).name, Data.UNIQUE_TIERS[u.tier].name, "<br>".join(PackedStringArray(lines)), u.get("desc", ""), u.flavor])
+	secs.append({"title": "ユニークのルーンタブレット（%d）" % ur.size(), "note": "ボスが落とすルーンタブレットの%s%%がユニークです。能力は固定で刻み直せず、商人には並ばず、取引所ではユニーク名で探せます。一杯のときも自動では砕かれません。" % _pct(Tablets.UNIQUE_CHANCE),
+		"head": ["名前", "形", "希少度", "能力", "固有効果", "フレーバー"], "rows": ur})
 	var xr := []
 	for m in Data.SPECIAL_MODS:
 		var row := [m.name, _fill(m.fmt, "#")]
@@ -233,10 +239,16 @@ static func _ascendancies() -> Dictionary:
 				rows.append(["　マイナー（最大%dランク）" % n.max, n.name, " → ".join(PackedStringArray(ranks)), "・".join(PackedStringArray(extra))])
 			for t in a.cores.size():
 				for c in a.cores[t]:
-					rows.append(["　コア 第%d段（%d点）" % [t + 1, Data.ASC_CORE_REQ[t]], c.name, c.desc, "2つのうち1つ"])
+					var kind := Data.UNIQUE_ASC_NAME if c.get("unique", false) else "コア"
+					rows.append(["　%s 第%d段（%d点）" % [kind, t + 1, Data.ASC_CORE_REQ[t]], c.name, c.desc, "%dつのうち1つ" % a.cores[t].size()])
 		secs.append({"title": "%s %s" % [bc.icon, bc.name], "note": "", "head": ["種類", "名前", "内容", "補足"], "rows": rows})
+	var cr := []
+	for c in Data.COMBOS:
+		cr.append([c.name, Data.combo_needs_text(c), Data.combo_effect_text(c), c.desc])
+	secs.append({"title": "組み合わせ（%d）" % cr.size(), "note": "必要なものがすべてそろっている間だけ効きます。ユニークは装備中、ジュエルとリングジュエルは取得した台座に入っている間、ルーンタブレットは盤に置いている間に数えます。",
+		"head": ["名前", "必要なもの", "効果", "説明"], "rows": cr})
 	return {"file": "ascendancy.md", "title": "ベースキャラとアセンダンシー",
-		"intro": "キャラクター作成時にベースキャラを3つから選び、そのベースキャラの3つのアセンダンシー（血統）から1つを選びます。アセンダンシーポイントは2レベルごとに1点（Lv2 で最初の1点）。マイナーノードに振った合計が %s に達するとコアの段が順に開放され、各段で2つのうち1つを選びます。" % "・".join(PackedStringArray(Data.ASC_CORE_REQ.map(func(v): return str(v)))),
+		"intro": "キャラクター作成時にベースキャラを3つから選び、そのベースキャラの3つのアセンダンシー（血統）から1つを選びます。アセンダンシーポイントは2レベルごとに1点（Lv2 で最初の1点）。マイナーノードに振った合計が %s に達するとコアの段が順に開放され、各段で1つを選びます。最後の段には血統ごとの%sもあり、それだけの効果は控えめですが、対応するユニークと組み合わせると大きな力を発揮します。" % ["・".join(PackedStringArray(Data.ASC_CORE_REQ.map(func(v): return str(v)))), Data.UNIQUE_ASC_NAME],
 		"sections": secs}
 
 
@@ -313,6 +325,17 @@ static func _jewels() -> Dictionary:
 			"ascend": "マジック→レア（ジュエルはオプション3〜4まで、リングジュエルは注目ノードを上限まで）", "chaos": "オプションを作り直す（リングジュエルは主題と注目ノード）",
 			"whet": "オプション（リングジュエルは注目ノード）を1つ追加", "purify": "ノーマルに戻す", "divine": "数値（リングジュエルは環の強さ）を振り直す"}[k]])
 	secs.append({"title": "クラフト", "note": "台座に入れたままでは使えません。", "head": ["カレンシー", "効果"], "rows": cr})
+	var ur := []
+	for u in Jewels.UNIQUES:
+		var lines: Array = PassiveTree.lines(u.mods)
+		if u.kind == "ring":
+			lines = ["%s・環の強さ +%d%%" % [Jewels.size_def(u.base).name, u.power], Jewels.theme(u.theme).name] \
+				+ u.notables.map(func(id): return "◆ %s（%s）" % [Jewels.ring_notable(id).name, "・".join(PackedStringArray(PassiveTree.lines(Jewels.ring_notable(id).stats)))]) + lines
+		else:
+			lines = [Jewels.base(u.base).name] + lines
+		ur.append([u.name, "リングジュエル" if u.kind == "ring" else "ジュエル", Data.UNIQUE_TIERS[u.tier].name, "<br>".join(PackedStringArray(lines)), u.get("desc", ""), u.flavor])
+	secs.append({"title": "ユニーク（%d）" % ur.size(), "note": "敵が落とすジュエルとリングジュエルの%s%%がユニークです。能力は固定でクラフトできず、固有効果は取得した台座に入っている間だけ効きます。商人には並ばず、取引所ではユニーク名で探せます。一杯のときも自動では砕かれません。" % _pct(Jewels.UNIQUE_CHANCE),
+		"head": ["名前", "種類", "希少度", "能力", "固有効果", "フレーバー"], "rows": ur})
 	return {"file": "jewels.md", "title": "ジュエルとリングジュエル",
 		"intro": "ジュエルは敵が落とします（ボス60%%、エリート12%%、通常0.6%%。そのうちリングジュエルはボス40%%・ほか15%%）。1キャラクターにつき%d個まで持て、パッシブツリーの画面（%s）で台座に出し入れし、クラフトします。" % [Jewels.MAX_OWNED, "T"],
 		"sections": secs}
@@ -400,7 +423,7 @@ static func _stat_text(k: String, v: float) -> String:
 	return _fill(Data.affix(k).fmt, _num(v))
 
 
-## the unique tiers: how many of the 1000, the drop weight, and the stat scale
+## the unique tiers: how many uniques each has, the drop weight, and the stat scale
 static func _tier_text() -> String:
 	var counts := {}
 	for l in Data.LEGENDARY:
@@ -418,6 +441,8 @@ static func _unique_stat(k: String, r: Array, power := 1.0) -> String:
 	var a := Data.affix(k)
 	var m: float = power if r[0] > 0 else 1.0
 	var at := func(lv: int) -> String: return _signed_range(roundi(r[0] * (1.0 + lv * a.sc) * m), roundi(r[1] * (1.0 + lv * a.sc) * m))
+	if a.sc == 0.0:   # it doesn't grow with item level
+		return _fill(a.fmt, at.call(UNIQUE_LVLS[0]))
 	var later := []
 	for lv in UNIQUE_LVLS.slice(1):
 		var v: String = at.call(lv)
