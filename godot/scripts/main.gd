@@ -225,7 +225,7 @@ func _ready() -> void:
 					hud.show_tip(SkillUI.gem_tip(Data.support_at("power", 12), player.level, 12, player))
 					hud.tip_pin = Vector2(get_viewport().get_visible_rect().size.x - hud.tip.size.x - 12, 560)
 					hud.tip.position = hud.tip_pin)
-			elif kind in ["talents", "status", "filter", "passives", "ascend", "ascend_pick"]:
+			elif kind in ["talents", "status", "filter", "passives", "ascend", "ascend_unique", "ascend_pick"]:
 				atlas.cleared = ["ash", "bone"]
 				if kind == "talents":   # a level 24 character partway to the class's notable, a few points left
 					player.level = 24
@@ -240,8 +240,16 @@ func _ready() -> void:
 					player.asc_ranks = {"storm_elem": 3, "storm_sight": 2, "storm_step": 1}
 					player.asc_cores = ["shock", "crit_arc", ""]
 					player.recalc(true)
+				if kind == "ascend_unique":   # #77: the top tier open, the unique ascendancy picked and its combination in effect
+					player.level = 30
+					player.set_class("sigil")
+					player.asc = "pyre"
+					player.asc_ranks = {"pyre_heat": 3, "pyre_chant": 3, "pyre_furnace": 3}
+					player.asc_cores = ["ignite", "kill_burst", "sun_crown"]
+					player.equip.weapon = Items.generate(30, 0.0, 3, "", "王焔の錫杖")
+					player.recalc(true)
 				hud.toggle({"talents": hud.tree_ui, "status": hud.status_ui, "filter": hud.filter_ui, "passives": hud.passive_ui,
-					"ascend": hud.asc_ui, "ascend_pick": hud.asc_ui}[kind])
+					"ascend": hud.asc_ui, "ascend_unique": hud.asc_ui, "ascend_pick": hud.asc_ui}[kind])
 			elif kind == "unique_tip":   # one unique of each drop tier in the bag, the rarest one's tooltip up
 				var top := {}
 				for t in Data.UNIQUE_TIERS.size():
@@ -454,15 +462,15 @@ func _smoke_unique_tiers() -> void:
 			pick[t] = l
 	for i in 6000:
 		drops[Data.unique_tier(Items.pick_legend(Data.LEGENDARY).name)] += 1
-	var rate_down := true
+	var rate_down := Data.UNIQUE_TIERS[Data.MYTH_TIER].w < Data.UNIQUE_TIERS[Data.MYTH_TIER - 1].w   # 神話 is too rare to see in a sample
 	var stronger := true
 	var dearer := true
 	var share_drops := true
 	for t in range(1, n):
 		var now := float(drops[t]) / maxi(1, count[t])
 		var before := float(drops[t - 1]) / maxi(1, count[t - 1])
-		rate_down = rate_down and now < before
-		share_drops = share_drops and drops[t] < drops[t - 1]
+		rate_down = rate_down and (now < before or t == Data.MYTH_TIER)
+		share_drops = share_drops and (drops[t] < drops[t - 1] or t == Data.MYTH_TIER)
 		var hi := {"name": pick[t].name, "ilvl": 1, "rarity": 3}
 		var lo := {"name": pick[t - 1].name, "ilvl": 1, "rarity": 3}
 		stronger = stronger and Items.roll_fixed(hi, "life", [20, 20]) > Items.roll_fixed(lo, "life", [20, 20]) 			and Items.roll_fixed(hi, "life", [-20, -20]) == Items.roll_fixed(lo, "life", [-20, -20])
@@ -473,6 +481,392 @@ func _smoke_unique_tiers() -> void:
 		rate_down, share_drops, stronger, dearer, tip[1][0].begins_with("希少度：")])
 	_expect("unique_tiers", {"all_tiers": not count.has(0), "rate_down": rate_down, "share_down": share_drops, "stronger": stronger,
 		"dearer": dearer, "tip": tip[1][0].begins_with("希少度：")})
+
+
+## the mean hit of the real damage roll; `ally` rolls it as a totem's
+func _mean_hit(type: String, spell: bool, ally := false) -> float:
+	var keep: Dictionary = sup
+	sup = no_sup.merged({"totem": 1}, true) if ally else no_sup
+	var sum := 0.0
+	for i in 6000:
+		sum += roll_damage(1.0, type, spell).dmg
+	sup = keep
+	return sum / 6000.0
+
+
+## life over the share of a hit that gets through, through the real damage path
+func _toughness() -> float:
+	var p := player
+	var was := [p.life, p.invuln]
+	p.invuln = 0.0
+	p.life = 1e8
+	damage_player(10000.0)
+	var taken: float = (1e8 - p.life) / 10000.0
+	p.life = was[0]
+	p.invuln = was[1]
+	return p.s.max_life / taken
+
+
+## #77 combinations: one half does nothing, both halves switch it on, the DPS or toughness it promises is really there
+## on the damage path, and it goes again when a half comes off; each unique ascendancy shows in gold among three cards
+func _smoke_combos() -> void:
+	var p := player
+	var keep := [p.cls, p.level, p.asc, p.asc_ranks, p.asc_cores, p.equip, p.tree, p.jewels, p.tablets]
+	var sword: Dictionary = p.equip.weapon
+	# what each combination is measured with: the hit it strengthens, or "tough"
+	var hits := {"cb_pyre": ["fire", true], "cb_blade": ["phys", false], "cb_storm": ["cold", true], "cb_necro": ["phys", true, true], "cb_bloodfire": ["fire", false],
+		"cb_astral": ["fire", true], "cb_shade": ["phys", false], "cb_hex": ["chaos", true], "cb_sigil": ["fire", true], "cb_lantern": ["phys", true, true]}
+	var measure := func(id: String) -> float:
+		if not hits.has(id):
+			return _toughness()
+		var h: Array = hits[id]
+		return _mean_hit(h[0], h[1], h.size() > 2)
+	p.level = 40
+	p.tree = []
+	p.jewels = []
+	p.tablets = []
+	var off := []
+	var on := []
+	var gains := {}   # what the second half adds on top of the first
+	var alone := {}   # what the unique ascendancy gives by itself
+	for c in Data.COMBOS.filter(func(x): return x.needs.has("cores")):
+		var core: String = c.needs.cores[0]
+		p.asc = Data.ASCENDANCIES.filter(func(a): return not Data.asc_core(a, core).is_empty())[0].k
+		p.asc_ranks = {}
+		p.set_class(Data.class_of_asc(p.asc))
+		p.equip = {"weapon": sword}
+		var it := Items.generate(40, 0.0, 3, "", c.needs.uniques[0])
+		p.asc_cores = ["", "", ""]
+		p.recalc(true)
+		var bare: float = measure.call(c.id)
+		p.equip[it.slot] = it
+		p.recalc(true)
+		if not p.active_combos.is_empty():
+			off.append(c.id + "/item")
+		var item_only: float = measure.call(c.id)
+		p.equip = {"weapon": sword}
+		p.asc_cores = ["", "", core]
+		p.recalc(true)
+		if not p.active_combos.is_empty():
+			off.append(c.id + "/core")
+		alone[c.id] = measure.call(c.id) / maxf(bare, 0.001)
+		p.equip[it.slot] = it
+		p.recalc(true)
+		if not p.active_combos.has(c):
+			on.append(c.id)
+		gains[c.id] = measure.call(c.id) / maxf(item_only, 0.001)
+		p.equip.erase(it.slot)
+		p.recalc(true)
+		if not p.active_combos.is_empty():
+			off.append(c.id + "/off")
+	# the class combinations: a unique jewel or ring jewel in a taken socket and a unique tablet on the board
+	for c in Data.COMBOS.filter(func(x): return x.needs.has("cls")):
+		p.asc = ""
+		p.asc_cores = ["", "", ""]
+		p.set_class(c.needs.cls)
+		p.equip = {"weapon": sword}
+		var jn: String = c.needs.uniques[0]
+		var j := Jewels.generate_unique(jn, 40)
+		var t := Tablets.generate_unique(c.needs.uniques[1], 40)
+		p.tree = [_nearest(_tree_dist(p.cls), Jewels.socket_kind(j))]
+		p.jewels = [j]
+		p.tablets = [t]
+		j.socket = p.tree[0]
+		p.recalc(true)
+		if not p.active_combos.is_empty():
+			off.append(c.id + "/jewel")
+		var jewel_only: float = measure.call(c.id)
+		Tablets.place(p.tablets, t, 0, 0, 0)
+		p.recalc(true)
+		if not p.active_combos.has(c):
+			on.append(c.id)
+		gains[c.id] = measure.call(c.id) / maxf(jewel_only, 0.001)
+		var other: String = Data.CLASSES.filter(func(b): return b.k != c.needs.cls)[0].k
+		p.set_class(other)
+		if not p.active_combos.is_empty():
+			off.append(c.id + "/class")
+		p.set_class(c.needs.cls)
+		j.socket = ""
+		p.recalc(true)
+		if not p.active_combos.is_empty():
+			off.append(c.id + "/socket")
+	p.jewels = []
+	p.tablets = []
+	p.tree = []
+	var text := {}
+	for k in gains:
+		text[k] = "x%.2f%s" % [gains[k], " (alone x%.2f)" % alone[k] if alone.has(k) else ""]
+	print("SMOKE combos gains=%s wrongly_on=%s missing=%s" % [text, off, on])
+	_expect("combos", {"halves_off": off.is_empty(), "both_on": on.is_empty(), "count": gains.size() == Data.COMBOS.size(),
+		"gain": gains.values().all(func(g): return g >= 1.2), "payoff": alone.keys().all(func(k): return gains[k] > alone[k])})
+	# the tooltips name the partner, the status row and the panel show the state
+	var c0: Dictionary = Data.COMBOS[0]
+	var core0: String = c0.needs.cores[0]
+	p.set_class(Data.class_of_asc("pyre"))
+	p.asc = "pyre"
+	p.asc_ranks = {"pyre_heat": 3, "pyre_chant": 3, "pyre_furnace": 2}
+	p.asc_cores = ["", "", core0]
+	var uq := Items.generate(40, 0.0, 3, "", c0.needs.uniques[0])
+	p.equip = {"weapon": uq}
+	p.recalc(true)
+	var tip: Array = Items.lines(uq).map(func(l): return l[0])
+	hud.status_bar._rebuild()
+	var sb_key: String = "combo:" + c0.id
+	var sb_tip: Array = hud.status_bar.tip_lines(hud.status_bar.entry(sb_key))
+	hud.toggle(hud.asc_ui)
+	hud.asc_ui.refresh()
+	var cards: Array = hud.asc_ui.content.find_children("*", "Button", true, false).filter(func(b): return Data.UNIQUE_ASC_NAME in b.text)
+	var row: Node = cards[0].get_parent()
+	var view := Vector2(ProjectSettings.get_setting("display/window/size/viewport_width"), ProjectSettings.get_setting("display/window/size/viewport_height"))
+	var need: Vector2 = hud.asc_ui.get_combined_minimum_size()
+	print("SMOKE combos ui tip=%s status=%s cards=%d in_tier=%d panel=%s of %s text=%s" % [tip.filter(func(l): return l.begins_with("組み合わせ")), sb_tip.slice(0, 1).map(func(l): return l[0]),
+		cards.size(), row.get_child_count(), need, view, cards[0].text.replace("\n", " / ")])
+	_expect("combos_ui", {"tip": tip.any(func(l): return l.begins_with("組み合わせ：" + c0.name) and Data.any_core(core0).name in l),
+		"status": sb_key in hud.status_bar.keys() and sb_tip[0][0] == c0.name, "card": cards.size() == 1 and row.get_child_count() == 3 and "発動中" in cards[0].text,
+		"fits": need.x <= view.x and need.y <= view.y})
+	hud.toggle(hud.asc_ui)
+	p.equip = {"weapon": sword}
+	p.recalc(true)
+	hud.status_bar._rebuild()
+	_expect("combos_status_off", {"gone": not sb_key in hud.status_bar.keys()})
+	# a stack of "受けるダメージ" lines stops at the cap
+	var pile := Items.generate(40, 0.0, 3, "", "時を拒む兜")
+	pile.mods.dr_pct = 400
+	p.equip.helm = pile
+	p.recalc(true)
+	var capped: float = p.s.dr_pct
+	p.equip = keep[5]
+	p.cls = keep[0]
+	p.level = keep[1]
+	p.asc = keep[2]
+	p.asc_ranks = keep[3]
+	p.asc_cores = keep[4]
+	p.tree = keep[6]
+	p.jewels = keep[7]
+	p.tablets = keep[8]
+	p.set_class(p.cls)
+	print("SMOKE combos dr_cap=%s" % capped)
+	_expect("dr_cap", {"cap": is_equal_approx(capped, Data.DR_PCT_CAP)})
+
+
+## #77 神話: its uniques keep every other unique where it was, come only from monsters, are never filtered away, stay
+## out of the merchant, the altar and offers, and outclass 至宝 by far in damage or toughness
+func _smoke_myth() -> void:
+	var p := player
+	var keep := [p.level, p.equip, p.filter.rarity.duplicate()]
+	var count := {}
+	for l in Data.LEGENDARY:
+		var t := Data.unique_tier(l.name)
+		count[t] = count.get(t, 0) + 1
+	var myths: Array = Data.LEGENDARY.filter(func(l): return Data.unique_tier(l.name) == Data.MYTH_TIER)
+	var loot := Items.legend_pool("", "", "", true)
+	var plain := Items.legend_pool()
+	var shop := Items.gen_shop(30)
+	var from_merchant: Array = shop.items.filter(func(it): return int(it.rarity) == 3 and Data.unique_tier(it.name) == Data.MYTH_TIER)
+	var from_generate := 0
+	for i in 4000:
+		if Data.unique_tier(Items.generate(30, 0.0, 3).name) == Data.MYTH_TIER:
+			from_generate += 1
+	var m := {"ilvl": 30, "offers": [], "listings": [], "requests": [], "held": [], "tick": 0, "next_id": 1}
+	print("SMOKE myth tiers=%s pool=%d/%d merchant=%d generate=%d" % [count, loot.size(), plain.size(), from_merchant.size(), from_generate])
+	_expect("myth_tier", {"others_stay": count.get(0) == 603 and count.get(1) == 274 and count.get(2) == 110 and count.get(3) == 22, "six": myths.size() == 6,
+		"loot_only": loot.size() == plain.size() + 6 and myths.all(func(l): return l in loot and not l in plain),
+		"merchant": from_merchant.is_empty(), "generate": from_generate == 0, "by_name": Items.generate(30, 0.0, 3, "", myths[0].name).name == myths[0].name})
+	# never sold or hidden by the loot filter, whatever is set for uniques
+	p.filter.rarity[3] = "hide"
+	var low := Items.generate(30, 0.0, 3)
+	var myth_it := Items.generate(30, 0.0, 3, "", myths[0].name)
+	_expect("myth_filter", {"kept": p.item_action(myth_it) == "pick", "others": p.item_action(low) == "hide"})
+	p.filter.rarity = keep[2]
+	# against the best 至宝 of the slot, in a character with a fair amount of "increased" damage already
+	var top_of := func(slot: String) -> Array:
+		return Data.LEGENDARY.filter(func(l): return Data.unique_tier(l.name) == 3 and l.slot == slot and l.has("mods"))
+	var rows := {}
+	var ok := true
+	for lv in [20, 40, 80]:
+		p.level = lv
+		var build := Items.generate(lv, 0.0, 0, "amulet")
+		build.mods = {"inc_dmg": lv * 4}
+		var sword := Items.generate(lv, 0.0, 0, "weapon", "", "片手剣")
+		for l in myths:
+			var spell: bool = l.mods.has("more_spell")
+			var dps: bool = spell or l.mods.has("more_dmg")
+			var score := func(name: String) -> float:
+				var it := Items.generate(lv, 0.0, 3, "", name)
+				for k in it.mods:   # the top of each one's range, so it's the best against the best
+					if Data.legend(name).mods.has(k):
+						it.mods[k] = Items.fixed_at(it, k, Data.legend(name).mods[k], 1.0)
+				p.equip = {"weapon": sword, "ring": build.duplicate(true)}
+				p.equip.ring.slot = "ring"
+				p.equip[it.slot] = it
+				p.recalc(true)
+				if not dps:
+					return _toughness()
+				return _mean_hit("fire" if spell else "phys", spell) * ((1.0 + p.s.cast_spd / 100.0) if spell else p.s.attack_rate)
+			var best := 0.0
+			for r in top_of.call(l.slot):
+				best = maxf(best, score.call(r.name))
+			var ratio: float = score.call(l.name) / best
+			rows["%s@%d" % [l.name, lv]] = "x%.2f" % ratio
+			ok = ok and ratio >= 1.4
+	print("SMOKE myth vs best top tier=%s" % [rows])
+	_expect("myth_power", {"far_above": ok})
+	# a save keeps its lines, the tooltip names its tier, and the exchange asks for far more than a 至宝's
+	var again := Items.normalize(JSON.parse_string(JSON.stringify(myth_it)))
+	var tip: Array = Items.lines(myth_it).map(func(l): return l[0])
+	var lg := Profiles.STANDARD
+	var bought := Exchange.search({"cat": "gear", "unique": myth_it.name}, lg, 30)
+	var other := Exchange.search({"cat": "gear", "unique": top_of.call("weapon")[0].name}, lg, 30)
+	print("SMOKE myth tip=%s exchange=%d price=%d top=%d sell=%d" % [tip[1], bought.items.size(), bought.items[0].price, other.items[0].price, Items.sell_price(myth_it)])
+	_expect("myth_item", {"save": again.mods == myth_it.mods and again.mods.size() == 3, "tip": tip[1] == "希少度：神話", "exchange": bought.error == "" and bought.items[0].item.name == myth_it.name,
+		"price": bought.items[0].price > other.items[0].price})
+	p.level = keep[0]
+	p.equip = keep[1]
+	p.recalc(true)
+
+
+## #77 unique jewels, ring jewels and tablets: how they come, that their stats and effects reach the player, that nothing
+## can craft them, that a save brings them back, that nothing breaks them unasked, and that the exchange finds them
+func _smoke_unique_pieces() -> void:
+	var p := player
+	var keep := [p.level, p.tree.duplicate(), p.cls, p.jewels, p.tablets, p.cur.duplicate()]
+	p.set_class("sigil")
+	p.level = 100
+	p.tree = []
+	p.jewels = []
+	p.tablets = []
+	p.recalc(true)
+	# how they come
+	var wares := Items.gen_wares(30)
+	var rolled := []
+	for i in 300:
+		rolled.append(Jewels.drop(20, i % 2 == 0, 0.0))
+	_expect("pieces_source", {"jewel": Jewels.drop(20, false, 1.0).rarity == 3 and Jewels.drop(20, false, 1.0).kind == "jewel", "ring": Jewels.is_ring(Jewels.drop(20, true, 1.0)) and Jewels.is_unique(Jewels.drop(20, true, 1.0)),
+		"tablet": Tablets.is_unique(Tablets.drop(20, 1.0)), "plain": rolled.all(func(j): return int(j.rarity) < 3) and not Tablets.is_unique(Tablets.drop(20, 0.0)),
+		"merchant": not wares.jewels.any(Jewels.is_unique) and not wares.tablets.any(Tablets.is_unique)})
+	# a jewel and a ring jewel socketed through the tree screen, a tablet on the board: lines and effects arrive, and go
+	hud.toggle(hud.tree_ui)
+	var ui: TreeUI = hud.tree_ui
+	var dist := _tree_dist(p.cls)
+	var j := Jewels.generate_unique("断罪の欠片", 30)
+	var ring := Jewels.generate_unique("三相の円環", 30)
+	var t := Tablets.generate_unique("嵐喰らいの楔", 30)
+	p.jewels = [j, ring]
+	p.tablets = [t]
+	p.recalc(true)
+	var crit0: float = p.s.crit_multi
+	var spell0: float = p.s.spell_dmg
+	var aspd0: float = p.s.atk_spd
+	var fx0 := ["executioner", "elem_unity", "crit_mana"].filter(func(k): return p.effects.has(k))
+	var sock := _nearest(dist, "socket")
+	var big := _nearest(dist, "ring_socket")
+	var e1 := ui.socket_jewel(j.uid, sock)
+	var e2 := ui.socket_jewel(ring.uid, big)
+	var place := Tablets.place(p.tablets, t, 0, 0, 0)
+	p.recalc(true)
+	var ring_ids := PassiveTree.ring_ids(big)
+	var rn := ring_ids.filter(func(id): return PassiveTree.node(id).kind == "notable")
+	var fx1 := ["executioner", "elem_unity", "crit_mana"].filter(func(k): return p.effects.has(k))
+	print("SMOKE pieces in crit %d->%d spell %d->%d aspd %d->%d fx %s->%s ring_nodes=%d notables=%s names=%s err=%s" % [crit0, p.s.crit_multi, spell0, p.s.spell_dmg, aspd0, p.s.atk_spd, fx0, fx1,
+		ring_ids.size(), rn.map(func(id): return PassiveTree.node(id).name), p.unique_names(), [e1, e2, place]])
+	_expect("pieces_effect", {"socketed": e1 == "" and e2 == "" and place == "", "fx_off": fx0.is_empty(), "fx_on": fx1.size() == 3, "lines": p.s.crit_multi == crit0 + 30 + 25 and Jewels.stats(p.jewels, p.tree).get("spell_dmg", 0) == 12 and p.s.atk_spd == aspd0 + 10,
+		"ring": rn.size() == 3 and rn.map(func(id): return PassiveTree.node(id).name) .has("樹氷の森"), "names": p.unique_names().has("三相の円環") and p.unique_names().has("嵐喰らいの楔") and p.unique_names().has("断罪の欠片")})
+	# a save brings them back from the table, the same, sockets and board included
+	var d := save_data()
+	apply_save(JSON.parse_string(JSON.stringify(d)))
+	p.recalc(true)
+	var j2: Dictionary = p.jewels.filter(func(x): return x.name == j.name)[0]
+	var ring2: Dictionary = p.jewels.filter(func(x): return x.name == ring.name)[0]
+	var t2: Dictionary = p.tablets[0]
+	print("SMOKE pieces save rarity=%s/%s tablet=%s placed=%s fx=%s" % [j2.rarity, ring2.rarity, Tablets.name_of(t2), t2.placed, p.effects.keys()])
+	_expect("pieces_save", {"rarity": j2.rarity == 3 and ring2.rarity == 3, "mods": j2.mods == j.mods and ring2.mods == ring.mods and t2.mods == t.mods, "socket": j2.socket == sock and ring2.socket == big,
+		"ring": ring2.notables == ring.notables and ring2.power == ring.power, "tablet": t2.unique == t.unique and t2.placed, "fx": p.effects.has("executioner") and p.effects.has("elem_unity") and p.effects.has("crit_mana"),
+		"same_json": JSON.stringify(save_data().jewels) == JSON.stringify(d.jewels) and JSON.stringify(save_data().tablets) == JSON.stringify(d.tablets)})
+	# a hand-edited file can't raise a unique's lines; a unique the table no longer has stays as a rare or a plain tablet
+	var edit: Dictionary = JSON.parse_string(JSON.stringify(d))
+	edit.jewels[0].mods.crit_multi = 9999
+	edit.tablets[0].mods.atk_spd = 9999
+	var stale: Dictionary = JSON.parse_string(JSON.stringify(d))
+	stale.jewels[0].name = "消えたユニーク"
+	stale.tablets[0].unique = "消えたユニーク"
+	var ej: Array = Jewels.normalize(edit.jewels)
+	var et: Array = Tablets.normalize(edit.tablets)
+	var sj: Array = Jewels.normalize(stale.jewels)
+	var st: Array = Tablets.normalize(stale.tablets)
+	print("SMOKE pieces stale jewel=%s/%d tablet=%s mods=%s" % [sj[0].name, sj[0].rarity, Tablets.name_of(st[0]), st[0].mods])
+	_expect("pieces_load", {"table": ej[0].mods.crit_multi == 30 and et[0].mods.atk_spd == 10, "stale_jewel": sj[0].rarity == 2 and sj[0].mods.size() <= 4, "stale_tablet": not Tablets.is_unique(st[0]) and st.size() == 1})
+	# every currency and one-line crafting refuse them, loose or not
+	ui.unsocket(ring2.uid)
+	ui.unsocket(j2.uid)
+	t2.placed = false
+	p.recalc(true)
+	var before := JSON.stringify([p.jewels, p.tablets])
+	var errs := []
+	for x in p.jewels:
+		for k in ["transmute", "ascend", "chaos", "whet", "purify", "divine"]:
+			errs.append(Jewels.craft(k, x))
+	for k in ["whet", "chaos", "divine"]:
+		errs.append(Tablets.craft(k, t2))
+	var rich := {"whet": 99, "chaos": 99, "divine": 99, "transmute": 99}
+	for a in ["swap", "tune"]:
+		errs.append(LineCraft.can(t2, t2.mods.keys()[0], a))
+		errs.append(LineCraft.apply(t2, t2.mods.keys()[0], a, rich))
+	print("SMOKE pieces craft refused=%d of %d" % [errs.filter(func(e): return e != "").size(), errs.size()])
+	_expect("pieces_craft", {"refused": errs.all(func(e): return e != ""), "unchanged": JSON.stringify([p.jewels, p.tablets]) == before, "free": rich.whet == 99 and rich.divine == 99})
+	# a full collection breaks what comes in, but never a unique; a load past the limit keeps them too
+	var ember: int = p.cur.ember
+	p.jewels = []
+	p.tablets = []
+	for i in Jewels.MAX_OWNED:
+		p.jewels.append(Jewels.generate(5, 1))
+		p.tablets.append(Tablets.generate(5, "mono", 1))
+	gain_jewel(Jewels.generate(5, 1))
+	gain_tablet(Tablets.generate(5, "mono", 1))
+	var broke: bool = p.cur.ember > ember and p.jewels.size() == Jewels.MAX_OWNED and p.tablets.size() == Tablets.MAX_OWNED
+	ember = p.cur.ember
+	gain_jewel(Jewels.generate_unique("不滅の灰", 5))
+	gain_tablet(Tablets.generate_unique("不屈の礎", 5))
+	var over: Array = JSON.parse_string(JSON.stringify([p.jewels, p.tablets]))
+	var lj: Array = Jewels.normalize(over[0])
+	var lt: Array = Tablets.normalize(over[1])
+	print("SMOKE pieces full broke=%s kept=%d/%d ember_same=%s load=%d/%d" % [broke, p.jewels.size(), p.tablets.size(), p.cur.ember == ember, lj.size(), lt.size()])
+	_expect("pieces_full", {"plain_break": broke, "unique_kept": p.jewels.size() == Jewels.MAX_OWNED + 1 and p.tablets.size() == Tablets.MAX_OWNED + 1 and p.cur.ember == ember,
+		"load_keeps": lj.size() == Jewels.MAX_OWNED and lj.any(Jewels.is_unique) and lt.size() == Tablets.MAX_OWNED and lt.any(Tablets.is_unique)})
+	# breaking one by hand takes a second press
+	var u: Dictionary = p.jewels.back()
+	p.jewels = [u]
+	ui.pick(u.uid)
+	ui.shatter()
+	var after_one := p.jewels.size()
+	ui.shatter()
+	_expect("pieces_shatter", {"asks": after_one == 1, "breaks": p.jewels.is_empty()})
+	hud.toggle(hud.tree_ui)
+	# the exchange finds each by name, in its own category only, and lists the lines of the table
+	var lg := Profiles.STANDARD
+	var found := []
+	for x in Jewels.UNIQUES + Tablets.UNIQUES:
+		var cat: String = x.get("kind", "tablet")
+		var r := Exchange.search({"cat": cat, "unique": x.name}, lg, 30)
+		if r.error == "" and r.items.size() > 0 and r.items[0].item.mods == x.mods and r.items[0].price >= 25:
+			found.append(x.name)
+	var hit: Array = Exchange.unique_matches("灰", 8, "jewel")
+	var bad := [{"cat": "ring", "unique": "断罪の欠片"}, {"cat": "tablet", "unique": "存在しないユニーク"}, {"cat": "jewel", "unique": "不滅の灰", "rarity": 2},
+		{"cat": "jewel", "unique": "不滅の灰", "base": "影のジュエル"}, {"cat": "jewel", "unique": "不滅の灰", "mods": [{"k": "life", "min": 41}]}, {"cat": "jewel", "unique": "不滅の灰", "mods": [{"k": "mana", "min": 1}]},
+		{"cat": "currency", "unique": "不滅の灰"}, {"cat": "ring", "rarity": 3}]
+	var errors: Array = bad.map(func(q): return Exchange.check(q, 30))
+	var listing: Dictionary = Exchange.search({"cat": "tablet", "unique": "灯火の門"}, lg, 30).items[0]
+	var tips: Array = Tablets.lines(listing.item) + Jewels.lines(Jewels.generate_unique("百鬼の灯環", 30)) + Jewels.lines(Jewels.generate_unique("虚月の雫", 30))
+	var words: Array = tips.map(func(l): return l[0])
+	print("SMOKE pieces exchange found=%d of %d hits=%s errors=%s tips=%d" % [found.size(), Jewels.UNIQUES.size() + Tablets.UNIQUES.size(), hit, errors, words.size()])
+	_expect("pieces_exchange", {"found": found.size() == Jewels.UNIQUES.size() + Tablets.UNIQUES.size(), "hits": hit == ["不滅の灰"], "errors": errors.all(func(e): return e != ""),
+		"tip": words.any(func(l): return l == "希少度：至宝") and words.any(func(l): return l.begins_with("組み合わせ：")) and not words.any(func(l): return "%" in l and "{" in l),
+		"fixed": ModRange.of(listing.item, "ally_dmg").lo == ModRange.of(listing.item, "ally_dmg").hi})
+	p.level = keep[0]
+	p.tree = keep[1]
+	p.jewels = keep[3]
+	p.tablets = keep[4]
+	p.cur = keep[5]
+	p.set_class(keep[2])
 
 
 func _smoke_gems() -> void:
@@ -3145,6 +3539,9 @@ func _smoke_test() -> void:
 	_smoke_skill_ui()
 	_smoke_docs()
 	_smoke_unique_tiers()
+	_smoke_combos()
+	_smoke_myth()
+	_smoke_unique_pieces()
 	_smoke_market()
 	_smoke_trade()
 	await _smoke_keys()
@@ -6634,16 +7031,16 @@ func seal_status() -> String:
 # =================== tablets ===================
 ## a boss's tablet, lying on the floor as a flat glowing slab until picked up
 func _drop_tablet(at: Vector2, ilvl: int) -> void:
-	var t := Tablets.generate(ilvl)
+	var t := Tablets.drop(ilvl)
 	var pos := _scatter(at)
-	var node := Fx.mesh(level_root, Fx.box(Vector3(0.55, 0.12, 0.42)), Fx.mat(Tablets.COLOR, 3.0), to3(pos, 0.3))
+	var node := Fx.mesh(level_root, Fx.box(Vector3(0.55, 0.12, 0.42)), Fx.mat(Tablets.color_of(t), 3.0), to3(pos, 0.3))
 	drops.append({"k": "tablet", "n": 1, "tablet": t, "pos": pos, "node": node})
 
 
-## a tablet joins the character's collection (broken down into ember once the collection is full)
+## a tablet joins the character's collection (broken down into ember once the collection is full, but never a unique)
 func gain_tablet(t: Dictionary) -> void:
 	var p := player
-	if p.tablets.size() >= Tablets.MAX_OWNED:
+	if p.tablets.size() >= Tablets.MAX_OWNED and not Tablets.is_unique(t):
 		p.cur.ember += Tablets.shard_value(t)
 		hud.message("ルーンタブレットが一杯のため %s を砕いた（+%d 灰燼の欠片）" % [Tablets.name_of(t), Tablets.shard_value(t)], Color("#ffcf3a"))
 		return
@@ -6696,17 +7093,18 @@ func gain_map(k: String, n := 1) -> void:
 # =================== jewels ===================
 ## a jewel (or, with `ring`, a ring jewel) lying on the floor as a small glowing gem until picked up
 func _drop_jewel(at: Vector2, ilvl: int, ring := false) -> void:
-	var j := Jewels.generate_ring(ilvl) if ring else Jewels.generate(ilvl)
+	var j := Jewels.drop(ilvl, ring)
 	var pos := _scatter(at)
-	var node := Fx.mesh(level_root, Fx.box(Vector3.ONE * (0.34 if ring else 0.26)), Fx.mat(Jewels.RING_COLOR if ring else Jewels.COLOR, 4.0), to3(pos, 0.35))
+	var col: Color = Data.RARITY[3].color if Jewels.is_unique(j) else (Jewels.RING_COLOR if ring else Jewels.COLOR)
+	var node := Fx.mesh(level_root, Fx.box(Vector3.ONE * (0.34 if ring else 0.26)), Fx.mat(col, 4.0), to3(pos, 0.35))
 	node.rotation = Vector3(0.0, 0.7, 0.7)
 	drops.append({"k": "jewel", "n": 1, "jewel": j, "pos": pos, "node": node})
 
 
-## a jewel joins the character's collection (broken down into ember once the collection is full)
+## a jewel joins the character's collection (broken down into ember once the collection is full, but never a unique)
 func gain_jewel(j: Dictionary) -> void:
 	var p := player
-	if p.jewels.size() >= Jewels.MAX_OWNED:
+	if p.jewels.size() >= Jewels.MAX_OWNED and not Jewels.is_unique(j):
 		p.cur.ember += Jewels.shard_value(j)
 		hud.message("ジュエルが一杯のため %s を砕いた（+%d 灰燼の欠片）" % [j.name, Jewels.shard_value(j)], Color("#ffcf3a"))
 		return
@@ -6772,7 +7170,7 @@ func _drop_loot(e: Enemy) -> void:
 		n = 1
 	for i in n:
 		var force := (3 if randf() < 0.35 + mod_fx.legend else 2) if e.boss and i == 0 else -1
-		drop_item(Items.generate(ilvl, boost, force), e.pos)
+		drop_item(Items.generate(ilvl, boost, force, "", "", "", true), e.pos)
 	if randf() < (1.0 if e.boss or not e.elite.is_empty() else 0.25):
 		for i in (6 if e.boss else 3 if not e.elite.is_empty() else 1):
 			_drop_currency("ember", roundi(randf_range(2, 6) * floor_level * (2 if not e.elite.is_empty() else 1) * mod_fx.gold), e.pos)
