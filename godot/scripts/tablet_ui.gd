@@ -100,7 +100,7 @@ func refresh() -> void:
 	if t.is_empty():
 		sel = ""
 	used.text = "使用マス %d / %d　　置いたルーンタブレット %d　所持 %d / %d" % [Tablets.used_cells(p.tablets), Tablets.SIZE * Tablets.SIZE,
-		p.tablets.filter(func(x): return x.placed).size(), p.tablets.size(), Tablets.MAX_OWNED]
+		p.tablets.filter(func(x): return x.placed).size(), Tablets.plain_count(p.tablets), Tablets.MAX_OWNED]
 	var st := Tablets.stats(p.tablets)
 	totals.text = "盤の能力：" + ("なし" if st.is_empty() else "、".join(PackedStringArray(st.keys().map(func(k): return Data.affix(k).fmt % st[k]))))
 	clear(list)

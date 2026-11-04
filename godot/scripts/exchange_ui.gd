@@ -388,6 +388,7 @@ func _sync_filters() -> void:
 			o.set_item_metadata(o.item_count - 1, k)
 			if k == keep:
 				o.select(o.item_count - 1)
+	_show_unique_hits()   # what is suggested belongs to the category
 
 
 func _show_unique_hits() -> void:
@@ -596,10 +597,10 @@ func buy_result(i: int) -> void:
 			if p.bag.size() >= Player.BAG_SIZE:
 				err = "インベントリが一杯です"
 		"tablet":
-			if p.tablets.size() >= Tablets.MAX_OWNED:
+			if Tablets.is_full(p.tablets, l.item):
 				err = "ルーンタブレットが一杯です（%d）" % Tablets.MAX_OWNED
 		"jewel", "ring":
-			if p.jewels.size() >= Jewels.MAX_OWNED:
+			if Jewels.is_full(p.jewels, l.item):
 				err = "ジュエルが一杯です（%d）" % Jewels.MAX_OWNED
 		"gem":   # an owned gem can be bought again only at a higher gem level the character can use (it then takes that level)
 			var glv: int = l.get("glv", 1)

@@ -12,7 +12,7 @@ class_name Jewels
 ## Both are plain Dictionaries: {uid, kind, base, rarity, ilvl, name, socket, ...}; socket is the node id it sits in, or "".
 ## A socketed jewel can't be crafted: take it out first (a ring's nodes then go back as points).
 
-const MAX_OWNED := 40         # jewels kept per character; more break down into ember as they are picked up (never a unique)
+const MAX_OWNED := 40         # plain jewels kept per character; more break down into ember as they are picked up. Uniques don't count: they come on top
 const UNIQUE_CHANCE := 0.02   # of the jewels and ring jewels that drop
 const COLOR := Color("#ff9ad8")
 const RING_COLOR := Color("#b08cff")
@@ -533,12 +533,25 @@ static func normalize(raw) -> Array:
 	return keep_owned(out, MAX_OWNED, is_unique)
 
 
-## `list` cut down to `most`, the last ones going first but never one `unique` says is unique
+## `list` with at most `most` left that `unique` doesn't call unique, the last ones going first; the uniques all stay
+## and don't count, so a collection that reached this size by play loses nothing
 static func keep_owned(list: Array, most: int, unique: Callable) -> Array:
 	var out := list.duplicate()
+	var extra: int = out.filter(func(x): return not unique.call(x)).size() - most
 	for i in range(out.size() - 1, -1, -1):
-		if out.size() <= most:
+		if extra <= 0:
 			break
 		if not unique.call(out[i]):
 			out.remove_at(i)
+			extra -= 1
 	return out
+
+
+## how many of `list` count against MAX_OWNED
+static func plain_count(list: Array) -> int:
+	return list.filter(func(x): return not is_unique(x)).size()
+
+
+## true when `list` has no room for `j` (it always has for a unique)
+static func is_full(list: Array, j: Dictionary) -> bool:
+	return not is_unique(j) and plain_count(list) >= MAX_OWNED

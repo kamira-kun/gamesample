@@ -8,7 +8,7 @@ class_name Tablets
 ## `effect` that works while it is on the board. They only drop or come from the exchange, and are remade from the table on loading.
 
 const SIZE := 6
-const MAX_OWNED := 40         # tablets kept per character; more break down into ember as they are picked up (never a unique)
+const MAX_OWNED := 40         # plain tablets kept per character; more break down into ember as they are picked up. Uniques don't count: they come on top
 const UNIQUE_CHANCE := 0.05   # of the tablets bosses drop
 const COLOR := Color("#9ad8e8")
 
@@ -291,3 +291,13 @@ static func normalize(raw) -> Array:
 			place(out, t, int(r.get("x", 0)), int(r.get("y", 0)), int(r.get("rot", 0)))
 		out.append(t)
 	return Jewels.keep_owned(out, MAX_OWNED, is_unique)
+
+
+## how many of `list` count against MAX_OWNED
+static func plain_count(list: Array) -> int:
+	return list.filter(func(x): return not is_unique(x)).size()
+
+
+## true when `list` has no room for `t` (it always has for a unique)
+static func is_full(list: Array, t: Dictionary) -> bool:
+	return not is_unique(t) and plain_count(list) >= MAX_OWNED

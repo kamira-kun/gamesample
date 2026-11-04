@@ -129,7 +129,7 @@ func _refresh_jewels(p: Player) -> void:
 	var j := picked()
 	if j.is_empty():
 		sel = ""
-	jewel_head.text = "ジュエル（%d / %d）　台座 %d" % [p.jewels.size(), Jewels.MAX_OWNED, p.jewels.filter(func(x): return x.socket != "").size()]
+	jewel_head.text = "ジュエル（%d / %d）　台座 %d" % [Jewels.plain_count(p.jewels), Jewels.MAX_OWNED, p.jewels.filter(func(x): return x.socket != "").size()]
 	clear(jewel_list)
 	if p.jewels.is_empty():
 		jewel_list.add_child(sub("ジュエルはまだない（敵が落とす）"))

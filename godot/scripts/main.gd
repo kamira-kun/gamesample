@@ -624,6 +624,32 @@ func _smoke_combos() -> void:
 	_expect("combos_ui", {"tip": tip.any(func(l): return l.begins_with("組み合わせ：" + c0.name) and Data.any_core(core0).name in l),
 		"status": sb_key in hud.status_bar.keys() and sb_tip[0][0] == c0.name, "card": cards.size() == 1 and row.get_child_count() == 3 and "発動中" in cards[0].text,
 		"fits": need.x <= view.x and need.y <= view.y})
+	# every lineage fits on the screen at its tallest, a line for the next rank on each node; cards only wrap their
+	# text once laid out, so each is measured a frame later
+	var pyre := [p.asc_ranks, p.asc_cores]
+	var over := {}
+	var worst := Vector2.ZERO
+	for a in Data.ASCENDANCIES:
+		p.set_class(Data.class_of_asc(a.k))
+		p.asc = a.k
+		p.asc_ranks = {}
+		for n in a.minors:
+			p.asc_ranks[n.id] = 1
+		p.asc_cores = ["", "", ""]
+		p.recalc(true)
+		hud.asc_ui.refresh()
+		await get_tree().process_frame
+		await get_tree().process_frame
+		var size: Vector2 = hud.asc_ui.get_combined_minimum_size()
+		worst = worst.max(size)
+		if size.x > view.x or size.y > view.y:
+			over[a.k] = size
+	print("SMOKE combos ui lineages=%d worst=%s of %s over=%s" % [Data.ASCENDANCIES.size(), worst, view, over])
+	_expect("combos_ui_fit", {"all": Data.ASCENDANCIES.size() == 9, "fit": over.is_empty()})
+	p.set_class(Data.class_of_asc("pyre"))
+	p.asc = "pyre"
+	p.asc_ranks = pyre[0]
+	p.asc_cores = pyre[1]
 	hud.toggle(hud.asc_ui)
 	p.equip = {"weapon": sword}
 	p.recalc(true)
@@ -661,17 +687,50 @@ func _smoke_myth() -> void:
 	var myths: Array = Data.LEGENDARY.filter(func(l): return Data.unique_tier(l.name) == Data.MYTH_TIER)
 	var loot := Items.legend_pool("", "", "", true)
 	var plain := Items.legend_pool()
-	var shop := Items.gen_shop(30)
-	var from_merchant: Array = shop.items.filter(func(it): return int(it.rarity) == 3 and Data.unique_tier(it.name) == Data.MYTH_TIER)
-	var from_generate := 0
-	for i in 4000:
-		if Data.unique_tier(Items.generate(30, 0.0, 3).name) == Data.MYTH_TIER:
-			from_generate += 1
-	var m := {"ilvl": 30, "offers": [], "listings": [], "requests": [], "held": [], "tick": 0, "next_id": 1}
-	print("SMOKE myth tiers=%s pool=%d/%d merchant=%d generate=%d" % [count, loot.size(), plain.size(), from_merchant.size(), from_generate])
+	# 神話's weight is so small that a sample would pass with a leak in it, so every pool an unasked-for unique comes
+	# from is read whole: per slot and per base, as generate is called, and with the monsters' pool to compare
+	var is_myth := func(l: Dictionary) -> bool: return Data.unique_tier(l.name) == Data.MYTH_TIER
+	var leaks := []
+	var slot_myths := 0
+	for slot in Data.SLOTS:
+		for b in [""] + Data.BASES[slot].map(func(x): return x.name):
+			if Items.legend_pool(slot, "", b).any(is_myth):
+				leaks.append("%s/%s" % [slot, b])
+		slot_myths += Items.legend_pool(slot, "", "", true).filter(is_myth).size()
+	# and every source runs for real, asserting it did hand out uniques: the merchant, the cinder altar's forge, the
+	# other adventurers' offers, plain generate
+	var uniques_of := func(list: Array) -> Array: return list.filter(func(it): return int(it.rarity) == 3)
+	var stock := []
+	for i in 20:
+		stock += uniques_of.call(Items.gen_shop(30).items)
+	var generated := []
+	for i in 2000:
+		generated.append(Items.generate(30, 0.0, 3))
+	var f := Farm.state(league())
+	var keep_farm := [f.cinder, f.renown, p.bag]
+	p.bag = []
+	f.renown = Farm.rank_need(4)
+	f.cinder = Farm.offer("legend").cost * 12
+	var forge_errs := []
+	for i in 12:
+		forge_errs.append(forge_buy("legend"))
+	var forged: Array = uniques_of.call(p.bag)
+	f.cinder = keep_farm[0]
+	f.renown = keep_farm[1]
+	p.bag = keep_farm[2]
+	var m := Market.fresh(Profiles.STANDARD)
+	Trade.normalize(m)
+	var offered := []
+	for i in 40:
+		m.offers = []
+		Trade.ensure(Profiles.STANDARD, 30, m)
+		offered += uniques_of.call(m.offers.map(func(o): return o.item))
+	print("SMOKE myth tiers=%s pool=%d/%d leaks=%s slot_myths=%d merchant=%d forge=%d offers=%d generate=%d" % [count, loot.size(), plain.size(), leaks, slot_myths, stock.size(), forged.size(), offered.size(), generated.size()])
 	_expect("myth_tier", {"others_stay": count.get(0) == 603 and count.get(1) == 274 and count.get(2) == 110 and count.get(3) == 22, "six": myths.size() == 6,
 		"loot_only": loot.size() == plain.size() + 6 and myths.all(func(l): return l in loot and not l in plain),
-		"merchant": from_merchant.is_empty(), "generate": from_generate == 0, "by_name": Items.generate(30, 0.0, 3, "", myths[0].name).name == myths[0].name})
+		"pools": leaks.is_empty() and slot_myths == 6, "by_name": Items.generate(30, 0.0, 3, "", myths[0].name).name == myths[0].name})
+	_expect("myth_sources", {"ran": not stock.is_empty() and forged.size() == 12 and not offered.is_empty(), "forge_paid": forge_errs.all(func(e): return e == ""),
+		"merchant": not stock.any(is_myth), "forge": not forged.any(is_myth), "offers": not offered.any(is_myth), "generate": not generated.any(is_myth)})
 	# never sold or hidden by the loot filter, whatever is set for uniques
 	p.filter.rarity[3] = "hide"
 	var low := Items.generate(30, 0.0, 3)
@@ -813,27 +872,66 @@ func _smoke_unique_pieces() -> void:
 		errs.append(LineCraft.apply(t2, t2.mods.keys()[0], a, rich))
 	print("SMOKE pieces craft refused=%d of %d" % [errs.filter(func(e): return e != "").size(), errs.size()])
 	_expect("pieces_craft", {"refused": errs.all(func(e): return e != ""), "unchanged": JSON.stringify([p.jewels, p.tablets]) == before, "free": rich.whet == 99 and rich.divine == 99})
-	# a full collection breaks what comes in, but never a unique; a load past the limit keeps them too
+	# plain ones at the limit break what comes in, but never a unique; uniques ride on top of the limit, so a load keeps
+	# all of it, the last plain ones in use included
 	var ember: int = p.cur.ember
 	p.jewels = []
 	p.tablets = []
 	for i in Jewels.MAX_OWNED:
 		p.jewels.append(Jewels.generate(5, 1))
 		p.tablets.append(Tablets.generate(5, "mono", 1))
+	var worn: Dictionary = p.jewels.back()
+	var laid: Dictionary = p.tablets.back()
+	worn.socket = sock
+	Tablets.place(p.tablets, laid, 0, 0, 0)
 	gain_jewel(Jewels.generate(5, 1))
 	gain_tablet(Tablets.generate(5, "mono", 1))
 	var broke: bool = p.cur.ember > ember and p.jewels.size() == Jewels.MAX_OWNED and p.tablets.size() == Tablets.MAX_OWNED
 	ember = p.cur.ember
 	gain_jewel(Jewels.generate_unique("不滅の灰", 5))
 	gain_tablet(Tablets.generate_unique("不屈の礎", 5))
+	var unique_kept: bool = p.jewels.size() == Jewels.MAX_OWNED + 1 and p.tablets.size() == Tablets.MAX_OWNED + 1 and p.cur.ember == ember
+	# a unique makes no room for a plain one, nor takes any: the limit still counts the plain ones alone
+	gain_jewel(Jewels.generate(5, 1))
+	gain_tablet(Tablets.generate(5, "mono", 1))
+	var still_breaks: bool = p.cur.ember > ember and p.jewels.size() == Jewels.MAX_OWNED + 1 and p.tablets.size() == Tablets.MAX_OWNED + 1
+	p.jewels.remove_at(0)
+	p.tablets.remove_at(0)
+	gain_jewel(Jewels.generate(5, 1))
+	gain_tablet(Tablets.generate(5, "mono", 1))
+	var room_counts: bool = p.jewels.size() == Jewels.MAX_OWNED + 1 and p.tablets.size() == Tablets.MAX_OWNED + 1
 	var over: Array = JSON.parse_string(JSON.stringify([p.jewels, p.tablets]))
 	var lj: Array = Jewels.normalize(over[0])
 	var lt: Array = Tablets.normalize(over[1])
-	print("SMOKE pieces full broke=%s kept=%d/%d ember_same=%s load=%d/%d" % [broke, p.jewels.size(), p.tablets.size(), p.cur.ember == ember, lj.size(), lt.size()])
-	_expect("pieces_full", {"plain_break": broke, "unique_kept": p.jewels.size() == Jewels.MAX_OWNED + 1 and p.tablets.size() == Tablets.MAX_OWNED + 1 and p.cur.ember == ember,
-		"load_keeps": lj.size() == Jewels.MAX_OWNED and lj.any(Jewels.is_unique) and lt.size() == Tablets.MAX_OWNED and lt.any(Tablets.is_unique)})
+	var uids := func(list: Array) -> Array: return list.map(func(x): return x.uid)
+	var worn_back: Array = lj.filter(func(x): return x.uid == worn.uid)
+	var laid_back: Array = lt.filter(func(x): return x.uid == laid.uid)
+	# only a save edited past the limit is cut, and then only its plain ones
+	var edited_j: Array = Jewels.normalize(over[0] + over[0])
+	var edited_t: Array = Tablets.normalize(over[1] + over[1])
+	print("SMOKE pieces full broke=%s kept=%d/%d ember_same=%s load=%d/%d edited=%d/%d" % [broke, p.jewels.size(), p.tablets.size(), p.cur.ember == ember, lj.size(), lt.size(), edited_j.size(), edited_t.size()])
+	_expect("pieces_full", {"plain_break": broke, "unique_kept": unique_kept, "still_breaks": still_breaks, "room_counts": room_counts,
+		"load_keeps": uids.call(lj) == uids.call(p.jewels) and uids.call(lt) == uids.call(p.tablets),
+		"in_use": worn_back.size() == 1 and worn_back[0].socket == sock and laid_back.size() == 1 and laid_back[0].placed,
+		"edited": Jewels.plain_count(edited_j) == Jewels.MAX_OWNED and edited_j.filter(Jewels.is_unique).size() == 2 and Tablets.plain_count(edited_t) == Tablets.MAX_OWNED and edited_t.filter(Tablets.is_unique).size() == 2})
+	# the merchant and the exchange go by the same count: a plain one is refused, a unique is bought at the limit
+	var ware := Jewels.generate(5, 1)
+	var keep_wares: Array = shop.get("jewels", [])
+	shop.jewels = [ware]
+	p.cur.ember += Items.jewel_price(ware)
+	hud.shop_ui._buy_jewel(ware)
+	var merchant_refused: bool = ware in shop.jewels and p.jewels.size() == Jewels.MAX_OWNED + 1
+	shop.jewels = keep_wares
+	var ex := hud.exchange_ui
+	var sale: Dictionary = Exchange.search({"cat": "jewel", "unique": "不滅の灰"}, Profiles.STANDARD, 30).items[0]
+	p.cur[Market.BASE] = p.cur.get(Market.BASE, 0) + sale.price
+	p.cur.ember += sale.fee
+	ex.results = [sale]
+	ex.buy_result(0)
+	ex.results = []
+	_expect("pieces_full_buy", {"merchant": merchant_refused, "exchange": p.jewels.size() == Jewels.MAX_OWNED + 2})
 	# breaking one by hand takes a second press
-	var u: Dictionary = p.jewels.back()
+	var u: Dictionary = p.jewels.filter(Jewels.is_unique)[0]
 	p.jewels = [u]
 	ui.pick(u.uid)
 	ui.shatter()
@@ -858,6 +956,24 @@ func _smoke_unique_pieces() -> void:
 	var tips: Array = Tablets.lines(listing.item) + Jewels.lines(Jewels.generate_unique("百鬼の灯環", 30)) + Jewels.lines(Jewels.generate_unique("虚月の雫", 30))
 	var words: Array = tips.map(func(l): return l[0])
 	print("SMOKE pieces exchange found=%d of %d hits=%s errors=%s tips=%d" % [found.size(), Jewels.UNIQUES.size() + Tablets.UNIQUES.size(), hit, errors, words.size()])
+	# the suggestions under the name box follow the category
+	var pick_cat := func(cat: String) -> void:
+		for i in ex.cat_opt.item_count:
+			if ex.cat_opt.get_item_metadata(i) == cat:
+				ex.cat_opt.select(i)
+		ex._sync_filters()
+	var shown := func() -> Array: return ex.unique_hits.get_children().map(func(b): return b.text)
+	var hint := func(cat: String) -> Array: return Exchange.unique_matches("灰", 6, cat).map(func(n): return Exchange.unique_label(n, cat)[0])
+	pick_cat.call("jewel")
+	ex.unique_edit.text = "灰"
+	ex._show_unique_hits()
+	var jewel_hits: Array = shown.call()
+	pick_cat.call("gear")
+	var gear_hits: Array = shown.call()
+	pick_cat.call("currency")
+	var no_hits: Array = shown.call()
+	ex.clear_query()
+	_expect("pieces_exchange_hits", {"jewel": not jewel_hits.is_empty() and jewel_hits == hint.call("jewel"), "gear": gear_hits == hint.call("gear") and gear_hits != jewel_hits, "none": no_hits.is_empty()})
 	_expect("pieces_exchange", {"found": found.size() == Jewels.UNIQUES.size() + Tablets.UNIQUES.size(), "hits": hit == ["不滅の灰"], "errors": errors.all(func(e): return e != ""),
 		"tip": words.any(func(l): return l == "希少度：至宝") and words.any(func(l): return l.begins_with("組み合わせ：")) and not words.any(func(l): return "%" in l and "{" in l),
 		"fixed": ModRange.of(listing.item, "ally_dmg").lo == ModRange.of(listing.item, "ally_dmg").hi})
@@ -3539,7 +3655,7 @@ func _smoke_test() -> void:
 	_smoke_skill_ui()
 	_smoke_docs()
 	_smoke_unique_tiers()
-	_smoke_combos()
+	await _smoke_combos()
 	_smoke_myth()
 	_smoke_unique_pieces()
 	_smoke_market()
@@ -7037,10 +7153,10 @@ func _drop_tablet(at: Vector2, ilvl: int) -> void:
 	drops.append({"k": "tablet", "n": 1, "tablet": t, "pos": pos, "node": node})
 
 
-## a tablet joins the character's collection (broken down into ember once the collection is full, but never a unique)
+## a tablet joins the character's collection (broken down into ember once the plain ones are at the limit, but never a unique)
 func gain_tablet(t: Dictionary) -> void:
 	var p := player
-	if p.tablets.size() >= Tablets.MAX_OWNED and not Tablets.is_unique(t):
+	if Tablets.is_full(p.tablets, t):
 		p.cur.ember += Tablets.shard_value(t)
 		hud.message("ルーンタブレットが一杯のため %s を砕いた（+%d 灰燼の欠片）" % [Tablets.name_of(t), Tablets.shard_value(t)], Color("#ffcf3a"))
 		return
@@ -7101,10 +7217,10 @@ func _drop_jewel(at: Vector2, ilvl: int, ring := false) -> void:
 	drops.append({"k": "jewel", "n": 1, "jewel": j, "pos": pos, "node": node})
 
 
-## a jewel joins the character's collection (broken down into ember once the collection is full, but never a unique)
+## a jewel joins the character's collection (broken down into ember once the plain ones are at the limit, but never a unique)
 func gain_jewel(j: Dictionary) -> void:
 	var p := player
-	if p.jewels.size() >= Jewels.MAX_OWNED and not Jewels.is_unique(j):
+	if Jewels.is_full(p.jewels, j):
 		p.cur.ember += Jewels.shard_value(j)
 		hud.message("ジュエルが一杯のため %s を砕いた（+%d 灰燼の欠片）" % [j.name, Jewels.shard_value(j)], Color("#ffcf3a"))
 		return
