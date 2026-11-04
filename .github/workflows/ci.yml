@@ -1,0 +1,67 @@
+# Runs the project's headless checks on every pull request and on master.
+# Public repository + standard runner (ubuntu-latest) = free. Do not switch to a larger runner: those are billed.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: 4.7.2
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Restore Godot
+        id: godot-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/godot
+          key: godot-${{ env.GODOT_VERSION }}-linux
+
+      - name: Download Godot
+        if: steps.godot-cache.outputs.cache-hit != 'true'
+        run: |
+          name="Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          base="https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable"
+          mkdir -p ~/godot
+          cd ~/godot
+          curl -fsSLO "$base/$name.zip"
+          curl -fsSLO "$base/SHA512-SUMS.txt"
+          grep " $name.zip\$" SHA512-SUMS.txt | sha512sum -c -
+          unzip -q "$name.zip"
+          mv "$name" godot
+          rm "$name.zip" SHA512-SUMS.txt
+
+      - name: Add Godot to PATH
+        run: echo "$HOME/godot" >> "$GITHUB_PATH"
+
+      # the import cache is not in git; a fresh checkout has to rebuild it, so keep it between runs
+      - name: Restore the import cache
+        uses: actions/cache@v6
+        with:
+          path: godot/.godot
+          key: godot-import-${{ env.GODOT_VERSION }}-${{ hashFiles('godot/assets/**', 'godot/project.godot') }}
+          restore-keys: godot-import-${{ env.GODOT_VERSION }}-
+
+      - name: Import assets
+        run: godot --headless --path godot --import
+
+      - name: Data checks
+        run: godot --headless --path godot -s tools/run_check.gd
+
+      - name: Smoke test
+        run: godot --headless --path godot -- --smoke
