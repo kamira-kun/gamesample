@@ -1,8 +1,8 @@
 class_name StatusBar
 extends HBoxContainer
 ## The row of small icons at the top left of the HUD (issue #54): one per kind of summoned ally (minions by skill,
-## totems, traps) with a count badge "now/max", then one per aura that is on, buff skill running and stacking
-## talent buff. Timed ones darken with a sweep as they run out. Hovering an icon shows what it is.
+## totems, traps) with a count badge "now/max", then one per aura that is on, buff skill running, stacking
+## talent buff and combination in effect (#77). Timed ones darken with a sweep as they run out. Hovering an icon shows what it is.
 ## The row is rebuilt only when something changes (Main.allies_changed, Player.status_changed), once per frame at
 ## most and deferred, so a death or toggle in the middle of a signal or an update loop never frees a node: icons
 ## are pooled and only hidden when not needed.
@@ -32,7 +32,7 @@ func mark() -> void:
 	_rebuild.call_deferred()
 
 
-## what the row shows now, in order: allies, auras, buff skills, talent buffs
+## what the row shows now, in order: allies, auras, buff skills, talent buffs, combinations
 func entries() -> Array:
 	var m = hud.main
 	var p: Player = m.player
@@ -55,6 +55,8 @@ func entries() -> Array:
 		out.append({"key": "tbuff:" + id, "kind": "tbuff", "id": id})
 	for k in p.buffs:
 		out.append({"key": "buff:" + k, "kind": "buff", "id": k})
+	for c in p.active_combos:
+		out.append({"key": "combo:" + c.id, "kind": "combo", "id": c.id, "combo": c})
 	return out
 
 
@@ -144,6 +146,12 @@ func tip_lines(e: Dictionary) -> Array:
 	var dim := Color("#b8a888")
 	var tl := time_left(e)
 	var lines := []
+	if e.kind == "combo":
+		lines.append([e.combo.name, Data.UNIQUE_ASC_COLOR, 16])
+		lines.append(["組み合わせ（発動中）：%s" % Data.combo_needs_text(e.combo), dim, 13])
+		lines.append([Data.combo_effect_text(e.combo), Color("#e8dcc0"), 13])
+		lines.append([e.combo.desc, dim, 13])
+		return lines
 	if e.kind == "buff":
 		var t := talent(e.id)
 		lines.append([t.name, t.color, 16])
@@ -204,6 +212,8 @@ class StatusIcon extends Control:
 		var f := Data.ui_font
 		if entry.kind == "buff":
 			_glyph(rect, StatusBar.talent(entry.id).color)
+		elif entry.kind == "combo":
+			_glyph(rect, Data.UNIQUE_ASC_COLOR)
 		else:
 			SkillIcon.draw(self, entry.id, rect)
 		match entry.kind:

@@ -17,6 +17,7 @@ var jewel_head := Label.new()
 var jewel_list := VBoxContainer.new()
 var info := Label.new()
 var actions := GridContainer.new()
+var confirm_shatter := ""   # uid of the unique that the next press of 砕く breaks
 var error := Label.new()
 var sel := ""      # uid of the picked jewel
 var rev := 0       # bumped whenever the tree or its jewels change, so the view knows its caches are stale
@@ -149,7 +150,7 @@ func _refresh_jewels(p: Player) -> void:
 		info.text = "ジュエルを選ぶと、ツリーの台座にはめたりクラフトしたりできます。"
 		return
 	info.text = "選択中：%s　→ %sをクリックではめる" % [j.name, "リングジュエルの大台座（最外周の六角）" if Jewels.is_ring(j) else "ジュエルの台座（ひし形）"]
-	if j.socket == "":
+	if j.socket == "" and not Jewels.is_unique(j):
 		for c in CRAFTS:
 			var cd := Data.currency(c[0])
 			var b := Button.new()
@@ -166,7 +167,7 @@ func _refresh_jewels(p: Player) -> void:
 		off.text = "台座から外す"
 		off.pressed.connect(unsocket.bind(j.uid))
 	else:
-		off.text = "砕く（%d）" % Jewels.shard_value(j)
+		off.text = ("本当に砕く？（%d）" if confirm_shatter == j.uid else "砕く（%d）") % Jewels.shard_value(j)
 		off.tooltip_text = "砕いて灰燼の欠片 %d にする" % Jewels.shard_value(j)
 		off.pressed.connect(shatter)
 	actions.add_child(off)
@@ -279,6 +280,11 @@ func shatter() -> void:
 	var j := picked()
 	if j.is_empty() or j.socket != "":
 		return
+	if Jewels.is_unique(j) and confirm_shatter != j.uid:   # a unique takes a second press
+		confirm_shatter = j.uid
+		refresh()
+		return
+	confirm_shatter = ""
 	var p: Player = hud.main.player
 	p.cur.ember += Jewels.shard_value(j)
 	p.jewels.erase(j)
