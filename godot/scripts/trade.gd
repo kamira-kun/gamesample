@@ -92,9 +92,10 @@ static func tag_names(ts: Array) -> String:
 	return "・".join(PackedStringArray(ts.map(func(t): return TAGS[t].name)))
 
 
-## a unique's standing among buyers, by its drop tier (Data.UNIQUE_TIERS) and fixed by its name: {tier, base (c)}
-static func unique_tier(uname: String) -> Dictionary:
-	var t: Dictionary = Data.UNIQUE_TIERS[Data.unique_tier(uname)]
+## a unique's standing among buyers, by its drop tier (Data.UNIQUE_TIERS) and fixed by its name: {tier, base (c)};
+## a unique jewel or tablet says its `tier` (its table's), not being in the gear list
+static func unique_tier(uname: String, tier := -1) -> Dictionary:
+	var t: Dictionary = Data.UNIQUE_TIERS[tier if tier >= 0 else Data.unique_tier(uname)]
 	var r := RandomNumberGenerator.new()
 	r.seed = ("unique-price/" + uname).hash()
 	return {"tier": t.name, "base": r.randf_range(t.base[0], t.base[1])}

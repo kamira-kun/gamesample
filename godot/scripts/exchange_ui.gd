@@ -363,7 +363,7 @@ func _slot() -> String:
 func _sync_filters() -> void:
 	var cat := _cat()
 	slot_row.visible = cat == "gear"
-	unique_row.visible = cat == "gear"
+	unique_row.visible = cat in Exchange.UNIQUE_CATS
 	if glv_row:
 		glv_row.visible = cat == "gem"
 		ilvl_row.visible = cat != "gem"
@@ -393,23 +393,25 @@ func _sync_filters() -> void:
 func _show_unique_hits() -> void:
 	clear(unique_hits)
 	var t := unique_edit.text.strip_edges()
-	if t == "" or not Data.legend(t).is_empty():
+	var hits := Exchange.unique_matches(t, 6, _cat())
+	if t == "" or t in hits:
 		return
-	for n in Exchange.unique_matches(t, 6):
-		var tier: Dictionary = Data.UNIQUE_TIERS[Data.unique_tier(n)]
+	for n in hits:
+		var label := Exchange.unique_label(n, _cat())
 		var b := Button.new()
-		b.text = "%s（%s・%s）" % [n, tier.name, Data.SLOT_INFO[Data.legend(n).slot].name]
+		b.text = label[0]
 		b.flat = true
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.add_theme_font_size_override("font_size", 12)
-		b.add_theme_color_override("font_color", tier.color)
+		b.add_theme_color_override("font_color", label[1])
 		b.pressed.connect(_pick_unique.bind(n))
 		unique_hits.add_child(b)
 
 
 func _pick_unique(n: String) -> void:
 	unique_edit.text = n
-	rarity_opt.select(4)
+	if _cat() != "tablet":   # tablets have no rarity
+		rarity_opt.select(4)
 	_show_unique_hits.call_deferred()   # the hit list holds the button being pressed
 
 
@@ -420,7 +422,7 @@ func read_query() -> Dictionary:
 	q.slot = _slot()
 	q.rarity = rarity_opt.get_item_metadata(maxi(0, rarity_opt.selected))
 	q.base = base_opt.get_item_text(base_opt.selected) if base_opt.selected > 0 else ""
-	q.unique = unique_edit.text.strip_edges() if q.cat == "gear" else ""
+	q.unique = unique_edit.text.strip_edges() if q.cat in Exchange.UNIQUE_CATS else ""
 	for i in mod_opts.size():
 		var o := mod_opts[i]
 		if o.selected > 0 and mod_box.visible:
@@ -545,7 +547,7 @@ func _show_results() -> void:
 func _listing_label(l: Dictionary) -> Array:
 	match l.kind:
 		"tablet":
-			return ["▦ %s %d行" % [Tablets.name_of(l.item), l.item.mods.size()], Tablets.COLOR]
+			return ["▦ %s %d行" % [Tablets.name_of(l.item), l.item.mods.size()], Tablets.color_of(l.item)]
 		"jewel", "ring":
 			return ["%s %s" % ["◎" if l.kind == "ring" else "◆", l.item.name], Data.RARITY[int(l.item.rarity)].color]
 		"charm":
