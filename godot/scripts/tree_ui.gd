@@ -175,11 +175,13 @@ func _refresh_jewels(p: Player) -> void:
 
 func pick(uid: String) -> void:
 	sel = "" if sel == uid else uid
+	confirm_shatter = ""
 	error.text = ""
 	refresh()
 
 
 func open_close() -> void:
+	confirm_shatter = ""
 	super()
 	if visible:
 		view.recenter()

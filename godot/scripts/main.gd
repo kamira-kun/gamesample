@@ -932,13 +932,51 @@ func _smoke_unique_pieces() -> void:
 	_expect("pieces_full_buy", {"merchant": merchant_refused, "exchange": p.jewels.size() == Jewels.MAX_OWNED + 2})
 	# breaking one by hand takes a second press
 	var u: Dictionary = p.jewels.filter(Jewels.is_unique)[0]
-	p.jewels = [u]
+	var other_j := Jewels.generate(5, 1)
+	p.jewels = [u, other_j]
 	ui.pick(u.uid)
 	ui.shatter()
 	var after_one := p.jewels.size()
+	# picking something else, or closing the panel, takes the first press back
+	ui.pick(other_j.uid)
+	ui.pick(u.uid)
+	var repicked: bool = ui.picked() == u
 	ui.shatter()
-	_expect("pieces_shatter", {"asks": after_one == 1, "breaks": p.jewels.is_empty()})
+	var after_pick := p.jewels.size()
+	ui.open_close()
+	ui.open_close()
+	var reopened: bool = ui.picked() == u
+	ui.shatter()
+	var after_reopen := p.jewels.size()
+	ui.shatter()
+	_expect("pieces_shatter", {"asks": after_one == 2, "breaks": p.jewels == [other_j]})
+	_expect("pieces_shatter_disarm", {"pick": repicked and after_pick == 2, "reopen": reopened and after_reopen == 2})
+	p.jewels = []
 	hud.toggle(hud.tree_ui)
+	# a unique tablet asks the same way
+	hud.toggle(hud.tablet_ui)
+	var tu: TabletUI = hud.tablet_ui
+	var keep_tablets := p.tablets
+	var ut := Tablets.generate_unique("不屈の礎", 5)
+	var other_t := Tablets.generate(5, "mono", 1)
+	p.tablets = [ut, other_t]
+	tu.pick(ut.uid)
+	tu.shatter()
+	var t_one := p.tablets.size()
+	tu.pick(other_t.uid)
+	tu.pick(ut.uid)
+	var t_repicked: bool = tu.picked() == ut
+	tu.shatter()
+	var t_pick := p.tablets.size()
+	tu.open_close()
+	tu.open_close()
+	var t_reopened: bool = tu.picked() == ut
+	tu.shatter()
+	var t_reopen := p.tablets.size()
+	tu.shatter()
+	_expect("pieces_shatter_tablet", {"asks": t_one == 2, "pick": t_repicked and t_pick == 2, "reopen": t_reopened and t_reopen == 2, "breaks": p.tablets == [other_t]})
+	p.tablets = keep_tablets
+	hud.toggle(hud.tablet_ui)
 	# the exchange finds each by name, in its own category only, and lists the lines of the table
 	var lg := Profiles.STANDARD
 	var found := []

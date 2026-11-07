@@ -146,10 +146,16 @@ func refresh() -> void:
 
 func pick(uid: String) -> void:
 	sel = "" if sel == uid else uid
+	confirm_shatter = ""
 	var t := picked()
 	rot = int(t.get("rot", 0))
 	error.text = ""
 	refresh()
+
+
+func open_close() -> void:
+	confirm_shatter = ""
+	super()
 
 
 ## turn the picked tablet; one already on the board turns where it lies if it still fits
