@@ -54,7 +54,9 @@ func _process(_delta: float) -> bool:
 	print("COMPASS_ICONS drawn=%d problems=%s" % [_icons_drawn, icons])
 	var tiers := _check_map_tiers()
 	print("MAP_TIERS problems=%s" % [tiers])
-	quit(code if stale.is_empty() and hits.is_empty() and awake.is_empty() and glv.is_empty() and icons.is_empty() and tiers.is_empty() else 1)
+	var regular := _check_regular_enemies()
+	print("REGULAR_ENEMIES problems=%s" % [regular])
+	quit(code if stale.is_empty() and hits.is_empty() and awake.is_empty() and glv.is_empty() and icons.is_empty() and tiers.is_empty() and regular.is_empty() else 1)
 	return true
 
 
@@ -231,4 +233,47 @@ func _check_map_tiers() -> Array:
 		top = maxi(top, M.parse(M.roll(M.OLD_MAX_TIER + 10, true)).tier)
 	if top != M.OLD_MAX_TIER + 12:
 		out.append("boss drop top %d" % top)
+	return out
+
+
+## #79: every regular kind is in the floor spawns and the ambush packs, each has a telegraph and one pattern of its
+## own (the three new kinds: a lunge, a fuse, a mend), and brute and shaman take a steady share of the floor-1 rooms
+func _check_regular_enemies() -> Array:
+	var D = load("res://scripts/data.gd")
+	var out := []
+	var kinds: Array = D.REGULAR_KINDS
+	var spawn_kinds := []
+	var total := 0.0
+	for q in D.spawn_pool():
+		spawn_kinds.append(q.k)
+		total += q.w
+	var ambush_kinds := []
+	for q in D.ambush_pool():
+		ambush_kinds.append(q.k)
+	for k in kinds:
+		var t: Dictionary = D.ENEMY_TYPES.get(k, {})
+		if t.is_empty() or t.get("boss", false):
+			out.append("type %s" % k)
+			continue
+		if not spawn_kinds.has(k):
+			out.append("spawn %s" % k)
+		if not ambush_kinds.has(k):
+			out.append("ambush %s" % k)
+		if float(t.get("windup", 0.0)) <= 0.0:
+			out.append("telegraph %s" % k)
+	for k in spawn_kinds:
+		if not kinds.has(k):
+			out.append("unlisted spawn %s" % k)
+	for k in ambush_kinds:
+		if not kinds.has(k):
+			out.append("unlisted ambush %s" % k)
+	for k in ["charger", "bomber", "healer"]:
+		var t: Dictionary = D.ENEMY_TYPES.get(k, {})
+		var own := ["dash", "fuse", "heal"].filter(func(f): return t.has(f))
+		if own.size() != 1 or t.has("ranged") or t.has("caster"):
+			out.append("pattern %s %s" % [k, own])
+	for k in ["brute", "shaman"]:
+		for q in D.spawn_pool():
+			if q.k == k and q.w / total < 0.08:
+				out.append("floor1 share %s %.3f" % [k, q.w / total])
 	return out

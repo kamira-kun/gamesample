@@ -266,6 +266,18 @@ func _ready() -> void:
 				dev_map(view_map)
 				for i in 3:
 					_make_enemy("imp", player.pos + Vector2(2.5 + i * 1.2, -2.5 + i * 0.8), 999)
+			elif kind == "newmonsters":   # #79: a charger, a bomber and a healer mending a hurt ghoul, all in view
+				dev_map(view_map)
+				var ch := _make_enemy("charger", player.pos + Vector2(4.5, -3.0), 999)
+				ch.aggro = true
+				var bo := _make_enemy("bomber", player.pos + Vector2(3.0, 0.5), 999)
+				bo.aggro = true
+				var hl := _make_enemy("healer", player.pos + Vector2(6.5, 2.5), 999)
+				hl.aggro = true
+				hl.atk_cd = 0.0
+				var hu := _make_enemy("ghoul", player.pos + Vector2(7.5, 4.0), 999)
+				hu.life = hu.max_life * 0.4
+				hu.aggro = true
 			elif kind.begins_with("keys"):   # key config: `keys_swap` just after a swap, `keys_dup` with a duplicate from a hand-edited file
 				if kind == "keys_dup":
 					Keybinds.binds.potion[1] = {"key": KEY_Q}
@@ -3655,6 +3667,52 @@ func _smoke_hurt_fx() -> void:
 	_expect("hurt_fx_errors", {"none": errs.n == 0})
 
 
+## a free spot `rad` from `center` with a clear sight line back to it (the first of 32 directions that works), else `center`
+func _ring_spot(center: Vector2, rad: float) -> Vector2:
+	for k in 32:
+		var at := center + Vector2.from_angle(k * TAU / 32.0) * rad
+		if not map.circle_hits(at, 1.0) and map.los(center, at):
+			return at
+	return center
+
+
+## #79: the newer regular kinds work. A charger winds up and lunges, a bomber's fuse blows up where it stands,
+## and a healer mends a wounded monster inside its circle; the floor-1 share and the ambush kinds are in run_check
+func _smoke_regular() -> void:
+	var p := player
+	var cs := _ring_spot(p.pos, 6.0)
+	var c := _make_enemy("charger", cs, 996)
+	c.aggro = true
+	c.atk_cd = 0.0
+	var bs := _ring_spot(p.pos, 1.2)
+	var b := _make_enemy("bomber", bs, 995)
+	b.aggro = true
+	b.atk_cd = 0.0
+	var hl := _make_enemy("healer", _ring_spot(p.pos, 5.0), 994)
+	var hurt := _make_enemy("ghoul", _ring_spot(hl.pos, 1.5), 994)
+	hurt.aggro = false
+	hurt.life = hurt.max_life * 0.3
+	var hurt_before := hurt.life
+	hl.aggro = true
+	hl.atk_cd = 0.0
+	var wound_ok := hurt_before < hurt.max_life
+	var attacked := false
+	var spent := false   # sampled while the bomber is alive: a spent one is freed a couple of seconds after its blast
+	for i in 30:   # 3 s: the charger's windup is 0.9 s and its fuse-bomber and the mend land within a second or two
+		await get_tree().create_timer(0.1).timeout
+		attacked = attacked or c.atk_cd > 1.5
+		spent = spent or (is_instance_valid(b) and b.dead and b.life == 0.0)
+	var lunged: bool = c.pos.distance_to(cs) > 2.5
+	var healed: float = hurt.life - hurt_before
+	print("SMOKE regular charger attacked=%s lunged=%s bomber_spent=%s healed=%.1f of %.1f" % [attacked, lunged, spent, healed, hurt.max_life])
+	_expect("regular_kinds", {"charger_windup": attacked, "charger_lunge": lunged, "bomber_fuse": spent,
+		"healer_mend": wound_ok and healed >= hurt.max_life * 0.11})
+	for m in [c, b, hl, hurt]:
+		if is_instance_valid(m):
+			hit_enemy(m, {"dmg": 999999, "crit": false, "type": "phys"})
+	await get_tree().create_timer(0.3).timeout
+
+
 func _smoke_test() -> void:
 	smoke_log = SmokeLogger.new()
 	OS.add_logger(smoke_log)
@@ -4004,6 +4062,7 @@ func _smoke_test() -> void:
 		_expect("boss_" + kind, {"alive": not b.dead, "enraged": b.enraged, "shots": shots > 0})   # the chill is printed only: it needs a random shard to land
 		hit_enemy(b, {"dmg": 999999, "crit": false, "type": "phys"})
 		await get_tree().create_timer(0.3).timeout
+	await _smoke_regular()
 	p.invuln = 0.0
 	damage_player(1e9)
 	await get_tree().create_timer(1.2).timeout
@@ -4809,8 +4868,7 @@ func abandon_map() -> void:
 
 func _spawn_enemies() -> void:
 	var f := Maps.crowd(floor_level)   # pack sizes stop growing deep in; the tier power and area level carry on
-	var pool := [{"k": "imp", "w": 3.0}, {"k": "ghoul", "w": 4.0}, {"k": "archer", "w": 2.0},
-		{"k": "brute", "w": 1.5 if f >= 2 else 0.4}, {"k": "shaman", "w": 1.5 if f >= 2 else 0.5}]
+	var pool: Array = Data.spawn_pool()
 	var bias: Dictionary = Maps.element(area).pool   # each element favours a few kinds
 	for q in pool:
 		q.w *= bias.get(q.k, 1.0)
@@ -4850,7 +4908,7 @@ func _spawn_enemies() -> void:
 		if tx >= br.x - 2 and tx < br.x + br.w + 2 and ty >= br.y - 2 and ty < br.y + br.h + 2:
 			continue
 		pack_id += 1
-		_spawn_pack(c, pack_id, randi_range(3, 5), [{"k": "imp", "w": 2.0}, {"k": "ghoul", "w": 2.0}, {"k": "archer", "w": 1.0}])
+		_spawn_pack(c, pack_id, randi_range(3, 5), Data.ambush_pool())
 		placed += 1
 
 
@@ -6458,6 +6516,8 @@ func _pick_target(e: Enemy) -> Actor:
 
 
 # =================== enemies ===================
+const LUNGE_LEN := 7.0   # how far a charger lunges along its telegraphed lane (metres)
+
 func _alert_pack(e: Enemy) -> void:
 	e.aggro = true
 	for o in enemies:
@@ -6514,6 +6574,9 @@ func _update_enemy(e: Enemy, delta: float) -> void:
 	if e.boss:
 		_update_boss(e, delta, d)
 		return
+	if not e.charge.is_empty():   # a charger mid-lunge
+		_update_lunge(e, delta)
+		return
 	# regular monsters fight whoever is closest: the player, a minion or a totem
 	e.tgt_t -= delta
 	if e.tgt_t <= 0.0 or not is_instance_valid(e.tgt) or e.tgt.dead:
@@ -6524,7 +6587,22 @@ func _update_enemy(e: Enemy, delta: float) -> void:
 	var sees: bool = e.sees if tg == p else td < 20.0
 	var t := e.t
 	var move := true
-	if t.get("ranged", false) or t.get("caster", false):
+	if t.get("heal", false):
+		# the healer keeps back from the fight and mends the wounded monsters in its circle; it never swings
+		if td < 3.5 and sees:
+			move = false
+			e.pos = map.move_circle(e.pos, e.r, (e.pos - tg.pos).normalized() * e.speed * 0.8 * delta)
+		elif td < 6.5 and sees:
+			move = false
+		if e.atk_cd <= 0.0 and _hurt_near(e, t.heal):
+			move = false
+			_start_attack(e, tg)
+	elif t.get("dash", false):
+		# the charger stops to wind up a lane toward its target, then lunges down it
+		if sees and td < 8.0 and e.atk_cd <= 0.0:
+			move = false
+			_start_attack(e, tg)
+	elif t.get("ranged", false) or t.get("caster", false):
 		if td < t.range and sees:
 			move = false
 			if t.get("ranged", false) and td < 5.0:
@@ -6607,10 +6685,82 @@ func _start_attack(e: Enemy, tg: Actor) -> void:
 			_explosion(e.pos, rad, Color("#c88cff"))
 			_damage_area(e.pos, rad, e.dmg))
 		e.pending = func(): pass
+	elif t.get("dash", false):
+		# the lane is drawn now and the lunge runs down it when the windup ends (#79)
+		var a := (tg.pos - e.pos).angle()
+		add_line_tele(e.pos, a, LUNGE_LEN, e.r * 2.0, t.windup)
+		e.pending = func():
+			if not e.dead:
+				e.charge = {"dir": Vector2.from_angle(a), "left": LUNGE_LEN}
+	elif t.has("fuse"):
+		# a bomber blows up where it stands once the fuse runs out; killing it first leaves no blast (#79)
+		var rad: float = t.fuse
+		var dmg := e.dmg
+		add_tele(e.pos, rad, t.windup, true, func():
+			if not is_instance_valid(e) or e.dead:
+				return
+			_explosion(e.pos, rad, Color("#ffa040"))
+			_damage_area(e.pos, rad, dmg)
+			e.dead = true   # spent: it drops nothing and gives no experience
+			e.life = 0.0)
+		e.pending = func(): pass
+	elif t.has("heal"):
+		# the warning ring shows the mend's reach; when it closes, every wounded monster inside it gets a slice back
+		var rad: float = t.heal
+		add_tele(e.pos, rad, t.windup, false, func():
+			if is_instance_valid(e) and not e.dead:
+				_mend(e, rad))
+		e.pending = func(): pass
 	else:
 		e.pending = func():
 			if not e.dead and is_instance_valid(tg) and not tg.dead and tg.pos.distance_to(e.pos) < t.atk_range + e.r + tg.r + 0.5:
 				damage_ally(tg, e.dmg)
+
+
+## the charger's lunge: it runs down its lane and stops at the first body it touches, or at a wall (a short stun)
+func _update_lunge(e: Enemy, delta: float) -> void:
+	var c := e.charge
+	var step := minf(c.left, 16.0 * delta)
+	c.left -= step
+	var before := e.pos
+	e.pos = map.move_circle(e.pos, e.r, c.dir * step)
+	e.face = c.dir.angle()
+	if e.pos.distance_to(before) < step * 0.5:
+		e.charge = {}
+		e.stun = 0.8
+		return
+	var hit: Actor = null
+	if not player.dead and player.pos.distance_to(e.pos) < e.r + player.r + 0.2:
+		hit = player
+	else:
+		for a in _allies():
+			if not a.dead and a.pos.distance_to(e.pos) < e.r + a.r + 0.2:
+				hit = a
+				break
+	if hit != null:
+		damage_ally(hit, e.dmg * 1.3)
+		e.charge = {}
+	elif c.left <= 0.0:
+		e.charge = {}
+
+
+## whether a monster that can be mended (not a boss) is hurt inside `rad` of the healer
+func _hurt_near(e: Enemy, rad: float) -> bool:
+	for o in enemies:
+		if not o.dead and not o.boss and not o.dummy and o.life < o.max_life and o.pos.distance_to(e.pos) < rad + o.r:
+			return true
+	return false
+
+
+## the healer's mend: each wounded monster (bosses aside) in the circle gets back 12% of its life
+func _mend(e: Enemy, rad: float) -> void:
+	Fx.ring(level_root, to3(e.pos), rad, Color("#7ae8a0"), 0.5)
+	for o in enemies:
+		if o.dead or o.boss or o.dummy or o.life >= o.max_life or o.pos.distance_to(e.pos) > rad + o.r:
+			continue
+		var amt := o.max_life * 0.12
+		o.life = minf(o.max_life, o.life + amt)
+		add_text(o.pos, "+%d" % roundi(amt), Color("#7ae8a0"), 14)
 
 
 ## `chill` seconds of slow on the player when it hits
