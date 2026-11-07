@@ -3722,7 +3722,8 @@ func _smoke_test() -> void:
 	var tot: Ally = totems.filter(func(t): return t.skill == "fireball" and not t.trap)[-1]
 	tot.max_life = 1e7   # the pack around it must not fell it first
 	tot.life = 1e7
-	var dummy := _make_enemy("ghoul", _free_spot(tot.pos, 5.0), 999)
+	var dummy_at := _free_spot(tot.pos, 5.0)
+	var dummy := _make_enemy("ghoul", dummy_at, 999)
 	dummy.max_life = 1e7
 	dummy.life = 1e7
 	var balls := 0
@@ -3731,6 +3732,7 @@ func _smoke_test() -> void:
 	# counted by its casts: the pack crowds a totem, and a ball cast point-blank bursts the frame it is made, unseen
 	while tot.casts == casts0 and Time.get_ticks_msec() < until:
 		await get_tree().process_frame
+		dummy.pos = dummy_at   # back in its sight before the totems update: it walks, and the pack shoves it (stun or speed stop only the walking)
 		balls = maxi(balls, projs.filter(func(q): return q.kind == "fireball").size())
 	print("SMOKE totem fired casts=%d fireballs=%d alive=%s t=%.1f/%.1f target_dist=%.1f los=%s" % [tot.casts - casts0, balls, tot.life > 0.0,
 		tot.t, tot.max_t, tot.pos.distance_to(dummy.pos), map.los(tot.pos, dummy.pos)])
