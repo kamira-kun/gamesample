@@ -4,18 +4,18 @@
 
 > このファイルはゲームのデータから自動生成しています（`godot --headless --path godot -s tools/gen_docs.gd`）。手で編集しないでください。
 
-- [ユニーク：武器（300種）](uniques-weapon.md) — 300 件
-- [ユニーク：兜（110種）](uniques-helm.md) — 110 件
-- [ユニーク：鎧（120種）](uniques-armor.md) — 120 件
-- [ユニーク：手袋（110種）](uniques-gloves.md) — 110 件
-- [ユニーク：靴（110種）](uniques-boots.md) — 110 件
-- [ユニーク：指輪（130種）](uniques-ring.md) — 130 件
-- [ユニーク：首飾り（120種）](uniques-amulet.md) — 120 件
+- [ユニーク：武器（303種）](uniques-weapon.md) — 303 件
+- [ユニーク：兜（112種）](uniques-helm.md) — 112 件
+- [ユニーク：鎧（123種）](uniques-armor.md) — 123 件
+- [ユニーク：手袋（112種）](uniques-gloves.md) — 112 件
+- [ユニーク：靴（111種）](uniques-boots.md) — 111 件
+- [ユニーク：指輪（132種）](uniques-ring.md) — 132 件
+- [ユニーク：首飾り（122種）](uniques-amulet.md) — 122 件
 - [レア装備とオプション](rare.md) — 66 件
-- [ルーンタブレットと特殊修飾子](tablets.md) — 51 件
+- [ルーンタブレットと特殊修飾子](tablets.md) — 55 件
 - [コンパス](charms.md) — 21 件
 - [遠征地図と Tier](maps.md) — 18 件
-- [ベースキャラとアセンダンシー](ascendancy.md) — 105 件
+- [ベースキャラとアセンダンシー](ascendancy.md) — 126 件
 - [パッシブツリー（2000ノード）](passives.md) — 2000 件
-- [ジュエルとリングジュエル](jewels.md) — 38 件
+- [ジュエルとリングジュエル](jewels.md) — 45 件
 - [スキルジェムとサポートジェム](gems.md) — 205 件

@@ -1,9 +1,10 @@
 class_name Uniques
 extends RefCounted
-## The 1000 unique (legendary rarity) items. `base` indexes Data.BASES[slot]; `effect` is a key the
+## The 1015 unique (legendary rarity) items. `base` indexes Data.BASES[slot]; `effect` is a key the
 ## game checks in player.effects (legendary effects, ascendancy cores, or the unique-only keystones
 ## in Player.recalc); `mods` are fixed [min, max] stat lines grown with item level, negative for a
-## drawback. Entries without `mods` roll random affixes instead. Written by tools/gen_uniques.py.
+## drawback. Entries without `mods` roll random affixes instead; `tier` fixes the drop tier (else the name's
+## hash picks it, Data.unique_tier). Written by tools/gen_uniques.py.
 
 const LIST := [
 	{"name": "灰燼の王冠", "slot": "helm", "base": 1, "effect": "fireball_multi", "desc": "ファイアボールが3方向に放たれる"},
@@ -1006,4 +1007,19 @@ const LIST := [
 	{"name": "晶光の牙飾り", "slot": "amulet", "base": 0, "effect": "elem_unity", "desc": "火炎・冷気・雷ダメージのボーナスが、そのうち最も高い値に揃う", "mods": {"spell_dmg": [10, 21], "fire_dmg": [10, 25]}, "flavor": "均衡は、最も壊れやすい力だ。"},
 	{"name": "秘文の護符", "slot": "amulet", "base": 1, "mods": {"mana": [19, 43], "energy": [2, 4], "mana_regen": [2, 6], "life": [-16, -6]}},
 	{"name": "鉄壁の数珠", "slot": "amulet", "base": 0, "effect": "armor_life", "desc": "アーマーの20%を最大ライフに加える", "mods": {"atk_dmg": [13, 25], "life": [14, 35]}},
+	{"name": "王焔の錫杖", "slot": "weapon", "base": 3, "tier": 2, "effect": "kill_burst", "desc": "火炎ダメージで倒した敵が爆発し、周囲に火炎ダメージを与える", "mods": {"fire_dmg": [14, 26], "cast_spd": [6, 10], "mana": [10, 20]}, "flavor": "王の名を継ぐ者の手でのみ、焔は頭を垂れる。"},
+	{"name": "無銘の極光", "slot": "weapon", "base": 0, "tier": 2, "effect": "third_strike", "desc": "攻撃スキル3回目ごとに、その攻撃が必ずクリティカルになる", "mods": {"inc_dmg": [14, 24], "atk_spd": [6, 10], "life": [15, 30]}, "flavor": "銘を刻む暇もなく、斬るべきものが多すぎた。"},
+	{"name": "凍雷の額冠", "slot": "helm", "base": 0, "tier": 2, "effect": "crit_arc", "desc": "クリティカル時、近くの別の敵に雷が走り、そのヒットの50%の雷ダメージを与える", "mods": {"cold_dmg": [12, 22], "light_dmg": [12, 22], "crit": [2, 4]}, "flavor": "氷が鳴り、雷が凍る。巫女はその狭間で詠う。"},
+	{"name": "骸王の首飾り", "slot": "amulet", "base": 0, "tier": 2, "effect": "soul_feed", "desc": "敵を倒すたび、すべてのミニオンとトーテムのライフを10%回復する", "mods": {"ally_dmg": [16, 28], "ally_life": [14, 24], "life": [15, 30]}, "flavor": "王の骨は、まだ軍勢を数えている。"},
+	{"name": "城塞の鉄心", "slot": "armor", "base": 2, "tier": 2, "effect": "armor_life", "desc": "アーマーの20%を最大ライフに加える", "mods": {"armor": [20, 34], "life": [24, 40], "life_regen": [2, 4]}, "flavor": "落ちなかった砦の、最後の一枚。"},
+	{"name": "血焔の篭手", "slot": "gloves", "base": 1, "tier": 2, "effect": "ember_edge", "desc": "攻撃のヒットが敵を燃焼させ、3秒かけてヒットの25%のダメージを与える", "mods": {"fire_dmg": [12, 22], "atk_spd": [6, 10], "life_on_kill": [3, 6]}, "flavor": "握るたび、血が火に変わる。"},
+	{"name": "星詠みの法衣", "slot": "armor", "base": 0, "tier": 2, "effect": "chant_power", "desc": "詠唱速度のボーナスと同じだけスペルダメージが増加する", "mods": {"spell_dmg": [14, 24], "cast_spd": [6, 10], "mana": [20, 36]}, "flavor": "裾の星図は、今夜の空と同じに動く。"},
+	{"name": "影渡りの靴", "slot": "boots", "base": 0, "tier": 2, "effect": "swift_blade", "desc": "移動速度のボーナスと同じだけ攻撃速度が増加する", "mods": {"move_spd": [8, 12], "crit": [2, 4], "life": [15, 28]}, "flavor": "足音は、いつも一歩あとから追いつく。"},
+	{"name": "蝕月の環", "slot": "ring", "base": 1, "tier": 2, "effect": "soul_drain", "desc": "混沌ダメージの5%をライフとして吸収する", "mods": {"chaos_dmg": [14, 24], "mana": [12, 22], "life_on_kill": [3, 6]}, "flavor": "欠けた月の裏側を、指に嵌めている。"},
+	{"name": "終焉の灰剣", "slot": "weapon", "base": 0, "tier": 4, "effect": "executioner", "desc": "ライフ35%以下の敵へのダメージ +80%", "mods": {"more_dmg": [35, 55], "crit_multi": [30, 50], "atk_spd": [8, 14]}, "flavor": "世界が燃え尽きたあとに残るのは、灰とこの一振りだけだという。"},
+	{"name": "星墜としの宝珠", "slot": "amulet", "base": 0, "tier": 4, "effect": "chant_power", "desc": "詠唱速度のボーナスと同じだけスペルダメージが増加する", "mods": {"more_spell": [40, 60], "cast_spd": [10, 16], "mana": [30, 50]}, "flavor": "空の星がひとつ足りないのは、これのせいだ。"},
+	{"name": "黒焔の爪", "slot": "gloves", "base": 1, "tier": 4, "effect": "fervor", "desc": "攻撃が命中するたび3秒間 攻撃速度 +2%（最大15重）", "mods": {"more_dmg": [30, 45], "atk_spd": [12, 20], "crit": [4, 7]}, "flavor": "燃えているのは敵ではない。敵のいた場所だ。"},
+	{"name": "不滅王の胸甲", "slot": "armor", "base": 2, "tier": 4, "effect": "armor_life", "desc": "アーマーの20%を最大ライフに加える", "mods": {"more_life": [35, 55], "dr_pct": [10, 15], "armor": [30, 60]}, "flavor": "王は死ななかった。ただ、鎧の中身が要らなくなった。"},
+	{"name": "時を拒む兜", "slot": "helm", "base": 1, "tier": 4, "effect": "iron_stance", "desc": "受けるダメージ -15%", "mods": {"more_life": [25, 35], "dr_pct": [12, 16], "life_regen": [4, 8]}, "flavor": "この兜の内側では、傷がまだ負われていない。"},
+	{"name": "永劫の指輪", "slot": "ring", "base": 0, "tier": 4, "effect": "kill_heal", "desc": "敵を倒すと最大ライフの3%を回復する", "mods": {"more_life": [30, 45], "life": [30, 50], "dr_pct": [8, 12]}, "flavor": "外した者はいない。外せた者が、いない。"},
 ]

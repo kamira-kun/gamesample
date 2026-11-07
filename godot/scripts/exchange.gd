@@ -3,6 +3,7 @@ class_name Exchange
 ## that fit the search are made on the spot: gear, rune tablets, ジュエル, リングジュエル, ember shells, gems, currency
 ## and map items (#74: priced off Maps.value, so a deeper tier costs more; a map search's `ilvl` is the lowest tier).
 ## The asked-for lines, base and unique are forced, each line rolled at or over its asked minimum, the rest random.
+## Unique jewels, ring jewels and tablets (#77) are listed only when asked for by name.
 ## A search is seeded by itself, the league, the market tick and the refresh count, so the same search shows the
 ## same listings until a map is completed or the player asks for fresh ones.
 ##
@@ -42,6 +43,7 @@ const GEM_LV_SPREAD := 2          # a listing asked for at least Lv N is Lv N..N
 const GEM_LV_WORTH := 0.3         # each gem level over 1 adds this share of the gem's worth
 const MAP_SPREAD := 3             # a map listing is at the tier asked (or a little under the best cleared) up to this much over
 const SP := "sp:"                # mod keys of 刻紋 (special) lines in a query
+const UNIQUE_CATS := ["gear", "tablet", "jewel", "ring"]   # the categories a unique's name can be asked for in
 
 static var sold := {}            # listing keys bought already, so a search made again doesn't list them twice
 static var price_league := ""    # the league the search being made prices currency in
@@ -107,14 +109,48 @@ static func mod_name(k: String) -> String:
 	return str(PassiveTree.FMT.get(k, k)).replace(" {v}%", "").replace(" {v}/秒", "回復").replace(" {v}", "")
 
 
-## unique names holding `text`, the rarer tiers first, at most `limit`
-static func unique_matches(text: String, limit := 8) -> Array:
+## unique names of the category holding `text`, the rarer tiers first, at most `limit`
+static func unique_matches(text: String, limit := 8, cat := "gear") -> Array:
 	var t := text.strip_edges()
 	if t == "":
 		return []
+	if cat != "gear":
+		return _pieces(cat).filter(func(u): return t in u.name).map(func(u): return u.name).slice(0, limit)
 	var hits := Data.LEGENDARY.filter(func(l): return t in l.name).map(func(l): return l.name)
 	hits.sort_custom(func(a, b): return Data.unique_tier(a) > Data.unique_tier(b))
 	return hits.slice(0, limit)
+
+
+## the unique jewels, ring jewels or tablets of a category
+static func _pieces(cat: String) -> Array:
+	return Tablets.UNIQUES if cat == "tablet" else Jewels.UNIQUES.filter(func(u): return u.kind == cat)
+
+
+## the table entry of the unique a query asks for by name, outside gear ({} if the category has none of that name)
+static func _piece(q: Dictionary) -> Dictionary:
+	for u in _pieces(q.cat):
+		if u.name == q.unique:
+			return u
+	return {}
+
+
+## the base filter's name for a unique jewel, ring jewel or tablet of the category
+static func _piece_base(u: Dictionary, cat: String) -> String:
+	match cat:
+		"tablet":
+			return Tablets.shape(u.shape).name
+		"ring":
+			return Jewels.size_def(u.base).name
+	return Jewels.base(u.base).name
+
+
+## the name a suggestion shows for a unique of the category, and its color
+static func unique_label(n: String, cat: String) -> Array:
+	if cat == "gear":
+		var tier: Dictionary = Data.UNIQUE_TIERS[Data.unique_tier(n)]
+		return ["%s（%s・%s）" % [n, tier.name, Data.SLOT_INFO[Data.legend(n).slot].name], tier.color]
+	var t: Dictionary = Data.UNIQUE_TIERS[_piece({"cat": cat, "unique": n}).tier]
+	return ["%s（%s・%s）" % [n, t.name, _cat_name(cat)], t.color]
 
 
 static func currency_keys() -> Array:
@@ -200,6 +236,8 @@ static func check(q: Dictionary, level := 1) -> String:
 	for m in q.mods:
 		if not m.k in mod_keys(q.cat):
 			return "%sに「%s」は付きません" % [_cat_name(q.cat), mod_name(m.k)]
+	if q.unique != "" and q.cat in ["tablet", "jewel", "ring"]:
+		return _check_piece(q)
 	match q.cat:
 		"gear":
 			return _check_gear(q, level)
@@ -217,7 +255,7 @@ static func check(q: Dictionary, level := 1) -> String:
 					return _too_high(m, Tablets.value_at(t, m.k, 1.2))
 		"jewel":
 			if q.rarity == 3:
-				return "ジュエルにユニークはありません"
+				return "ユニークのジュエルはユニーク名を指定して探せます"
 			if q.rarity == 0 and not q.mods.is_empty():
 				return "ノーマルのジュエルにはオプションが付きません"
 			if q.rarity == 1 and q.mods.size() > Data.RARITY[1].aff[1]:
@@ -227,13 +265,32 @@ static func check(q: Dictionary, level := 1) -> String:
 				if best < m.min:
 					return _too_high(m, best)
 		"ring":
-			if q.rarity == 0 or q.rarity == 3:
-				return "リングジュエルはマジックかレアだけです"
+			if q.rarity == 3:
+				return "ユニークのリングジュエルはユニーク名を指定して探せます"
+			if q.rarity == 0:
+				return "ノーマルのリングジュエルはありません"
 		_:
 			if q.rarity >= 0:
 				return "%sにはレア度がありません" % _cat_name(q.cat)
 	if q.unique != "" and q.cat != "gear":
-		return "ユニーク名で探せるのは装備だけです"
+		return "ユニーク名で探せるのは装備・ルーンタブレット・ジュエル・リングジュエルだけです"
+	return ""
+
+
+## a unique jewel, ring jewel or tablet asked for by name: its lines are fixed, so the asked ones either fit or don't
+static func _check_piece(q: Dictionary) -> String:
+	var u := _piece(q)
+	if u.is_empty():
+		return "「%s」という%sのユニークはありません" % [q.unique, _cat_name(q.cat)]
+	if q.rarity >= 0 and q.rarity != 3:
+		return "ユニークを探すときはレア度をレジェンドにしてください"
+	if q.base != "" and q.base != _piece_base(u, q.cat):
+		return "%s のベースは%sです" % [q.unique, _piece_base(u, q.cat)]
+	for m in q.mods:
+		if not u.mods.has(m.k):
+			return "%s に「%s」は付きません" % [q.unique, mod_name(m.k)]
+		if u.mods[m.k] < m.min:
+			return "「%s」は %s では %d です" % [mod_name(m.k), q.unique, u.mods[m.k]]
 	return ""
 
 
@@ -389,16 +446,16 @@ static func _make(q: Dictionary, level: int, lots: Array, n: int) -> Dictionary:
 		"gear":
 			l = {"kind": "gear", "item": _make_gear(q, lvl, qs)}
 		"tablet":
-			l = {"kind": "tablet", "item": _make_tablet(q, lvl, qs)}
+			l = {"kind": "tablet", "item": Tablets.generate_unique(q.unique, lvl) if q.unique != "" else _make_tablet(q, lvl, qs)}
 		"jewel":
-			l = {"kind": "jewel", "item": _make_jewel(q, lvl, qs)}
+			l = {"kind": "jewel", "item": Jewels.generate_unique(q.unique, lvl) if q.unique != "" else _make_jewel(q, lvl, qs)}
 		"ring":
 			var r: int = q.rarity if q.rarity >= 0 else (2 if randf() < 0.4 else 1)
 			var size := ""
 			for s in Jewels.SIZES:
 				if s.name == q.base:
 					size = s.id
-			l = {"kind": "ring", "item": Jewels.generate_ring(lvl, r, size)}
+			l = {"kind": "ring", "item": Jewels.generate_unique(q.unique, lvl) if q.unique != "" else Jewels.generate_ring(lvl, r, size)}
 		"charm":
 			if lots.is_empty():
 				return {}
@@ -556,8 +613,12 @@ static func worth(l: Dictionary) -> float:
 		"gear":
 			return maxf(Trade.base_value(l.item), Items.sell_price(l.item) / float(Items.EMBER_PER_CHAOS))
 		"tablet":
+			if Tablets.is_unique(l.item):
+				return Trade.unique_tier(l.item.unique, Tablets.unique_def(l.item.unique).tier).base
 			return Tablets.shard_value(l.item) / float(Items.EMBER_PER_CHAOS) * (1.0 + 0.3 * l.item.mods.size())
 		"jewel", "ring":
+			if Jewels.is_unique(l.item):
+				return Trade.unique_tier(l.item.name, Jewels.unique_def(l.item.name).tier).base
 			return Jewels.shard_value(l.item) / float(Items.EMBER_PER_CHAOS) * 1.5
 		"charm":
 			return Charms.value(l.id) * l.n / float(Items.EMBER_PER_CHAOS)

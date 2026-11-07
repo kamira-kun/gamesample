@@ -267,7 +267,7 @@ func _fill_gear() -> void:
 func _fill_tablets() -> void:
 	var p: Player = hud.main.player
 	ware_grid.columns = 2
-	note.text = "ルーンタブレット（クリックで購入。所持 %d / %d）" % [p.tablets.size(), Tablets.MAX_OWNED]
+	note.text = "ルーンタブレット（クリックで購入。所持 %d / %d）" % [Tablets.plain_count(p.tablets), Tablets.MAX_OWNED]
 	for t in hud.main.shop.get("tablets", []):
 		ware_grid.add_child(_ware_btn("▦ %s %dマス %d行" % [Tablets.name_of(t), Tablets.cell_count(t), t.mods.size()], Tablets.COLOR,
 			Items.tablet_price(t), Tablets.lines(t), _buy_tablet.bind(t)))
@@ -276,7 +276,7 @@ func _fill_tablets() -> void:
 func _fill_jewels() -> void:
 	var p: Player = hud.main.player
 	ware_grid.columns = 2
-	note.text = "ジュエル（クリックで購入。所持 %d / %d）" % [p.jewels.size(), Jewels.MAX_OWNED]
+	note.text = "ジュエル（クリックで購入。所持 %d / %d）" % [Jewels.plain_count(p.jewels), Jewels.MAX_OWNED]
 	for j in hud.main.shop.get("jewels", []):
 		ware_grid.add_child(_ware_btn("%s %s" % ["◎" if Jewels.is_ring(j) else "◆", j.name], Data.RARITY[j.rarity].color,
 			Items.jewel_price(j), Jewels.lines(j), _buy_jewel.bind(j)))
@@ -427,7 +427,7 @@ func _buy_tablet(t: Dictionary) -> void:
 	var cost := Items.tablet_price(t)
 	if p.cur.ember < cost or not t in m.shop.get("tablets", []):
 		return
-	if p.tablets.size() >= Tablets.MAX_OWNED:
+	if Tablets.is_full(p.tablets, t):
 		hud.message("ルーンタブレットが一杯です（%d）" % Tablets.MAX_OWNED, Color("#ff8080"))
 		return
 	p.cur.ember -= cost
@@ -443,7 +443,7 @@ func _buy_jewel(j: Dictionary) -> void:
 	var cost := Items.jewel_price(j)
 	if p.cur.ember < cost or not j in m.shop.get("jewels", []):
 		return
-	if p.jewels.size() >= Jewels.MAX_OWNED:
+	if Jewels.is_full(p.jewels, j):
 		hud.message("ジュエルが一杯です（%d）" % Jewels.MAX_OWNED, Color("#ff8080"))
 		return
 	p.cur.ember -= cost

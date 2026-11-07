@@ -1,7 +1,8 @@
 class_name AscUI
 extends BasePanel
 ## Ascendancy (U): choose one of the three lineages of the character's base class, spend the points every second level gives on its minor nodes,
-## and pick one core talent in each tier those points open. Core picks can be swapped at no cost.
+## and pick one core talent in each tier those points open. Core picks can be swapped at no cost. The top tier also offers
+## the lineage's ユニーク・アセンダンシー (#77), shown in gold, with whether its combination (Data.COMBOS) is in effect.
 
 var points := Label.new()
 var reset := Button.new()
@@ -57,7 +58,9 @@ func _build_pick() -> void:
 	for a in Data.class_ascs(bc.k):
 		var lines: Array = ["%s %s" % [a.icon, a.name], a.desc, ""]
 		for tier in a.cores:
-			lines.append("◇ " + " ／ ".join(PackedStringArray(tier.map(func(c): return c.name))))
+			lines.append("◇ " + " ／ ".join(PackedStringArray(tier.filter(func(c): return not c.get("unique", false)).map(func(c): return c.name))))
+			for c in tier.filter(func(c): return c.get("unique", false)):
+				lines.append("★ %s：%s" % [Data.UNIQUE_ASC_NAME, c.name])
 		var card := _card("\n".join(PackedStringArray(lines)), a.color, true, false)
 		card.custom_minimum_size = Vector2(230, 190)
 		card.pressed.connect(_choose.bind(a.k))
@@ -96,9 +99,17 @@ func _build_tree(p: Player, a: Dictionary) -> void:
 		right.add_child(row)
 		for c in a.cores[i]:
 			var picked: bool = p.asc_cores[i] == c.id
-			var card := _card("%s%s\n%s" % ["◆ " if picked else "◇ ", c.name, c.desc], a.color, open, picked, picked)
+			var uniq: bool = c.get("unique", false)
+			var text := "%s%s\n%s" % ["◆ " if picked else ("★ " if uniq else "◇ "), c.name, c.desc]
+			if uniq:
+				text = "%s\n%s" % [Data.UNIQUE_ASC_NAME, text]
+				for cb in Data.combos_of(c.id):
+					text += "\n組み合わせ「%s」%s" % [cb.name, "発動中" if p.active_combos.has(cb) else "未発動"]
+			var card := _card(text, Data.UNIQUE_ASC_COLOR if uniq else a.color, open, picked, picked)
 			card.custom_minimum_size = Vector2(250, 76)
 			card.pressed.connect(_pick_core.bind(i, c.id))
+			if uniq:
+				hover(card, [[c.name, Data.UNIQUE_ASC_COLOR, 16], [Data.UNIQUE_ASC_NAME, Color("#9a9080"), 13], [c.desc, Color("#e8dcc0"), 13]] + Data.combo_lines(c.id))
 			row.add_child(card)
 
 

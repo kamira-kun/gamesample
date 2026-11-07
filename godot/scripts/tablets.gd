@@ -4,9 +4,12 @@ class_name Tablets
 ## gives its stat lines. A tablet's lines grow with its cell count, and crafting at the board carves
 ## new lines into it (鍛錬の砥石) or recarves them all (混沌の残光).
 ## A tablet is a plain Dictionary: {uid, shape, ilvl, mods: {stat: value}, placed, x, y, rot}.
+## A unique one (#77, UNIQUES) also has `unique`, its name: fixed lines from the table that nothing can carve and an
+## `effect` that works while it is on the board. They only drop or come from the exchange, and are remade from the table on loading.
 
 const SIZE := 6
-const MAX_OWNED := 40         # tablets kept per character; more break down into ember as they are picked up
+const MAX_OWNED := 40         # plain tablets kept per character; more break down into ember as they are picked up. Uniques don't count: they come on top
+const UNIQUE_CHANCE := 0.05   # of the tablets bosses drop
 const COLOR := Color("#9ad8e8")
 
 # the shapes, as cells of the unturned piece
@@ -44,6 +47,15 @@ const MODS := [
 	{"k": "move_spd", "per": 0.8},
 ]
 
+# the unique tablets: `tier` is their standing among buyers (Data.UNIQUE_TIERS), `mods` their fixed lines
+const UNIQUES := [
+	{"name": "不屈の礎", "shape": "square4", "tier": 3, "mods": {"life_pct": 12, "armor": 80}, "flavor": "幾度崩されても、ここから積み直した。"},
+	{"name": "三界の柱", "shape": "line4", "tier": 3, "mods": {"fire_dmg": 30, "cold_dmg": 30, "light_dmg": 30}, "flavor": "火と氷と雷が、一本の柱に同居している。"},
+	{"name": "灯火の門", "shape": "gate6", "tier": 3, "mods": {"ally_dmg": 45, "ally_life": 30}, "flavor": "門の向こうから、灯の列が絶えず歩いてくる。"},
+	{"name": "嵐喰らいの楔", "shape": "tee4", "tier": 3, "effect": "crit_mana", "desc": "クリティカル時にマナを4回復する",
+		"mods": {"atk_spd": 10, "cast_spd": 10, "crit_multi": 25}, "flavor": "打ち込まれた嵐は、まだ楔の中で唸っている。"},
+]
+
 static var _uid := 0
 
 
@@ -71,7 +83,26 @@ static func max_mods(t: Dictionary) -> int:
 
 
 static func name_of(t: Dictionary) -> String:
+	if is_unique(t):
+		return t.unique
 	return ("無地の" if t.mods.is_empty() else "") + shape(t.shape).name
+
+
+static func is_unique(t: Dictionary) -> bool:
+	return t.has("unique")
+
+
+## a unique of the table by name ({} if there is none)
+static func unique_def(name: String) -> Dictionary:
+	for u in UNIQUES:
+		if u.name == name:
+			return u
+	return {}
+
+
+## the color a tablet shows in: a unique one's is the unique rarity's
+static func color_of(t: Dictionary) -> Color:
+	return Data.RARITY[3].color if is_unique(t) else COLOR
 
 
 # =================== making ===================
@@ -82,6 +113,19 @@ static func generate(ilvl: int, shape_id := "", lines := -1) -> Dictionary:
 		"ilvl": ilvl, "mods": {}, "placed": false, "x": 0, "y": 0, "rot": 0}
 	add_mods(t, lines if lines >= 0 else (1 if randf() < 0.5 else 0))
 	return t
+
+
+## a new unique tablet from the table
+static func generate_unique(name: String, ilvl: int) -> Dictionary:
+	var u := unique_def(name)
+	_uid += 1
+	return {"uid": "t%d_%d" % [Time.get_ticks_msec(), _uid], "unique": u.name, "shape": u.shape, "ilvl": ilvl, "mods": u.mods.duplicate(),
+		"placed": false, "x": 0, "y": 0, "rot": 0}
+
+
+## what a boss drops: now and then a unique, else a rolled one
+static func drop(ilvl: int, chance := UNIQUE_CHANCE) -> Dictionary:
+	return generate_unique(UNIQUES.pick_random().name, ilvl) if randf() < chance else generate(ilvl)
 
 
 static func roll_value(t: Dictionary, k: String) -> int:
@@ -102,6 +146,8 @@ static func add_mods(t: Dictionary, n: int) -> void:
 
 ## carve with a currency at the board; returns an error message, or "" on success
 static func craft(k: String, t: Dictionary) -> String:
+	if is_unique(t):
+		return "ユニークのルーンタブレットには使えません"
 	match k:
 		"whet":
 			if t.mods.size() >= max_mods(t):
@@ -187,12 +233,32 @@ static func stats(list: Array) -> Dictionary:
 	return st
 
 
+## the names of the unique tablets on the board
+static func unique_names(list: Array) -> Array:
+	return list.filter(func(t): return t.placed and is_unique(t)).map(func(t): return t.unique)
+
+
+## the effect keys the unique tablets on the board grant (Player.effects)
+static func effects(list: Array) -> Array:
+	return unique_names(list).map(func(n): return unique_def(n).get("effect", "")).filter(func(k): return k != "")
+
+
 static func lines(t: Dictionary) -> Array:
-	var out := [[name_of(t), COLOR, 17], ["ルーンタブレット（%dマス）　アイテムレベル %d" % [cell_count(t), t.ilvl], Color("#9a9080"), 13]]
+	var out := [[name_of(t), color_of(t), 17]]
+	var u := unique_def(t.get("unique", ""))
+	if not u.is_empty():
+		var tier: Dictionary = Data.UNIQUE_TIERS[u.tier]
+		out.append(["希少度：%s" % tier.name, tier.color, 13])
+	out.append(["%sルーンタブレット（%dマス）　アイテムレベル %d" % ["レジェンド " if is_unique(t) else "", cell_count(t), t.ilvl], Color("#9a9080"), 13])
 	for k in t.mods:
 		out.append(ModRange.line(Data.affix(k).fmt % t.mods[k], Color("#8fd8ff"), 14, ModRange.tablet(t, k)))
-	if t.mods.size() < max_mods(t):
+	if t.mods.size() < max_mods(t) and not is_unique(t):
 		out.append(["あと %d 行刻める（鍛錬の砥石）" % (max_mods(t) - t.mods.size()), Color("#7a7266"), 12])
+	if u.has("desc"):
+		out.append([u.desc, Color("#ff9a4a"), 14])
+	if not u.is_empty():
+		out.append_array(Data.combo_lines(t.unique))
+		out.append([u.flavor, Color("#a08a6a"), 12])
 	out.append(["盤に置いている" if t.placed else "盤に置いていない", Color("#b8a888"), 12])
 	return out
 
@@ -208,10 +274,15 @@ static func normalize(raw) -> Array:
 			continue
 		var t := {"uid": str(r.get("uid", "")), "shape": str(r.shape), "ilvl": maxi(1, int(r.get("ilvl", 1))), "mods": {},
 			"placed": false, "x": 0, "y": 0, "rot": 0}
+		# a unique comes back from the table; one the table no longer has stays as a plain tablet
+		if not unique_def(str(r.get("unique", ""))).is_empty():
+			var keep: String = t.uid
+			t = generate_unique(str(r.unique), t.ilvl)
+			t.uid = keep
 		if t.uid == "" or out.any(func(o): return o.uid == t.uid):
 			_uid += 1
 			t.uid = "t_load_%d" % _uid
-		var mods = r.get("mods", {})
+		var mods = r.get("mods", {}) if not is_unique(t) else {}
 		if typeof(mods) == TYPE_DICTIONARY:
 			for k in mods:
 				if not mod_def(str(k)).is_empty() and t.mods.size() < max_mods(t):
@@ -219,4 +290,14 @@ static func normalize(raw) -> Array:
 		if bool(r.get("placed", false)):
 			place(out, t, int(r.get("x", 0)), int(r.get("y", 0)), int(r.get("rot", 0)))
 		out.append(t)
-	return out.slice(0, MAX_OWNED)
+	return Jewels.keep_owned(out, MAX_OWNED, is_unique)
+
+
+## how many of `list` count against MAX_OWNED
+static func plain_count(list: Array) -> int:
+	return list.filter(func(x): return not is_unique(x)).size()
+
+
+## true when `list` has no room for `t` (it always has for a unique)
+static func is_full(list: Array, t: Dictionary) -> bool:
+	return not is_unique(t) and plain_count(list) >= MAX_OWNED

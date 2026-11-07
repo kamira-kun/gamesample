@@ -14,6 +14,7 @@ var totals := Label.new()
 var list := GridContainer.new()
 var info := Label.new()
 var actions := HBoxContainer.new()
+var confirm_shatter := ""   # uid of the unique that the next press of 砕く breaks
 var error := Label.new()
 var line_box := LineCraft.Box.new()
 var sel := ""             # uid of the picked tablet
@@ -99,7 +100,7 @@ func refresh() -> void:
 	if t.is_empty():
 		sel = ""
 	used.text = "使用マス %d / %d　　置いたルーンタブレット %d　所持 %d / %d" % [Tablets.used_cells(p.tablets), Tablets.SIZE * Tablets.SIZE,
-		p.tablets.filter(func(x): return x.placed).size(), p.tablets.size(), Tablets.MAX_OWNED]
+		p.tablets.filter(func(x): return x.placed).size(), Tablets.plain_count(p.tablets), Tablets.MAX_OWNED]
 	var st := Tablets.stats(p.tablets)
 	totals.text = "盤の能力：" + ("なし" if st.is_empty() else "、".join(PackedStringArray(st.keys().map(func(k): return Data.affix(k).fmt % st[k]))))
 	clear(list)
@@ -109,8 +110,8 @@ func refresh() -> void:
 		var on: bool = x.uid == sel
 		var mods := "、".join(PackedStringArray(x.mods.keys().map(func(k): return Data.affix(k).fmt % x.mods[k])))
 		var text := "%s（%dマス）%s\n%s" % [Tablets.name_of(x), Tablets.cell_count(x), "　設置中" if x.placed else "", mods if mods != "" else "能力なし"]
-		var card := SkillUI.card(text, Color("#0e2026") if on else Color("#12100c"), Tablets.COLOR if on else (tint(x) if x.placed else Color("#3a3024")),
-			Color("#e8f4f8") if on else Color("#c8c0b0"), 2 if on else 1)
+		var card := SkillUI.card(text, Color("#0e2026") if on else Color("#12100c"), Tablets.color_of(x) if on else (tint(x) if x.placed else Color("#3a3024")),
+			Tablets.color_of(x) if Tablets.is_unique(x) else (Color("#e8f4f8") if on else Color("#c8c0b0")), 2 if on else 1)
 		card.custom_minimum_size = Vector2(196, 52)
 		card.clip_text = true
 		card.pressed.connect(pick.bind(x.uid))
@@ -120,12 +121,12 @@ func refresh() -> void:
 	if t.is_empty():
 		info.text = "ルーンタブレットを選ぶと、ここで能力を刻めます。"
 	else:
-		info.text = "選択中：%s　向き %d°　（%d / %d 行）" % [Tablets.name_of(t), rot * 90, t.mods.size(), Tablets.max_mods(t)]
+		info.text = "選択中：%s　向き %d°　（%s）" % [Tablets.name_of(t), rot * 90, "ユニーク・刻めない" if Tablets.is_unique(t) else "%d / %d 行" % [t.mods.size(), Tablets.max_mods(t)]]
 		var turn := Button.new()
 		turn.text = "回転 (R)"
 		turn.pressed.connect(turn_picked)
 		actions.add_child(turn)
-		for c in CRAFTS:
+		for c in [] if Tablets.is_unique(t) else CRAFTS:
 			var cd := Data.currency(c[0])
 			var b := Button.new()
 			b.text = "%s %s %d" % [c[1], cd.icon, p.cur[c[0]]]
@@ -135,20 +136,26 @@ func refresh() -> void:
 			b.pressed.connect(craft.bind(c[0]))
 			actions.add_child(b)
 		var off := Button.new()
-		off.text = "外す" if t.placed else "砕く"
+		off.text = "外す" if t.placed else ("本当に砕く？" if confirm_shatter == t.uid else "砕く")
 		off.tooltip_text = "盤から外す" if t.placed else "砕いて灰燼の欠片 %d にする" % Tablets.shard_value(t)
 		off.pressed.connect(take_off.bind(t.uid) if t.placed else shatter)
 		actions.add_child(off)
-	line_box.show_for(p, t)
+	line_box.show_for(p, {} if Tablets.is_unique(t) else t)
 	board.queue_redraw()
 
 
 func pick(uid: String) -> void:
 	sel = "" if sel == uid else uid
+	confirm_shatter = ""
 	var t := picked()
 	rot = int(t.get("rot", 0))
 	error.text = ""
 	refresh()
+
+
+func open_close() -> void:
+	confirm_shatter = ""
+	super()
 
 
 ## turn the picked tablet; one already on the board turns where it lies if it still fits
@@ -202,6 +209,11 @@ func shatter() -> void:
 	var t := picked()
 	if t.is_empty() or t.placed:
 		return
+	if Tablets.is_unique(t) and confirm_shatter != t.uid:   # a unique takes a second press
+		confirm_shatter = t.uid
+		refresh()
+		return
+	confirm_shatter = ""
 	var p: Player = hud.main.player
 	p.cur.ember += Tablets.shard_value(t)
 	p.tablets.erase(t)
