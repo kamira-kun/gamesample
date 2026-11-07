@@ -4271,7 +4271,13 @@ func _smoke_ranges() -> void:
 	var others: bool = inside.call(tab) and inside.call(jw) and ring.power >= pr.lo and ring.power <= pr.hi
 	var shows := func(lines: Array) -> bool:
 		return lines.any(func(q): return q.size() > 3 and "[" in q[3])
-	others = others and shows.call(Tablets.lines(tab)) and shows.call(Jewels.lines(jw)) and shows.call(Jewels.lines(ring))
+	# a tablet line can collapse to one value (a 1-cell life_regen is 1 at both ends), so each line must show its own tag
+	var tab_lines := Tablets.lines(tab)
+	var tab_shows: bool = not tab.mods.is_empty()
+	for k in tab.mods:
+		var tab_want: String = Data.affix(k).fmt % tab.mods[k] + ModRange.tag(ModRange.tablet(tab, k))
+		tab_shows = tab_shows and tab_lines.any(func(q): return q.size() > 3 and q[3] == tab_want)
+	others = others and tab_shows and shows.call(Jewels.lines(jw)) and shows.call(Jewels.lines(ring))
 	# the one-line crafting rows show the ranges too while Alt is held
 	hud.inventory.line_box.show_for(p, crafted)
 	var row_text: String = hud.inventory.line_box.get_child(1).get_child(0).text if hud.inventory.line_box.get_child_count() > 1 else ""
