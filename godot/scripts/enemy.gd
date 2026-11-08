@@ -53,6 +53,9 @@ const RIGS := {
 	"archer": {"path": "res://assets/kaykit/skeletons/Characters/gltf/Skeleton_Rogue.glb", "scale": 0.85, "weapon": "res://assets/kaykit/skeletons/Assets/gltf/Skeleton_Crossbow.gltf", "run": "Running_A", "attack": "1H_Ranged_Shoot"},
 	"shaman": {"path": "res://assets/kaykit/skeletons/Characters/gltf/Skeleton_Mage.glb", "scale": 0.85, "weapon": "res://assets/kaykit/skeletons/Assets/gltf/Skeleton_Staff.gltf", "run": "Walking_B", "attack": "Spellcast_Long", "atk_speed": 1.0},
 	"brute": {"path": "res://assets/kaykit/skeletons/Characters/gltf/Skeleton_Warrior.glb", "scale": 1.3, "weapon": "res://assets/kaykit/skeletons/Assets/gltf/Skeleton_Axe.gltf", "run": "Walking_D_Skeletons", "attack": "1H_Melee_Attack_Jump_Chop", "atk_speed": 1.0},
+	"charger": {"path": "res://assets/kaykit/skeletons/Characters/gltf/Skeleton_Warrior.glb", "scale": 1.0, "weapon": "res://assets/kaykit/skeletons/Assets/gltf/Skeleton_Axe.gltf", "run": "Walking_D_Skeletons", "run_speed": 1.6, "attack": "1H_Melee_Attack_Jump_Chop", "atk_speed": 0.9},
+	"bomber": {"path": "res://assets/kaykit/skeletons/Characters/gltf/Skeleton_Minion.glb", "scale": 0.75, "run": "Walking_D_Skeletons", "run_speed": 1.2, "attack": "1H_Melee_Attack_Chop", "atk_speed": 0.7},
+	"healer": {"path": "res://assets/kaykit/skeletons/Characters/gltf/Skeleton_Mage.glb", "scale": 0.9, "run": "Walking_B", "attack": "Spellcast_Long", "atk_speed": 0.8},
 	"boss": {"path": "res://assets/kaykit/adventurers/Characters/gltf/Barbarian.glb", "scale": 1.9, "keep": ["2H_Axe", "Barbarian_Round_Shield"], "run": "Walking_C", "attack": "2H_Melee_Attack_Chop", "atk_speed": 1.0},
 	"colossus": {"path": "res://assets/kaykit/skeletons/Characters/gltf/Skeleton_Warrior.glb", "scale": 2.4, "weapon": "res://assets/kaykit/skeletons/Assets/gltf/Skeleton_Axe.gltf", "run": "Walking_D_Skeletons", "attack": "1H_Melee_Attack_Jump_Chop", "atk_speed": 1.0, "glow": Color("#ff7a30")},
 	"witch": {"path": "res://assets/kaykit/adventurers/Characters/gltf/Mage.glb", "scale": 1.5, "keep": ["2H_Staff"], "run": "Running_B", "attack": "Spellcast_Shoot", "atk_speed": 1.2, "glow": Color("#8fdcff")},
@@ -155,8 +158,8 @@ func _build() -> void:
 			glow.omni_range = 7.0
 			glow.position = Vector3(0, 3.0, 0)
 			model.add_child(glow)
-	if not elite.is_empty() or boss:
-		var ac: Color = Color(1.0, 0.25, 0.2) if boss else Color(0.3, 0.55, 1.0)
+	if not elite.is_empty() or boss or t.get("aura", false):   # the newer kinds carry a faint ring in their own colour
+		var ac: Color = Color(1.0, 0.25, 0.2) if boss else (Color(0.3, 0.55, 1.0) if not elite.is_empty() else t.color)
 		if boss and RIGS[type].has("glow"):
 			ac = RIGS[type].glow
 		aura = Fx.mesh(self, Fx.disc(), Fx.mat(Color(ac, 0.35), 2.0, true), Vector3(0, 0.03, 0))

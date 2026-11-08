@@ -672,6 +672,11 @@ const ENEMY_TYPES := {
 	"archer": {"name": "骸骨弓兵", "r": 0.5, "life": 14, "dmg": 6, "speed": 4.2, "color": Color("#d8d0b8"), "ranged": true, "range": 15.0, "atk_cd": 1.9, "windup": 0.45, "xp": 7, "h": 1.8},
 	"brute": {"name": "ブルート", "r": 0.9, "life": 60, "dmg": 16, "speed": 3.3, "color": Color("#8a5a9a"), "atk_range": 1.2, "atk_cd": 2.4, "windup": 0.75, "aoe": 3.2, "xp": 16, "h": 2.8},
 	"shaman": {"name": "呪術師", "r": 0.5, "life": 16, "dmg": 11, "speed": 3.9, "color": Color("#4fb0c0"), "caster": true, "range": 15.0, "atk_cd": 3.2, "windup": 0.9, "xp": 10, "h": 1.9},
+	# the three newer kinds (#79) each have a pattern of their own: a lunge along a telegraphed lane, a fuse that
+	# detonates where it stands, and a healer that stays back and mends wounded monsters in its circle (`aura` tints its glow)
+	"charger": {"name": "棘角の突進獣", "r": 0.6, "life": 22, "dmg": 9, "speed": 4.4, "color": Color("#c8703a"), "dash": true, "atk_cd": 3.0, "windup": 0.9, "xp": 8, "h": 1.5, "aura": true},
+	"bomber": {"name": "燃え殻の爆弾兵", "r": 0.45, "life": 9, "dmg": 12, "speed": 5.0, "color": Color("#ff8a3a"), "atk_range": 1.4, "atk_cd": 4.0, "windup": 1.2, "fuse": 2.6, "xp": 6, "h": 1.2, "aura": true},
+	"healer": {"name": "灯火の癒し手", "r": 0.5, "life": 15, "dmg": 4, "speed": 4.0, "color": Color("#7ae8a0"), "heal": 4.5, "atk_cd": 3.0, "windup": 1.0, "xp": 9, "h": 1.9, "aura": true},
 	"boss": {"name": "深淵の番人", "r": 1.5, "life": 650, "dmg": 20, "speed": 3.7, "color": Color("#b03030"), "boss": true, "atk_range": 1.6, "atk_cd": 1.6, "windup": 0.4, "xp": 220, "h": 4.1},
 	"colossus": {"name": "灼熱の巨像", "r": 1.8, "life": 820, "dmg": 24, "speed": 3.2, "color": Color("#7a3a22"), "boss": true, "atk_range": 2.2, "atk_cd": 1.8, "windup": 0.5, "xp": 260, "h": 5.0},
 	"witch": {"name": "凍嵐の魔女", "r": 1.0, "life": 600, "dmg": 18, "speed": 5.2, "color": Color("#3a6a9a"), "boss": true, "atk_range": 1.6, "atk_cd": 1.5, "windup": 0.4, "xp": 260, "h": 2.9, "kite": true},
@@ -679,6 +684,20 @@ const ENEMY_TYPES := {
 	"stormlord": {"name": "雷鳴の王", "r": 1.0, "life": 640, "dmg": 19, "speed": 5.4, "color": Color("#6a4a9a"), "boss": true, "atk_range": 1.6, "atk_cd": 1.5, "windup": 0.4, "xp": 260, "h": 2.9, "kite": true, "moves": "witch"},
 	"rotking": {"name": "腐蝕の巨像", "r": 1.8, "life": 860, "dmg": 23, "speed": 3.2, "color": Color("#4a6a2a"), "boss": true, "atk_range": 2.2, "atk_cd": 1.8, "windup": 0.5, "xp": 260, "h": 5.0, "moves": "colossus"},
 }
+
+# the regular monsters (no bosses): the floor spawns and the ambush packs draw from these (#79)
+const REGULAR_KINDS := ["imp", "ghoul", "archer", "brute", "shaman", "charger", "bomber", "healer"]
+
+## the weights of the regular kinds for the rooms of a floor; brute and shaman show up from floor 1 at a steady share
+static func spawn_pool() -> Array:
+	return [{"k": "imp", "w": 3.0}, {"k": "ghoul", "w": 4.0}, {"k": "archer", "w": 2.0}, {"k": "brute", "w": 1.5},
+		{"k": "shaman", "w": 1.5}, {"k": "charger", "w": 1.5}, {"k": "bomber", "w": 1.2}, {"k": "healer", "w": 1.0}]
+
+## the weights of the ambush packs in the corridors: every regular kind can turn up
+static func ambush_pool() -> Array:
+	return [{"k": "imp", "w": 2.0}, {"k": "ghoul", "w": 2.0}, {"k": "archer", "w": 1.0}, {"k": "brute", "w": 1.0},
+		{"k": "shaman", "w": 1.0}, {"k": "charger", "w": 1.0}, {"k": "bomber", "w": 1.0}, {"k": "healer", "w": 1.0}]
+
 
 # the boss of a map follows its element (Maps.ELEMENTS)
 const BOSS_ROTATION := [
